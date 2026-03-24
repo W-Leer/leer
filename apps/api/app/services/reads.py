@@ -11,11 +11,19 @@ def get_project_by_slug(session: Session, slug: str) -> Project | None:
     return session.execute(stmt).scalar_one_or_none()
 
 
-def list_runs_for_project(session: Session, project_id: uuid.UUID) -> list[Run]:
+DEFAULT_RUN_LIMIT = 50
+
+
+def list_runs_for_project(
+    session: Session,
+    project_id: uuid.UUID,
+    limit: int = DEFAULT_RUN_LIMIT,
+) -> list[Run]:
     stmt = (
         select(Run)
         .where(Run.project_id == project_id)
         .order_by(Run.created_at.desc())
+        .limit(limit)
     )
     return list(session.execute(stmt).scalars().all())
 

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
-import { formatDate, statusClass } from "@/lib/format";
+import { errorHeadline, extractLines, formatDate, statusClass } from "@/lib/format";
 import type { CompareResponse, CompareRunDiff, CompareRunSummary, CompareStepDiff } from "@/lib/types";
 
 export default function ComparePage() {
@@ -35,28 +35,25 @@ export default function ComparePage() {
 
   return (
     <div>
-      <Link href={`/runs/${id}`} className="mb-4 inline-block text-sm text-neutral-500 hover:text-neutral-800">
+      <Link href={`/runs/${id}`} className="mb-6 inline-block text-sm text-neutral-500 hover:text-neutral-800">
         ← Back to run
       </Link>
 
-      <h1 className="mb-6 text-2xl font-semibold">Compare Runs</h1>
+      <h1 className="mb-8 text-2xl font-semibold">Compare Runs</h1>
 
-      {/* Run summaries */}
-      <div className="mb-8 grid grid-cols-2 gap-4">
+      <div className="mb-6 grid grid-cols-2 gap-4">
         <RunSummaryCard label="Run A" run={data.run_a} />
         <RunSummaryCard label="Run B" run={data.run_b} />
       </div>
 
-      {/* Run-level diff */}
       <RunDiffSection diff={data.run_diff} />
 
-      {/* Step diffs */}
       <section>
-        <h2 className="mb-4 text-lg font-semibold">Steps</h2>
+        <h2 className="mb-5 text-lg font-semibold">Steps</h2>
         {data.steps.length === 0 ? (
           <p className="text-sm text-neutral-500">No steps to compare.</p>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-5">
             {data.steps.map((step) => (
               <StepDiffCard key={step.sequence_index} step={step} />
             ))}
@@ -70,9 +67,9 @@ export default function ComparePage() {
 function RunSummaryCard({ label, run }: { label: string; run: CompareRunSummary }) {
   return (
     <div className="rounded-lg border border-neutral-200 p-4">
-      <div className="mb-1 text-xs font-medium uppercase tracking-wide text-neutral-400">{label}</div>
+      <div className="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400">{label}</div>
       <div className="flex items-center gap-2">
-        <span className="font-medium">{run.workflow_name}</span>
+        <span className="font-semibold">{run.workflow_name}</span>
         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusClass(run.status)}`}>
           {run.status}
         </span>
@@ -87,29 +84,31 @@ function RunDiffSection({ diff }: { diff: CompareRunDiff }) {
   const hasDiff = diff.status_diff || diff.output_diff || diff.error_diff;
 
   return (
-    <section className={`mb-8 rounded-lg border p-4 ${hasDiff ? "border-red-300" : "border-neutral-200"}`}>
-      <h2 className="mb-3 text-lg font-semibold">Run Result</h2>
+    <section className={`mb-8 rounded-lg border p-5 ${hasDiff ? "border-red-300" : "border-neutral-200"}`}>
+      <h2 className="mb-4 text-lg font-semibold">Run Result</h2>
 
-      <DiffRow label="Status" a={diff.status_a} b={diff.status_b} diff={diff.status_diff} />
+      <div className="space-y-4">
+        <DiffRow label="Status" a={diff.status_a} b={diff.status_b} diff={diff.status_diff} />
 
-      <DiffRow
-        label="Output"
-        a={diff.output_summary_a ? JSON.stringify(diff.output_summary_a) : null}
-        b={diff.output_summary_b ? JSON.stringify(diff.output_summary_b) : null}
-        diff={diff.output_diff}
-        mono
-      />
-
-      {(diff.error_summary_a || diff.error_summary_b) && (
         <DiffRow
-          label="Error"
-          a={diff.error_summary_a ? JSON.stringify(diff.error_summary_a) : null}
-          b={diff.error_summary_b ? JSON.stringify(diff.error_summary_b) : null}
-          diff={diff.error_diff}
+          label="Output"
+          aLines={linesFrom(diff.output_summary_a)}
+          bLines={linesFrom(diff.output_summary_b)}
+          diff={diff.output_diff}
           mono
-          isError
         />
-      )}
+
+        {(diff.error_summary_a || diff.error_summary_b) && (
+          <DiffRow
+            label="Error"
+            a={errorHeadline(diff.error_summary_a) || null}
+            b={errorHeadline(diff.error_summary_b) || null}
+            diff={diff.error_diff}
+            mono
+            isError
+          />
+        )}
+      </div>
     </section>
   );
 }
@@ -128,86 +127,131 @@ function StepDiffCard({ step }: { step: CompareStepDiff }) {
   const stepType = step.step_type_a ?? step.step_type_b ?? "—";
 
   return (
-    <div className={`rounded-lg border p-4 ${borderColor}`}>
-      {/* Step header */}
-      <div className="mb-3 flex items-center gap-2">
+    <div className={`rounded-lg border p-5 ${borderColor}`}>
+      <div className="mb-4 flex items-center gap-2">
         <span className="font-mono text-xs text-neutral-400">#{step.sequence_index}</span>
-        <span className="font-medium">{stepName}</span>
+        <span className="font-semibold">{stepName}</span>
         <span className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-xs text-neutral-500">
           {stepType}
         </span>
         {missing && (
-          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+          <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">
             {!step.exists_in_a ? "missing in A" : "missing in B"}
           </span>
         )}
       </div>
 
-      {/* Status */}
-      <DiffRow label="Status" a={step.status_a} b={step.status_b} diff={step.status_diff} />
+      <div className="space-y-4">
+        <DiffRow label="Status" a={step.status_a} b={step.status_b} diff={step.status_diff} />
 
-      {/* Output summary */}
-      <DiffRow
-        label="Output"
-        a={step.output_summary_a ? JSON.stringify(step.output_summary_a) : null}
-        b={step.output_summary_b ? JSON.stringify(step.output_summary_b) : null}
-        diff={step.output_diff}
-        mono
-      />
-
-      {/* Error summary — only if either side has one */}
-      {(step.error_summary_a || step.error_summary_b) && (
         <DiffRow
-          label="Error"
-          a={step.error_summary_a ? JSON.stringify(step.error_summary_a) : null}
-          b={step.error_summary_b ? JSON.stringify(step.error_summary_b) : null}
-          diff={step.error_diff}
+          label="Output"
+          aLines={linesFrom(step.output_summary_a)}
+          bLines={linesFrom(step.output_summary_b)}
+          diff={step.output_diff}
           mono
-          isError
         />
-      )}
+
+        {(step.error_summary_a || step.error_summary_b) && (
+          <DiffRow
+            label="Error"
+            a={errorHeadline(step.error_summary_a) || null}
+            b={errorHeadline(step.error_summary_b) || null}
+            diff={step.error_diff}
+            mono
+            isError
+          />
+        )}
+      </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Shared diff components
+// ---------------------------------------------------------------------------
+
+function linesFrom(summary: Record<string, unknown> | null | undefined): string[] | null {
+  return extractLines(summary);
 }
 
 function DiffRow({
   label,
   a,
   b,
+  aLines,
+  bLines,
   diff,
   mono,
   isError,
 }: {
   label: string;
-  a: string | null;
-  b: string | null;
+  a?: string | null;
+  b?: string | null;
+  aLines?: string[] | null;
+  bLines?: string[] | null;
   diff: boolean;
   mono?: boolean;
   isError?: boolean;
 }) {
   const bgDiff = isError ? "bg-red-50" : "bg-amber-50";
-  const textClass = mono ? "font-mono text-xs" : "text-sm";
+  const bgNeutral = mono ? "bg-neutral-50" : "";
 
   return (
-    <div className={`rounded px-3 py-1.5 ${diff ? bgDiff : ""}`}>
-      <div className="mb-0.5 text-xs font-medium text-neutral-500">
+    <div className={`rounded-md px-4 py-3 ${diff ? bgDiff : bgNeutral}`}>
+      <div className="mb-2 flex items-center gap-2 text-xs font-medium text-neutral-500">
         {label}
-        {diff && <span className="ml-1 text-amber-600">changed</span>}
+        {diff && (
+          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-700">
+            changed
+          </span>
+        )}
       </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <span className="text-[10px] uppercase text-neutral-400">A </span>
-          <span className={`${textClass} ${isError ? "text-red-700" : "text-neutral-700"}`}>
-            {a ?? "—"}
-          </span>
-        </div>
-        <div>
-          <span className="text-[10px] uppercase text-neutral-400">B </span>
-          <span className={`${textClass} ${isError ? "text-red-700" : "text-neutral-700"}`}>
-            {b ?? "—"}
-          </span>
+      <div className="grid grid-cols-2 gap-8">
+        <DiffCell side="A" value={a ?? null} lines={aLines ?? null} mono={mono} isError={isError} />
+        <div className="border-l border-neutral-200 pl-8">
+          <DiffCell side="B" value={b ?? null} lines={bLines ?? null} mono={mono} isError={isError} />
         </div>
       </div>
+    </div>
+  );
+}
+
+function DiffCell({
+  side,
+  value,
+  lines,
+  mono,
+  isError,
+}: {
+  side: string;
+  value: string | null;
+  lines: string[] | null;
+  mono?: boolean;
+  isError?: boolean;
+}) {
+  const textColor = isError ? "text-red-700" : "text-neutral-700";
+  const fontClass = mono ? "font-mono text-xs" : "text-sm";
+  const hasContent = value || (lines && lines.length > 0);
+
+  return (
+    <div>
+      <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">{side}</span>
+      {!hasContent ? (
+        <p className="mt-1 text-sm italic text-neutral-400">No output</p>
+      ) : lines && lines.length > 0 ? (
+        <div className="mt-1 space-y-0.5">
+          {lines.map((line, i) => (
+            <p key={i} className={`leading-relaxed ${fontClass} ${textColor}`}>
+              {line}
+            </p>
+          ))}
+        </div>
+      ) : (
+        <p className={`mt-1 whitespace-pre-wrap break-words leading-relaxed ${fontClass} ${textColor}`}>
+          {value}
+        </p>
+      )}
     </div>
   );
 }

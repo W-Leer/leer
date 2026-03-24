@@ -38,6 +38,7 @@ def list_project_runs(
     return ProjectRunsResponse(
         project=ProjectSummary.model_validate(project),
         runs=runs,
+        count=len(runs),
     )
 
 

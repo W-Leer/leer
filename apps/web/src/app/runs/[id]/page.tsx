@@ -4,7 +4,15 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
-import { formatDate, formatDuration, statusClass } from "@/lib/format";
+import {
+  errorDetail,
+  errorHeadline,
+  extractLines,
+  formatDate,
+  formatDuration,
+  rawJson,
+  statusClass,
+} from "@/lib/format";
 import type { TimelineResponse, TimelineStep, TimelineEvent } from "@/lib/types";
 
 export default function RunDetailPage() {
@@ -39,20 +47,20 @@ export default function RunDetailPage() {
 
   return (
     <div>
-      <Link href="/" className="mb-4 inline-block text-sm text-neutral-500 hover:text-neutral-800">
+      <Link href="/" className="mb-6 inline-block text-sm text-neutral-500 hover:text-neutral-800">
         ← Back to runs
       </Link>
 
       {/* Run header */}
-      <div className="mb-8 rounded-lg border border-neutral-200 p-5">
+      <div className="mb-8 rounded-lg border border-neutral-200 p-6">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-semibold">{run.workflow_name}</h1>
-          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusClass(run.status)}`}>
+          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusClass(run.status)}`}>
             {run.status}
           </span>
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-1 text-sm sm:grid-cols-3">
+        <div className="mt-4 grid grid-cols-2 gap-x-8 gap-y-2 text-sm sm:grid-cols-3">
           <Field label="Created" value={formatDate(run.created_at)} />
           <Field label="Started" value={run.started_at ? formatDate(run.started_at) : "—"} />
           <Field label="Ended" value={run.ended_at ? formatDate(run.ended_at) : "—"} />
@@ -64,21 +72,11 @@ export default function RunDetailPage() {
         </div>
 
         {run.output_summary && (
-          <div className="mt-3">
-            <span className="text-xs font-medium text-neutral-500">Output</span>
-            <pre className="mt-1 rounded bg-neutral-100 p-2 font-mono text-xs text-neutral-700">
-              {JSON.stringify(run.output_summary, null, 2)}
-            </pre>
-          </div>
+          <OutputBlock label="Output" data={run.output_summary} />
         )}
 
         {run.error_summary && (
-          <div className="mt-3">
-            <span className="text-xs font-medium text-red-600">Error</span>
-            <pre className="mt-1 rounded bg-red-50 p-2 font-mono text-xs text-red-700">
-              {JSON.stringify(run.error_summary, null, 2)}
-            </pre>
-          </div>
+          <ErrorBlock data={run.error_summary} />
         )}
       </div>
 
@@ -89,7 +87,13 @@ export default function RunDetailPage() {
           placeholder="Other run ID…"
           value={compareId}
           onChange={(e) => setCompareId(e.target.value)}
-          className="rounded border border-neutral-300 px-3 py-1.5 font-mono text-sm placeholder:text-neutral-400 focus:border-neutral-500 focus:outline-none"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              const trimmed = compareId.trim();
+              if (trimmed) router.push(`/runs/${id}/compare/${trimmed}`);
+            }
+          }}
+          className="w-72 rounded border border-neutral-300 px-3 py-1.5 font-mono text-sm placeholder:text-neutral-400 focus:border-neutral-500 focus:outline-none"
         />
         <button
           onClick={() => {
@@ -97,15 +101,15 @@ export default function RunDetailPage() {
             if (trimmed) router.push(`/runs/${id}/compare/${trimmed}`);
           }}
           disabled={!compareId.trim()}
-          className="rounded bg-neutral-800 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+          className="rounded bg-neutral-800 px-4 py-1.5 text-sm font-medium text-white transition-opacity disabled:opacity-40"
         >
           Compare
         </button>
       </div>
 
       {/* Steps timeline */}
-      <section className="mb-8">
-        <h2 className="mb-4 text-lg font-semibold">Steps</h2>
+      <section className="mb-10">
+        <h2 className="mb-5 text-lg font-semibold">Steps</h2>
         {steps.length === 0 ? (
           <p className="text-sm text-neutral-500">No steps recorded.</p>
         ) : (
@@ -119,7 +123,7 @@ export default function RunDetailPage() {
 
       {/* Events list */}
       <section>
-        <h2 className="mb-4 text-lg font-semibold">Events</h2>
+        <h2 className="mb-5 text-lg font-semibold">Events</h2>
         {events.length === 0 ? (
           <p className="text-sm text-neutral-500">No events recorded.</p>
         ) : (
@@ -143,16 +147,119 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Output block with formatted view + raw toggle
+// ---------------------------------------------------------------------------
+
+function OutputBlock({ label, data }: { label: string; data: Record<string, unknown> }) {
+  const [raw, setRaw] = useState(false);
+  const lines = extractLines(data);
+  const rawText = rawJson(data);
+  if (!lines && !rawText) return null;
+
+  return (
+    <div className="mt-5">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-xs font-medium text-neutral-500">{label}</span>
+        <RawToggle raw={raw} onToggle={() => setRaw(!raw)} />
+      </div>
+      <div className="rounded bg-neutral-100 px-4 py-3">
+        {raw ? (
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-neutral-600">
+            {rawText}
+          </pre>
+        ) : (
+          <div className="space-y-0.5">
+            {lines?.map((line, i) => (
+              <p key={i} className="font-mono text-xs leading-relaxed text-neutral-700">
+                {line}
+              </p>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Error block with headline + collapsible traceback + raw toggle
+// ---------------------------------------------------------------------------
+
+function ErrorBlock({ data }: { data: Record<string, unknown> }) {
+  const [raw, setRaw] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const headline = errorHeadline(data);
+  const detail = errorDetail(data);
+  const rawText = rawJson(data);
+  if (!headline && !rawText) return null;
+
+  return (
+    <div className="mt-5">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-xs font-medium text-red-600">Error</span>
+        <RawToggle raw={raw} onToggle={() => setRaw(!raw)} />
+      </div>
+      <div className="rounded bg-red-50 px-4 py-3">
+        {raw ? (
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-red-700">
+            {rawText}
+          </pre>
+        ) : (
+          <>
+            <p className="font-mono text-sm font-medium leading-snug text-red-800">
+              {headline}
+            </p>
+            {detail && detail !== headline && (
+              <>
+                <button
+                  onClick={() => setExpanded(!expanded)}
+                  className="mt-2 text-xs font-medium text-red-600 hover:text-red-800"
+                >
+                  {expanded ? "Hide full traceback" : "Show full traceback"}
+                </button>
+                {expanded && (
+                  <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-red-600">
+                    {detail}
+                  </pre>
+                )}
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Raw toggle button
+// ---------------------------------------------------------------------------
+
+function RawToggle({ raw, onToggle }: { raw: boolean; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      className="rounded border border-neutral-200 px-2 py-0.5 text-[10px] font-medium text-neutral-500 transition-colors hover:border-neutral-400 hover:text-neutral-700"
+    >
+      {raw ? "View Formatted" : "View raw"}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Step card
+// ---------------------------------------------------------------------------
+
 function StepCard({ step }: { step: TimelineStep }) {
   return (
-    <div className="relative mb-4 pb-4 last:mb-0 last:pb-0">
-      {/* Timeline dot */}
-      <div className="absolute -left-[31px] top-1 h-3 w-3 rounded-full border-2 border-neutral-300 bg-white" />
+    <div className="relative mb-6 last:mb-0">
+      <div className="absolute -left-[31px] top-1.5 h-3 w-3 rounded-full border-2 border-neutral-300 bg-white" />
 
-      <div className="rounded-lg border border-neutral-200 p-3">
+      <div className="rounded-lg border border-neutral-200 px-4 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="font-medium">{step.name}</span>
+            <span className="font-semibold">{step.name}</span>
             <span className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-xs text-neutral-500">
               {step.step_type}
             </span>
@@ -163,30 +270,30 @@ function StepCard({ step }: { step: TimelineStep }) {
           <span className="font-mono text-xs text-neutral-400">#{step.sequence_index}</span>
         </div>
 
-        <div className="mt-1 flex gap-4 text-xs text-neutral-500">
+        <div className="mt-1.5 flex gap-4 text-xs text-neutral-500">
           {step.started_at && <span>Started {formatDate(step.started_at)}</span>}
           {step.ended_at && <span>Ended {formatDate(step.ended_at)}</span>}
         </div>
 
         {step.output_summary && (
-          <pre className="mt-2 truncate rounded bg-neutral-100 px-2 py-1 font-mono text-xs text-neutral-600">
-            {JSON.stringify(step.output_summary)}
-          </pre>
+          <OutputBlock label="Output" data={step.output_summary} />
         )}
 
         {step.error_summary && (
-          <pre className="mt-2 truncate rounded bg-red-50 px-2 py-1 font-mono text-xs text-red-700">
-            {JSON.stringify(step.error_summary)}
-          </pre>
+          <ErrorBlock data={step.error_summary} />
         )}
       </div>
     </div>
   );
 }
 
+// ---------------------------------------------------------------------------
+// Event row
+// ---------------------------------------------------------------------------
+
 function EventRow({ event }: { event: TimelineEvent }) {
   return (
-    <div className="flex items-center gap-3 rounded px-2 py-1.5 text-sm hover:bg-neutral-50">
+    <div className="flex items-center gap-3 rounded px-3 py-2 text-sm hover:bg-neutral-50">
       <span className="font-mono text-xs text-neutral-400">#{event.sequence_index}</span>
       <span className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-xs">
         {event.event_type}

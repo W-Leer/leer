@@ -85,6 +85,7 @@ def test_list_project_runs():
     body = resp.json()
     assert body["project"]["slug"] == slug
     assert len(body["runs"]) >= 1
+    assert body["count"] == len(body["runs"])
 
     run = next(r for r in body["runs"] if r["id"] == run_id)
     assert run["workflow_name"] == "read-test-workflow"
