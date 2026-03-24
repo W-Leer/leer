@@ -22,6 +22,14 @@ def resolve_or_create_project(session: Session, slug: str) -> Project:
 def ingest_run(session: Session, request: IngestRunRequest) -> uuid.UUID:
     project = resolve_or_create_project(session, request.project_slug)
 
+    completed = sum(1 for s in request.steps if s.status == "completed")
+    failed = sum(1 for s in request.steps if s.status == "failed")
+
+    duration_ms = None
+    if request.run.started_at and request.run.ended_at:
+        delta = request.run.ended_at - request.run.started_at
+        duration_ms = int(delta.total_seconds() * 1000)
+
     run = Run(
         id=request.run.id,
         project_id=project.id,
@@ -36,6 +44,9 @@ def ingest_run(session: Session, request: IngestRunRequest) -> uuid.UUID:
         error_summary=request.run.error_summary,
         metadata_=request.run.metadata,
         total_steps=len(request.steps),
+        completed_steps=completed,
+        failed_steps=failed,
+        total_duration_ms=duration_ms,
     )
     session.add(run)
 
