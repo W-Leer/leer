@@ -5,11 +5,14 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.schemas import (
+    CompareResponse,
+    CompareRunSummary,
     ProjectRunsResponse,
     ProjectSummary,
     RunDetailResponse,
     TimelineResponse,
 )
+from app.services.compare import build_run_diff, build_step_diffs
 from app.services.reads import (
     get_artifacts_for_run,
     get_events_for_run,
@@ -63,3 +66,31 @@ def get_run_timeline(
     artifacts = get_artifacts_for_run(session, run_id)
 
     return TimelineResponse(run=run, steps=steps, events=events, artifacts=artifacts)
+
+
+@router.get("/runs/{run_id}/compare/{other_run_id}", response_model=CompareResponse)
+def compare_runs(
+    run_id: UUID,
+    other_run_id: UUID,
+    session: Session = Depends(get_session),
+) -> CompareResponse:
+    run_a = get_run_by_id(session, run_id)
+    if run_a is None:
+        raise HTTPException(status_code=404, detail="Run A not found")
+
+    run_b = get_run_by_id(session, other_run_id)
+    if run_b is None:
+        raise HTTPException(status_code=404, detail="Run B not found")
+
+    if run_a.project_id != run_b.project_id:
+        raise HTTPException(status_code=400, detail="Runs belong to different projects")
+
+    steps_a = get_steps_for_run(session, run_a.id)
+    steps_b = get_steps_for_run(session, run_b.id)
+
+    return CompareResponse(
+        run_a=CompareRunSummary.model_validate(run_a),
+        run_b=CompareRunSummary.model_validate(run_b),
+        run_diff=build_run_diff(run_a, run_b),
+        steps=build_step_diffs(steps_a, steps_b),
+    )

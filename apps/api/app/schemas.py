@@ -218,3 +218,52 @@ class TimelineResponse(BaseModel):
     steps: list[TimelineStep]
     events: list[TimelineEvent]
     artifacts: list[TimelineArtifact]
+
+
+# --- Compare Responses ---
+
+class CompareRunSummary(BaseModel):
+    id: UUID
+    workflow_name: str
+    status: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class CompareStepDiff(BaseModel):
+    sequence_index: int
+    name_a: str | None = None
+    name_b: str | None = None
+    step_type_a: str | None = None
+    step_type_b: str | None = None
+    exists_in_a: bool
+    exists_in_b: bool
+    status_a: str | None = None
+    status_b: str | None = None
+    status_diff: bool
+    output_summary_a: dict[str, Any] | None = None
+    output_summary_b: dict[str, Any] | None = None
+    output_diff: bool
+    error_summary_a: dict[str, Any] | None = None
+    error_summary_b: dict[str, Any] | None = None
+    error_diff: bool
+
+
+class CompareRunDiff(BaseModel):
+    status_a: str
+    status_b: str
+    status_diff: bool
+    output_summary_a: dict[str, Any] | None = None
+    output_summary_b: dict[str, Any] | None = None
+    output_diff: bool
+    error_summary_a: dict[str, Any] | None = None
+    error_summary_b: dict[str, Any] | None = None
+    error_diff: bool
+
+
+class CompareResponse(BaseModel):
+    run_a: CompareRunSummary
+    run_b: CompareRunSummary
+    run_diff: CompareRunDiff
+    steps: list[CompareStepDiff]

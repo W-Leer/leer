@@ -71,3 +71,48 @@ export interface TimelineResponse {
   events: TimelineEvent[];
   artifacts: unknown[];
 }
+
+export interface CompareRunSummary {
+  id: string;
+  workflow_name: string;
+  status: string;
+  created_at: string;
+}
+
+export interface CompareStepDiff {
+  sequence_index: number;
+  name_a: string | null;
+  name_b: string | null;
+  step_type_a: string | null;
+  step_type_b: string | null;
+  exists_in_a: boolean;
+  exists_in_b: boolean;
+  status_a: string | null;
+  status_b: string | null;
+  status_diff: boolean;
+  output_summary_a: Record<string, unknown> | null;
+  output_summary_b: Record<string, unknown> | null;
+  output_diff: boolean;
+  error_summary_a: Record<string, unknown> | null;
+  error_summary_b: Record<string, unknown> | null;
+  error_diff: boolean;
+}
+
+export interface CompareRunDiff {
+  status_a: string;
+  status_b: string;
+  status_diff: boolean;
+  output_summary_a: Record<string, unknown> | null;
+  output_summary_b: Record<string, unknown> | null;
+  output_diff: boolean;
+  error_summary_a: Record<string, unknown> | null;
+  error_summary_b: Record<string, unknown> | null;
+  error_diff: boolean;
+}
+
+export interface CompareResponse {
+  run_a: CompareRunSummary;
+  run_b: CompareRunSummary;
+  run_diff: CompareRunDiff;
+  steps: CompareStepDiff[];
+}

@@ -2,16 +2,18 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatDuration, statusClass } from "@/lib/format";
 import type { TimelineResponse, TimelineStep, TimelineEvent } from "@/lib/types";
 
 export default function RunDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const [data, setData] = useState<TimelineResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [compareId, setCompareId] = useState("");
 
   useEffect(() => {
     if (!id) return;
@@ -78,6 +80,27 @@ export default function RunDetailPage() {
             </pre>
           </div>
         )}
+      </div>
+
+      {/* Compare action */}
+      <div className="mb-8 flex items-center gap-2">
+        <input
+          type="text"
+          placeholder="Other run ID…"
+          value={compareId}
+          onChange={(e) => setCompareId(e.target.value)}
+          className="rounded border border-neutral-300 px-3 py-1.5 font-mono text-sm placeholder:text-neutral-400 focus:border-neutral-500 focus:outline-none"
+        />
+        <button
+          onClick={() => {
+            const trimmed = compareId.trim();
+            if (trimmed) router.push(`/runs/${id}/compare/${trimmed}`);
+          }}
+          disabled={!compareId.trim()}
+          className="rounded bg-neutral-800 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+        >
+          Compare
+        </button>
       </div>
 
       {/* Steps timeline */}
