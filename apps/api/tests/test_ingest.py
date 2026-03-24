@@ -1,0 +1,113 @@
+import uuid
+
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from app.db import get_session
+from app.main import app
+from app.models import Event, Project, Run, Step
+
+_test_slug = f"test-{uuid.uuid4().hex[:8]}"
+
+
+def _make_payload() -> dict:
+    run_id = str(uuid.uuid4())
+    step_id = str(uuid.uuid4())
+    return {
+        "project_slug": _test_slug,
+        "run": {
+            "id": run_id,
+            "workflow_name": "test-workflow",
+            "status": "completed",
+            "trigger_type": "manual",
+            "source": "sdk-python",
+            "started_at": "2026-03-24T12:00:00Z",
+            "ended_at": "2026-03-24T12:00:01Z",
+            "metadata": {},
+        },
+        "steps": [
+            {
+                "id": step_id,
+                "sequence_index": 0,
+                "name": "test_step",
+                "step_type": "code",
+                "status": "completed",
+                "started_at": "2026-03-24T12:00:00Z",
+                "ended_at": "2026-03-24T12:00:01Z",
+                "metadata": {},
+            }
+        ],
+        "events": [
+            {
+                "id": str(uuid.uuid4()),
+                "event_type": "run.started",
+                "sequence_index": 0,
+                "timestamp": "2026-03-24T12:00:00Z",
+                "payload": {},
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "step_id": step_id,
+                "event_type": "step.started",
+                "sequence_index": 1,
+                "timestamp": "2026-03-24T12:00:00Z",
+                "payload": {},
+            },
+        ],
+        "artifacts": [],
+        "replay": None,
+    }
+
+
+def _session_with_rollback():
+    """Yield a session that rolls back after each test."""
+    session: Session = next(get_session())
+    try:
+        yield session
+    finally:
+        session.rollback()
+        session.close()
+
+
+app.dependency_overrides[get_session] = _session_with_rollback
+client = TestClient(app)
+
+
+def test_ingest_run_happy_path():
+    payload = _make_payload()
+    run_id = payload["run"]["id"]
+
+    resp = client.post("/v1/ingest/runs", json=payload)
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert body["run_id"] == run_id
+
+
+def test_ingest_creates_project_and_records():
+    payload = _make_payload()
+    slug = f"test-{uuid.uuid4().hex[:8]}"
+    payload["project_slug"] = slug
+
+    resp = client.post("/v1/ingest/runs", json=payload)
+    assert resp.status_code == 201
+
+    session: Session = next(get_session())
+    try:
+        project = session.query(Project).filter_by(slug=slug).first()
+        assert project is not None
+
+        run = session.query(Run).filter_by(id=payload["run"]["id"]).first()
+        assert run is not None
+        assert run.workflow_name == "test-workflow"
+        assert run.status == "completed"
+
+        steps = session.query(Step).filter_by(run_id=run.id).all()
+        assert len(steps) == 1
+        assert steps[0].name == "test_step"
+
+        events = session.query(Event).filter_by(run_id=run.id).all()
+        assert len(events) == 2
+    finally:
+        session.close()
