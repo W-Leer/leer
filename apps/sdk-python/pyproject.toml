@@ -14,7 +14,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["sdk-python"]
+packages = ["leer"]
 
 [build-system]
 requires = ["hatchling"]
