@@ -2,6 +2,10 @@
 
 > Debug AI workflows like Git.
 
+![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+![Next.js](https://img.shields.io/badge/frontend-next.js-black)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 Leer is an open-source devtool to **trace, compare, and debug AI runs**.
 
 ---
@@ -14,96 +18,158 @@ AI workflows are **non-deterministic**.
 - failures are hard to reproduce
 - debugging is painful
 
-Leer makes it simple to:
+Leer makes it obvious:
 
-- trace execution step-by-step
-- compare runs like a diff
-- understand what changed instantly
-
----
-
-## ⚡ What you can do
-
-### 🔍 Trace your workflows
-
-Instrument your code with minimal effort:
-
-```python
-from leer import trace, step
-
-@trace()
-def my_agent():
-    draft_prompt()
-    call_llm()
-```
+- what changed
+- what broke
+- where it broke
 
 ---
 
-### 🔁 Compare runs
+## ⚡ What you get
 
-See exactly what changed between two executions:
+### 🔍 Trace everything
+
+Capture runs and steps with minimal instrumentation.
+
+### 🔁 Compare runs like a diff
 
 - output differences
 - step-level changes
 - failures vs success
 
-Like a **Git diff for AI runs**.
-
----
-
 ### ❌ Debug failures instantly
 
-Identify:
-- which step failed
-- what error occurred
-- how it differs from a working run
-
----
-
-## 🚀 Quick start
-
-### 1. Start the API
-
-```bash
-cd apps/api
-uv run uvicorn app.main:app --reload
-```
-
----
-
-### 2. Run the demo
-
-```bash
-cd apps/sdk-python
-uv run python ../../examples/demo_compare.py
-```
-
-This creates:
-- a successful run
-- a changed successful run
-- a failed run
-
----
-
-### 3. Open the UI
-
-```bash
-cd apps/web
-npm run dev
-```
-
-Then open your browser and explore the runs.
+- see failing step
+- see error
+- compare with working run
 
 ---
 
 ## 🎬 Demo
 
-(Insert GIF or video here)
+![Demo](./assets/demo.gif)
 
-Suggested flow:
-1. open a run
-2. compare two successful runs → see output diff
-3. compare failed vs successful → see error and step diff
+---
+
+## 🚀 Quick demo (60 seconds)
+
+```bash
+# start backend
+cd apps/api
+uv run uvicorn app.main:app --reload
+
+# run demo
+cd apps/sdk-python
+uv run python ../../examples/demo_compare.py
+
+# start UI
+cd apps/web
+npm install
+npm run dev
+```
+
+Open http://localhost:3000
+
+---
+
+## 🧰 Full local setup
+
+### Prerequisites
+
+- Python 3.11+
+- Node.js 18+
+- Postgres (or Docker)
+- uv
+
+---
+
+### Start Postgres (Docker)
+
+```bash
+docker run -d \
+  --name leer-postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -p 5432:5432 \
+  postgres:15
+```
+
+---
+
+### Environment
+
+Create:
+
+```bash
+apps/api/.env
+```
+
+```env
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/leer
+```
+
+---
+
+### Migrations
+
+```bash
+cd apps/api
+uv run alembic upgrade head
+```
+
+---
+
+### Start backend
+
+```bash
+uv run uvicorn app.main:app --reload
+```
+
+---
+
+### Start frontend
+
+```bash
+cd apps/web
+npm install
+npm run dev
+```
+
+---
+
+## 🐍 Using the Python SDK
+
+```bash
+cd apps/sdk-python
+uv pip install -e .
+```
+
+### Example
+
+```python
+from leer import configure, trace, step
+
+configure(
+    api_base_url="http://localhost:8000",
+    project_slug="demo-project",
+)
+
+@trace(workflow_name="my-agent")
+def run():
+    with step("draft_prompt", step_type="code"):
+        prompt = "Summarize this"
+
+    with step("llm_call", step_type="llm"):
+        return {
+            "summary": [
+                "AI agents are non-deterministic",
+                "Leer provides execution traces",
+                "Replay enables debugging"
+            ]
+        }
+
+run()
+```
 
 ---
 
@@ -128,9 +194,9 @@ Then lets you:
 
 ```
 apps/
-  api/           # FastAPI backend
-  web/           # frontend UI
-  sdk-python/    # Python SDK
+  api/
+  web/
+  sdk-python/
 
 examples/
   demo_compare.py
@@ -140,25 +206,15 @@ examples/
 
 ## 🛣 Roadmap
 
-Planned:
-
-- replay execution
-- prompt + artifact visibility
-- LLM provider integrations
-- security / guardrails layer
-- hosted version
-
 See: docs/05-roadmap/future.md
 
 ---
 
 ## 💡 Philosophy
 
-Leer is built for developers.
-
-- simple > complex
-- clarity > abstraction
-- debugging > automation
+- simple > complex  
+- clarity > abstraction  
+- debugging > automation  
 
 ---
 

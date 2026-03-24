@@ -15,7 +15,7 @@ Avoid feature bloat.
 
 ---
 
-## 1. Replay Execution (Future)
+## 1. Replay Execution
 
 ### Idea
 Re-run a previous execution with:
@@ -50,7 +50,7 @@ Expose:
 - deeper debugging
 - better understanding of failures
 
-Status: Good candidate after launch
+Status: Post-launch
 
 ---
 
@@ -83,7 +83,7 @@ Intercept LLM calls:
 Flow:
 user → system → Leer (check prompt) → LLM → Leer (check response) → user
 
-Features:
+### Features
 - detect sensitive data in prompts
 - detect leaks in responses
 - block unsafe calls
@@ -98,11 +98,11 @@ Features:
 - requires clear UX
 - requires trust guarantees
 
-Status: Future (Pro feature candidate)
+Status: Future (Pro feature)
 
 ---
 
-## 5. Hosted Version (Monetization)
+## 5. Hosted Version
 
 ### Idea
 Cloud product with:
@@ -110,10 +110,6 @@ Cloud product with:
 - shared runs
 - history
 - permissions
-
-### Why
-- monetize OSS
-- easier onboarding
 
 Status: Future
 
@@ -126,9 +122,6 @@ Status: Future
 - token diff
 - artifact diff
 
-### Why
-- deeper debugging
-
 Status: After traction
 
 ---
@@ -139,10 +132,42 @@ Status: After traction
 - detect failures automatically
 - notify developers
 
-### Why
-- production usage
-
 Status: Later
+
+---
+
+## 8. Blob / Artifact Storage
+
+### Idea
+Store:
+- full prompts
+- full completions
+- tool payloads
+- large outputs
+
+### Approach
+- small JSON → Postgres
+- large payloads → blob storage (S3-compatible)
+
+Status: Future
+
+---
+
+## 9. Multimodal Support
+
+### Idea
+Support:
+- images
+- audio
+- video
+- PDFs
+- spreadsheets
+
+### Approach
+- artifacts layer
+- summarized UI rendering
+
+Status: Future
 
 ---
 
