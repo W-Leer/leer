@@ -1,11 +1,29 @@
-from pydantic_settings import BaseSettings
+from functools import lru_cache
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/leer"
+    # --- App ---
+    app_name: str = "leer-api"
     app_env: str = "development"
 
-    model_config = {"env_file": ".env", "extra": "ignore"}
+    # --- Database ---
+    database_url: str
 
+    # --- Optional ---
+    log_level: str = "info"
 
-settings = Settings()
+    # Tell Pydantic to read from .env file
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+@lru_cache
+def get_settings() -> Settings:
+    """
+    Cached settings instance.
+    Ensures we only load env once.
+    """
+    return Settings()
