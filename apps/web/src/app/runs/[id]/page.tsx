@@ -11,9 +11,11 @@ import {
   formatDate,
   formatDuration,
   rawJson,
+  resolveData,
   statusClass,
 } from "@/lib/format";
 import type { TimelineResponse, TimelineStep, TimelineEvent } from "@/lib/types";
+import { StructuredValue } from "@/components/structured-value";
 
 export default function RunDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -184,16 +186,17 @@ function CopyButton({ text }: { text: string }) {
 
 function OutputBlock({ label, data }: { label: string; data: Record<string, unknown> }) {
   const [raw, setRaw] = useState(false);
-  const lines = extractLines(data);
+  const resolved = resolveData(data);
   const rawText = rawJson(data);
-  if (!lines && !rawText) return null;
+  const copyText = extractLines(data)?.join("\n") ?? rawText;
+  if (resolved == null && !rawText) return null;
 
   return (
     <div className="mt-6">
       <div className="mb-1.5 flex items-center justify-between">
         <span className="text-xs font-medium text-neutral-500">{label}</span>
         <div className="flex items-center gap-1">
-          <CopyButton text={raw ? rawText : (lines?.join("\n") ?? rawText)} />
+          <CopyButton text={raw ? rawText : copyText} />
           <RawToggle raw={raw} onToggle={() => setRaw(!raw)} />
         </div>
       </div>
@@ -203,7 +206,7 @@ function OutputBlock({ label, data }: { label: string; data: Record<string, unkn
             {rawText}
           </pre>
         ) : (
-          <FormattedLines lines={lines} />
+          <StructuredValue value={resolved} />
         )}
       </div>
     </div>
@@ -275,33 +278,6 @@ function RawToggle({ raw, onToggle }: { raw: boolean; onToggle: () => void }) {
     >
       {raw ? "Formatted" : "Raw"}
     </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Formatted lines with bullet rendering for arrays
-// ---------------------------------------------------------------------------
-
-function FormattedLines({ lines }: { lines: string[] | null }) {
-  if (!lines || lines.length === 0) return null;
-
-  if (lines.length > 1) {
-    return (
-      <ul className="space-y-1">
-        {lines.map((line, i) => (
-          <li key={i} className="flex gap-2 font-mono text-xs leading-6 text-neutral-700">
-            <span className="select-none text-neutral-300">•</span>
-            <span className="whitespace-pre-wrap break-words">{line}</span>
-          </li>
-        ))}
-      </ul>
-    );
-  }
-
-  return (
-    <p className="whitespace-pre-wrap break-words font-mono text-xs leading-6 text-neutral-700">
-      {lines[0]}
-    </p>
   );
 }
 
@@ -461,28 +437,27 @@ function StepSection({
 
 function StepDataBlock({
   data,
-  variant,
 }: {
   data: Record<string, unknown>;
   variant: "input" | "output";
 }) {
   const [raw, setRaw] = useState(false);
-  const lines = extractLines(data);
+  const resolved = resolveData(data);
   const rawText = rawJson(data);
-  const textColor = variant === "input" ? "text-neutral-600" : "text-neutral-700";
+  const copyText = extractLines(data)?.join("\n") ?? rawText;
 
   return (
     <div>
       <div className="mb-1.5 flex justify-end gap-1">
-        <CopyButton text={raw ? rawText : (lines?.join("\n") ?? rawText)} />
+        <CopyButton text={raw ? rawText : copyText} />
         <RawToggle raw={raw} onToggle={() => setRaw(!raw)} />
       </div>
       {raw ? (
-        <pre className={`max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 ${textColor}`}>
+        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-neutral-600">
           {rawText}
         </pre>
       ) : (
-        <FormattedLines lines={lines} />
+        <StructuredValue value={resolved} />
       )}
     </div>
   );

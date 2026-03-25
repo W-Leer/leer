@@ -29,13 +29,31 @@ export function statusClass(status: string): string {
 // Deep-parse helpers for double-encoded JSON
 // ---------------------------------------------------------------------------
 
-function deepParse(value: unknown): unknown {
+export function deepParse(value: unknown): unknown {
   if (typeof value !== "string") return value;
   try {
     return deepParse(JSON.parse(value));
   } catch {
     return value;
   }
+}
+
+/**
+ * Deep-parse a summary dict, unwrapping known wrapper keys
+ * (summary, result_preview, prompt_preview) so the renderer
+ * gets the actual payload shape.
+ */
+export function resolveData(summary: Dict | null | undefined): unknown {
+  if (!summary) return null;
+  const parsed = deepParse(summary);
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    const rec = parsed as Dict;
+    if ("summary" in rec) return deepParse(rec.summary);
+    if ("result_preview" in rec) return deepParse(rec.result_preview);
+    if ("prompt_preview" in rec) return deepParse(rec.prompt_preview);
+    if ("prompt" in rec && Object.keys(rec).length === 1) return deepParse(rec.prompt);
+  }
+  return parsed;
 }
 
 type Dict = Record<string, unknown>;
