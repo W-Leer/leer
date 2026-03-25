@@ -23,11 +23,16 @@ configure(
 
 @trace(workflow_name="demo-agent")
 def baseline_success() -> dict:
-    with step("draft_prompt", step_type="code"):
-        _prompt = "Summarize the following text into three bullet points."
+    with step("draft_prompt", step_type="code") as s:
+        s.output = {"prompt": "Summarize the following text into three bullet points."}
 
-    with step("llm_call", step_type="llm", metadata={"provider": "openai"}):
-        result = {
+    with step(
+        "llm_call",
+        step_type="llm",
+        metadata={"provider": "openai"},
+        input={"prompt": "Summarize the following text into three bullet points."},
+    ) as s:
+        s.output = {
             "summary": [
                 "AI agents are non-deterministic",
                 "Leer provides execution traces",
@@ -35,16 +40,21 @@ def baseline_success() -> dict:
             ]
         }
 
-    return result
+    return s.output
 
 
 @trace(workflow_name="demo-agent")
 def changed_success() -> dict:
-    with step("draft_prompt", step_type="code"):
-        _prompt = "Summarize the following text into five bullet points."
+    with step("draft_prompt", step_type="code") as s:
+        s.output = {"prompt": "Summarize the following text into five bullet points."}
 
-    with step("llm_call", step_type="llm", metadata={"provider": "openai"}):
-        result = {
+    with step(
+        "llm_call",
+        step_type="llm",
+        metadata={"provider": "openai"},
+        input={"prompt": "Summarize the following text into five bullet points."},
+    ) as s:
+        s.output = {
             "summary": [
                 "AI agents require careful orchestration",
                 "Observability is essential for production",
@@ -54,15 +64,20 @@ def changed_success() -> dict:
             ]
         }
 
-    return result
+    return s.output
 
 
 @trace(workflow_name="demo-agent")
 def timeout_failure() -> dict:
-    with step("draft_prompt", step_type="code"):
-        _prompt = "Summarize the following text into three bullet points."
+    with step("draft_prompt", step_type="code") as s:
+        s.output = {"prompt": "Summarize the following text into three bullet points."}
 
-    with step("llm_call", step_type="llm", metadata={"provider": "openai"}):
+    with step(
+        "llm_call",
+        step_type="llm",
+        metadata={"provider": "openai"},
+        input={"prompt": "Summarize the following text into three bullet points."},
+    ):
         raise TimeoutError("LLM provider timed out after 30s")
 
     return {}

@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from typing import Any, Generator
 
 from leer.context import current_step, get_current_run, next_event_index, pop_step, push_step
-from leer.models import TraceEvent, TraceStep, _now
+from leer.models import TraceEvent, TraceStep, _now, make_json_safe
 
 
 def _emit_step_event(event_type: str, step_id: str) -> None:
@@ -22,7 +22,12 @@ def _emit_step_event(event_type: str, step_id: str) -> None:
 
 
 @contextmanager
-def step(name: str, step_type: str = "code", metadata: dict[str, Any] | None = None) -> Generator[TraceStep, None, None]:
+def step(
+    name: str,
+    step_type: str = "code",
+    metadata: dict[str, Any] | None = None,
+    input: dict[str, Any] | None = None,
+) -> Generator[TraceStep, None, None]:
     run = get_current_run()
 
     if run is None:
@@ -42,6 +47,9 @@ def step(name: str, step_type: str = "code", metadata: dict[str, Any] | None = N
         metadata=metadata or {},
     )
 
+    if input is not None:
+        s.input_summary = make_json_safe(input)
+
     run.steps.append(s)
     push_step(s)
 
@@ -60,5 +68,7 @@ def step(name: str, step_type: str = "code", metadata: dict[str, Any] | None = N
     else:
         s.status = "completed"
         s.ended_at = _now()
+        if s.output_summary is None and s.output is not None:
+            s.output_summary = make_json_safe(s.output)
         _emit_step_event("step.completed", s.id)
         pop_step()

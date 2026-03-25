@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -12,6 +13,21 @@ def _uuid() -> str:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def make_json_safe(value: Any) -> dict[str, Any]:
+    """Convert an arbitrary value into a JSON-safe dict for summary fields."""
+    if isinstance(value, dict):
+        try:
+            json.dumps(value)
+            return value
+        except (TypeError, ValueError):
+            pass
+    try:
+        json.dumps(value)
+        return {"result_preview": value}
+    except (TypeError, ValueError):
+        return {"result_preview": str(value)[:500]}
 
 
 @dataclass
@@ -50,6 +66,7 @@ class TraceStep:
     output_summary: dict[str, Any] | None = None
     error_summary: dict[str, Any] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    output: Any = field(default=None, repr=False)
 
 
 @dataclass

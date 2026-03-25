@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import functools
-import json
 import traceback
 from typing import Any, Callable, TypeVar
 
@@ -12,7 +11,7 @@ from leer.context import (
     reset_context,
     set_current_run,
 )
-from leer.models import TraceEvent, TraceRun, _now
+from leer.models import TraceEvent, TraceRun, _now, make_json_safe
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -26,21 +25,6 @@ def _emit(run: TraceRun, event_type: str, step_id: str | None = None, payload: d
             payload=payload or {},
         )
     )
-
-
-def _make_output_summary(result: Any) -> dict[str, Any]:
-    """Build a JSON-safe output_summary, preserving structure when possible."""
-    if isinstance(result, dict):
-        try:
-            json.dumps(result)
-            return result
-        except (TypeError, ValueError):
-            pass
-    try:
-        json.dumps(result)
-        return {"result_preview": result}
-    except (TypeError, ValueError):
-        return {"result_preview": str(result)[:500]}
 
 
 def trace(workflow_name: str, metadata: dict[str, Any] | None = None) -> Callable[[F], F]:
@@ -74,7 +58,7 @@ def trace(workflow_name: str, metadata: dict[str, Any] | None = None) -> Callabl
                 run.status = "completed"
                 run.ended_at = _now()
                 if result is not None:
-                    run.output_summary = _make_output_summary(result)
+                    run.output_summary = make_json_safe(result)
                 _emit(run, "run.completed")
                 submit(run)
                 set_current_run(None)
