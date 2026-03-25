@@ -22,6 +22,7 @@ export default function RunDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [compareId, setCompareId] = useState("");
+  const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -114,8 +115,13 @@ export default function RunDetailPage() {
           <p className="text-sm text-neutral-500">No steps recorded.</p>
         ) : (
           <div className="relative border-l-2 border-neutral-200 pl-6">
-            {steps.map((step) => (
-              <StepCard key={step.id} step={step} />
+            {steps.map((s) => (
+              <StepCard
+                key={s.id}
+                step={s}
+                expanded={expandedStepId === s.id}
+                onToggle={() => setExpandedStepId(expandedStepId === s.id ? null : s.id)}
+              />
             ))}
           </div>
         )}
@@ -248,39 +254,177 @@ function RawToggle({ raw, onToggle }: { raw: boolean; onToggle: () => void }) {
 }
 
 // ---------------------------------------------------------------------------
-// Step card
+// Step card (clickable, expandable)
 // ---------------------------------------------------------------------------
 
-function StepCard({ step }: { step: TimelineStep }) {
+function stepDuration(step: TimelineStep): string {
+  if (!step.started_at || !step.ended_at) return "—";
+  const ms = new Date(step.ended_at).getTime() - new Date(step.started_at).getTime();
+  return formatDuration(ms);
+}
+
+function StepCard({
+  step,
+  expanded,
+  onToggle,
+}: {
+  step: TimelineStep;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
   return (
     <div className="relative mb-6 last:mb-0">
       <div className="absolute -left-[31px] top-1.5 h-3 w-3 rounded-full border-2 border-neutral-300 bg-white" />
 
-      <div className="rounded-lg border border-neutral-200 px-4 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold">{step.name}</span>
-            <span className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-xs text-neutral-500">
-              {step.step_type}
-            </span>
-            <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusClass(step.status)}`}>
-              {step.status}
-            </span>
+      <div className={`rounded-lg border px-4 py-4 ${expanded ? "border-neutral-300 bg-white shadow-sm" : "border-neutral-200"}`}>
+        {/* Clickable header */}
+        <button onClick={onToggle} className="w-full text-left">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-neutral-400">{expanded ? "▼" : "▶"}</span>
+              <span className="font-semibold">{step.name}</span>
+              <span className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-xs text-neutral-500">
+                {step.step_type}
+              </span>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusClass(step.status)}`}>
+                {step.status}
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-neutral-500">{stepDuration(step)}</span>
+              <span className="font-mono text-xs text-neutral-400">#{step.sequence_index}</span>
+            </div>
           </div>
-          <span className="font-mono text-xs text-neutral-400">#{step.sequence_index}</span>
-        </div>
+        </button>
 
-        <div className="mt-1.5 flex gap-4 text-xs text-neutral-500">
-          {step.started_at && <span>Started {formatDate(step.started_at)}</span>}
-          {step.ended_at && <span>Ended {formatDate(step.ended_at)}</span>}
-        </div>
+        {/* Expanded detail panel */}
+        {expanded && <StepDetailPanel step={step} />}
+      </div>
+    </div>
+  );
+}
 
-        {step.output_summary && (
-          <OutputBlock label="Output" data={step.output_summary} />
+function StepDetailPanel({ step }: { step: TimelineStep }) {
+  const hasInput = step.input_summary && Object.keys(step.input_summary).length > 0;
+  const hasOutput = step.output_summary && Object.keys(step.output_summary).length > 0;
+  const hasError = step.error_summary && Object.keys(step.error_summary).length > 0;
+  const metaEntries = step.metadata ? Object.entries(step.metadata) : [];
+
+  return (
+    <div className="mt-4 space-y-4 border-t border-neutral-100 pt-4">
+      {/* Metadata bar */}
+      <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-neutral-500">
+        <span>Type: <span className="font-medium text-neutral-700">{step.step_type}</span></span>
+        <span>Duration: <span className="font-medium text-neutral-700">{stepDuration(step)}</span></span>
+        {step.started_at && <span>Started: <span className="font-medium text-neutral-700">{formatDate(step.started_at)}</span></span>}
+        {step.ended_at && <span>Ended: <span className="font-medium text-neutral-700">{formatDate(step.ended_at)}</span></span>}
+        {metaEntries.map(([k, v]) => (
+          <span key={k}>{k}: <span className="font-medium text-neutral-700">{String(v)}</span></span>
+        ))}
+      </div>
+
+      {/* Input */}
+      <DetailSection label="Input">
+        {hasInput ? (
+          <DataContent data={step.input_summary!} />
+        ) : (
+          <p className="text-xs italic text-neutral-400">No input</p>
         )}
+      </DetailSection>
 
-        {step.error_summary && (
-          <ErrorBlock data={step.error_summary} />
+      {/* Output */}
+      <DetailSection label="Output">
+        {hasOutput ? (
+          <DataContent data={step.output_summary!} />
+        ) : (
+          <p className="text-xs italic text-neutral-400">No output</p>
+        )}
+      </DetailSection>
+
+      {/* Error */}
+      {hasError && (
+        <DetailSection label="Error">
+          <InlineError data={step.error_summary!} />
+        </DetailSection>
+      )}
+    </div>
+  );
+}
+
+function DetailSection({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-md bg-neutral-50 px-4 py-3">
+      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">{label}</div>
+      {children}
+    </div>
+  );
+}
+
+function DataContent({ data }: { data: Record<string, unknown> }) {
+  const [raw, setRaw] = useState(false);
+  const lines = extractLines(data);
+  const rawText = rawJson(data);
+
+  return (
+    <div>
+      <div className="mb-1 flex justify-end">
+        <RawToggle raw={raw} onToggle={() => setRaw(!raw)} />
+      </div>
+      {raw ? (
+        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-neutral-600">
+          {rawText}
+        </pre>
+      ) : lines ? (
+        <div className="space-y-0.5">
+          {lines.map((line, i) => (
+            <p key={i} className="font-mono text-xs leading-relaxed text-neutral-700">{line}</p>
+          ))}
+        </div>
+      ) : (
+        <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-neutral-600">
+          {rawText}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function InlineError({ data }: { data: Record<string, unknown> }) {
+  const [raw, setRaw] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const headline = errorHeadline(data);
+  const detail = errorDetail(data);
+  const rawText = rawJson(data);
+
+  return (
+    <div>
+      <div className="mb-1 flex justify-end">
+        <RawToggle raw={raw} onToggle={() => setRaw(!raw)} />
+      </div>
+      <div className="rounded bg-red-50 px-3 py-2">
+        {raw ? (
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-red-700">
+            {rawText}
+          </pre>
+        ) : (
+          <>
+            <p className="font-mono text-sm font-medium leading-snug text-red-800">{headline}</p>
+            {detail && detail !== headline && (
+              <>
+                <button
+                  onClick={() => setExpanded(!expanded)}
+                  className="mt-2 text-xs font-medium text-red-600 hover:text-red-800"
+                >
+                  {expanded ? "Hide full traceback" : "Show full traceback"}
+                </button>
+                {expanded && (
+                  <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-red-600">
+                    {detail}
+                  </pre>
+                )}
+              </>
+            )}
+          </>
         )}
       </div>
     </div>
