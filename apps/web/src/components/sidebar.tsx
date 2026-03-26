@@ -9,7 +9,7 @@ export function Sidebar() {
   const isCompare = pathname.includes("/compare");
 
   return (
-    <aside className="flex h-screen w-52 shrink-0 flex-col border-r border-neutral-200 bg-white">
+    <aside className="flex h-screen w-52 shrink-0 flex-col border-r border-neutral-100 bg-white">
       {/* Logo */}
       <div className="flex items-center gap-2 border-b border-neutral-100 px-5 py-4">
         <Link href="/" className="text-lg font-semibold tracking-tight text-neutral-900">
