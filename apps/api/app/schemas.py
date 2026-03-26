@@ -126,7 +126,10 @@ class RunListItem(BaseModel):
 class ProjectRunsResponse(BaseModel):
     project: ProjectSummary
     runs: list[RunListItem]
-    count: int
+    total_count: int
+    limit: int
+    offset: int
+    has_more: bool
 
 
 class RunDetail(BaseModel):

@@ -1,6 +1,7 @@
+from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_session
@@ -28,17 +29,33 @@ router = APIRouter(prefix="/v1")
 @router.get("/projects/{project_slug}/runs", response_model=ProjectRunsResponse)
 def list_project_runs(
     project_slug: str,
+    q: str | None = Query(None),
+    status: str | None = Query(None),
+    sort: Literal["newest", "oldest"] = Query("newest"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
 ) -> ProjectRunsResponse:
     project = get_project_by_slug(session, project_slug)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    runs = list_runs_for_project(session, project.id)
+    runs, total_count = list_runs_for_project(
+        session,
+        project.id,
+        q=q,
+        status=status,
+        sort=sort,
+        limit=limit,
+        offset=offset,
+    )
     return ProjectRunsResponse(
         project=ProjectSummary.model_validate(project),
         runs=runs,
-        count=len(runs),
+        total_count=total_count,
+        limit=limit,
+        offset=offset,
+        has_more=(offset + len(runs)) < total_count,
     )
 
 

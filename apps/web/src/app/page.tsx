@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import {
   formatDuration,
@@ -11,26 +11,70 @@ import {
 } from "@/lib/format";
 import type { ProjectRunsResponse, RunListItem } from "@/lib/types";
 
-type StatusFilter = "all" | "completed" | "failed";
+type StatusFilter = "" | "completed" | "failed";
 type SortOrder = "newest" | "oldest";
+const PAGE_SIZE = 20;
 
 export default function HomePage() {
   const [runs, setRuns] = useState<RunListItem[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("");
   const [sort, setSort] = useState<SortOrder>("newest");
   const searchRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
+  const fetchRuns = useCallback(
+    async (q: string, status: StatusFilter, sortOrder: SortOrder, offset: number, append: boolean) => {
+      const params = new URLSearchParams();
+      if (q) params.set("q", q);
+      if (status) params.set("status", status);
+      params.set("sort", sortOrder);
+      params.set("limit", String(PAGE_SIZE));
+      params.set("offset", String(offset));
+
+      const qs = params.toString();
+      const data = await apiFetch<ProjectRunsResponse>(
+        `/v1/projects/demo-project/runs?${qs}`,
+      );
+
+      setRuns((prev) => (append ? [...prev, ...data.runs] : data.runs));
+      setTotalCount(data.total_count);
+      setHasMore(data.has_more);
+    },
+    [],
+  );
+
+  // Initial load + re-fetch when filters change
   useEffect(() => {
-    apiFetch<ProjectRunsResponse>("/v1/projects/demo-project/runs")
-      .then((data) => setRuns(data.runs))
+    setLoading(true);
+    setError(null);
+    fetchRuns(query, statusFilter, sort, 0, false)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, sort]);
 
+  // Debounced search
+  useEffect(() => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setLoading(true);
+      setError(null);
+      fetchRuns(query, statusFilter, sort, 0, false)
+        .catch((err) => setError(err.message))
+        .finally(() => setLoading(false));
+    }, 250);
+    return () => clearTimeout(debounceRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
+  // "/" shortcut
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "/" && document.activeElement?.tagName !== "INPUT") {
@@ -42,43 +86,11 @@ export default function HomePage() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const filtered = useMemo(() => {
-    const q = query.toLowerCase();
-    let result = runs;
-
-    if (statusFilter !== "all") {
-      result = result.filter((r) => r.status === statusFilter);
-    }
-
-    if (q) {
-      result = result.filter((r) => {
-        const preview = formatSummary(r.output_summary, 200).toLowerCase();
-        return (
-          r.workflow_name.toLowerCase().includes(q) ||
-          r.status.toLowerCase().includes(q) ||
-          r.id.toLowerCase().includes(q) ||
-          preview.includes(q)
-        );
-      });
-    }
-
-    if (sort === "oldest") {
-      result = [...result].reverse();
-    }
-
-    return result;
-  }, [runs, query, statusFilter, sort]);
-
-  if (loading) {
-    return <p className="py-12 text-center text-sm text-neutral-400">Loading runs…</p>;
-  }
-
-  if (error) {
-    return (
-      <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-        Failed to load runs: {error}
-      </div>
-    );
+  function loadMore() {
+    setLoadingMore(true);
+    fetchRuns(query, statusFilter, sort, runs.length, true)
+      .catch((err) => setError(err.message))
+      .finally(() => setLoadingMore(false));
   }
 
   return (
@@ -105,7 +117,7 @@ export default function HomePage() {
         </div>
 
         <Select value={statusFilter} onChange={(v) => setStatusFilter(v as StatusFilter)}>
-          <option value="all">All</option>
+          <option value="">All</option>
           <option value="completed">Completed</option>
           <option value="failed">Failed</option>
         </Select>
@@ -116,17 +128,45 @@ export default function HomePage() {
         </Select>
       </div>
 
+      {/* Count */}
+      {!loading && !error && (
+        <p className="mb-3 text-[11px] text-neutral-400">
+          {totalCount} {totalCount === 1 ? "run" : "runs"}
+          {(query || statusFilter) && " matched"}
+        </p>
+      )}
+
       {/* Results */}
-      {runs.length === 0 ? (
-        <p className="text-sm text-neutral-400">No runs yet. Run the demo agent to create one.</p>
-      ) : filtered.length === 0 ? (
-        <p className="py-8 text-center text-sm text-neutral-400">No runs match your filters.</p>
-      ) : (
-        <div className="space-y-2">
-          {filtered.map((run) => (
-            <RunCard key={run.id} run={run} />
-          ))}
+      {loading ? (
+        <p className="py-12 text-center text-sm text-neutral-400">Loading runs…</p>
+      ) : error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          Failed to load runs: {error}
         </div>
+      ) : runs.length === 0 ? (
+        <p className="py-8 text-center text-sm text-neutral-400">
+          {query || statusFilter ? "No runs match your filters." : "No runs yet. Run the demo agent to create one."}
+        </p>
+      ) : (
+        <>
+          <div className="space-y-2">
+            {runs.map((run) => (
+              <RunCard key={run.id} run={run} />
+            ))}
+          </div>
+
+          {hasMore && (
+            <div className="mt-4 text-center">
+              <button
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="rounded-md bg-neutral-100 px-4 py-1.5 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-200 disabled:opacity-50"
+              >
+                {loadingMore ? "Loading…" : "Load more"}
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

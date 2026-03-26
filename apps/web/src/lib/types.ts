@@ -24,7 +24,10 @@ export interface RunListItem {
 export interface ProjectRunsResponse {
   project: ProjectSummary;
   runs: RunListItem[];
-  count: number;
+  total_count: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
 }
 
 export interface TimelineRun {

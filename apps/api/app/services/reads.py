@@ -1,6 +1,7 @@
 import uuid
+from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select, cast, String
 from sqlalchemy.orm import Session
 
 from app.models import Artifact, Event, Project, Run, Step
@@ -11,21 +12,44 @@ def get_project_by_slug(session: Session, slug: str) -> Project | None:
     return session.execute(stmt).scalar_one_or_none()
 
 
-DEFAULT_RUN_LIMIT = 50
+DEFAULT_LIMIT = 20
 
 
 def list_runs_for_project(
     session: Session,
     project_id: uuid.UUID,
-    limit: int = DEFAULT_RUN_LIMIT,
-) -> list[Run]:
-    stmt = (
-        select(Run)
-        .where(Run.project_id == project_id)
-        .order_by(Run.created_at.desc())
-        .limit(limit)
-    )
-    return list(session.execute(stmt).scalars().all())
+    *,
+    q: str | None = None,
+    status: str | None = None,
+    sort: Literal["newest", "oldest"] = "newest",
+    limit: int = DEFAULT_LIMIT,
+    offset: int = 0,
+) -> tuple[list[Run], int]:
+    """Return (runs, total_count) for a project with optional filtering."""
+    base = select(Run).where(Run.project_id == project_id)
+
+    if status:
+        base = base.where(Run.status == status)
+
+    if q:
+        pattern = f"%{q}%"
+        base = base.where(
+            or_(
+                Run.workflow_name.ilike(pattern),
+                cast(Run.id, String).ilike(pattern),
+                cast(Run.output_summary, String).ilike(pattern),
+            )
+        )
+
+    total_count = session.execute(
+        select(func.count()).select_from(base.subquery())
+    ).scalar_one()
+
+    order = Run.created_at.desc() if sort == "newest" else Run.created_at.asc()
+    rows = base.order_by(order).limit(limit).offset(offset)
+
+    runs = list(session.execute(rows).scalars().all())
+    return runs, total_count
 
 
 def get_run_by_id(session: Session, run_id: uuid.UUID) -> Run | None:
