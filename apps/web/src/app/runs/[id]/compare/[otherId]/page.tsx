@@ -38,11 +38,11 @@ export default function ComparePage() {
 
   return (
     <div className="max-w-5xl">
-      <Link href={`/runs/${id}`} className="mb-6 inline-block text-sm text-neutral-500 hover:text-neutral-800">
-        ← Back to run
+      <Link href={`/runs/${id}`} className="mb-4 inline-block text-xs text-neutral-400 hover:text-neutral-600">
+        ← Back to run detail
       </Link>
 
-      <h1 className="mb-8 text-2xl font-semibold tracking-tight">Compare Runs</h1>
+      <h1 className="mb-6 text-xl font-semibold tracking-tight">Compare Runs</h1>
 
       <div className="mb-6 grid grid-cols-2 gap-4">
         <RunSummaryCard label="Run A" run={data.run_a} />
@@ -69,7 +69,7 @@ export default function ComparePage() {
 
 function RunSummaryCard({ label, run }: { label: string; run: CompareRunSummary }) {
   return (
-    <div className="rounded-lg border border-neutral-200 p-4">
+    <div className="rounded-lg bg-white p-4 shadow-[0_1px_4px_rgba(0,0,0,0.05)]">
       <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-neutral-400">{label}</div>
       <div className="flex items-center gap-2">
         <span className="font-semibold">{run.workflow_name}</span>
@@ -87,7 +87,7 @@ function RunDiffSection({ diff }: { diff: CompareRunDiff }) {
   const hasDiff = diff.status_diff || diff.output_diff || diff.error_diff;
 
   return (
-    <section className={`mb-8 rounded-lg border p-5 ${hasDiff ? "border-amber-200" : "border-neutral-200"}`}>
+    <section className={`mb-8 rounded-lg p-5 ${hasDiff ? "bg-amber-50/30 shadow-[0_1px_4px_rgba(0,0,0,0.05)]" : "bg-white shadow-[0_1px_4px_rgba(0,0,0,0.05)]"}`}>
       <h2 className="mb-5 text-lg font-semibold tracking-tight">Run Result</h2>
 
       <div className="space-y-5">
@@ -113,17 +113,17 @@ function StepDiffCard({ step }: { step: CompareStepDiff }) {
   const hasDiff = step.status_diff || step.output_diff || step.error_diff;
   const missing = !step.exists_in_a || !step.exists_in_b;
 
-  const borderColor = missing
-    ? "border-amber-300"
+  const cardStyle = missing
+    ? "bg-amber-50/40 shadow-[0_1px_4px_rgba(0,0,0,0.05)]"
     : hasDiff
-      ? "border-amber-200"
-      : "border-neutral-200";
+      ? "bg-amber-50/30 shadow-[0_1px_4px_rgba(0,0,0,0.05)]"
+      : "bg-white shadow-[0_1px_4px_rgba(0,0,0,0.05)]";
 
   const stepName = step.name_a ?? step.name_b ?? "—";
   const stepType = step.step_type_a ?? step.step_type_b ?? "—";
 
   return (
-    <div className={`rounded-lg border p-5 ${borderColor}`}>
+    <div className={`rounded-lg p-5 ${cardStyle}`}>
       <div className="mb-5 flex items-center gap-2">
         <span className="font-mono text-xs text-neutral-400">#{step.sequence_index}</span>
         <span className="text-[13px] font-semibold tracking-tight text-neutral-900">{stepName}</span>

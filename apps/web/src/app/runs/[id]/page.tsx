@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
@@ -50,12 +49,8 @@ export default function RunDetailPage() {
 
   return (
     <div className="max-w-4xl">
-      <Link href="/" className="mb-6 inline-block text-sm text-neutral-500 hover:text-neutral-800">
-        ← Back to runs
-      </Link>
-
       {/* Run header */}
-      <div className="mb-10 rounded-lg border border-neutral-150 bg-white p-6">
+      <div className="mb-10 rounded-lg bg-white p-6 shadow-[0_1px_4px_rgba(0,0,0,0.05)]">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-semibold tracking-tight text-neutral-900">{run.workflow_name}</h1>
           <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${statusClass(run.status)}`}>
@@ -200,7 +195,7 @@ function OutputBlock({ label, data }: { label: string; data: Record<string, unkn
           <RawToggle raw={raw} onToggle={() => setRaw(!raw)} />
         </div>
       </div>
-      <div className="rounded-md border border-neutral-100 bg-neutral-50 px-4 py-3">
+      <div className="rounded-md bg-neutral-50/80 px-4 py-3">
         {raw ? (
           <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-neutral-600">
             {rawText}
@@ -234,7 +229,7 @@ function ErrorBlock({ data }: { data: Record<string, unknown> }) {
           <RawToggle raw={raw} onToggle={() => setRaw(!raw)} />
         </div>
       </div>
-      <div className="rounded-md border border-red-100 bg-red-50/60 px-4 py-3">
+      <div className="rounded-md bg-red-50/60 px-4 py-3">
         {raw ? (
           <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-red-700">
             {rawText}
@@ -312,10 +307,10 @@ function StepCard({
       <div className={`absolute -left-[34px] top-[17px] h-2.5 w-2.5 rounded-full border-2 transition-colors duration-150 ${dotColor}`} />
 
       <div
-        className={`rounded-lg border transition-all duration-150 ${
+        className={`rounded-lg transition-all duration-150 ${
           expanded
-            ? "border-neutral-300 bg-white shadow-sm"
-            : "border-neutral-150 bg-white hover:border-neutral-300 hover:shadow-sm"
+            ? "bg-white shadow-[0_1px_5px_rgba(0,0,0,0.06)]"
+            : "bg-white hover:bg-neutral-50/60 hover:shadow-[0_1px_4px_rgba(0,0,0,0.04)]"
         }`}
       >
         {/* Clickable header */}
@@ -418,13 +413,13 @@ function StepSection({
   children: React.ReactNode;
 }) {
   const bg = {
-    input: "bg-blue-50/40 border-blue-100",
-    output: "bg-neutral-50 border-neutral-150",
-    error: "bg-red-50/40 border-red-100",
+    input: "bg-blue-50/40",
+    output: "bg-neutral-50/70",
+    error: "bg-red-50/40",
   }[variant];
 
   return (
-    <div className={`rounded-md border px-4 py-3 ${bg}`}>
+    <div className={`rounded-md px-4 py-3 ${bg}`}>
       <div className="mb-2 text-[11px] font-medium text-neutral-400">{label}</div>
       {children}
     </div>
