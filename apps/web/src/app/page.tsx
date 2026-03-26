@@ -31,7 +31,8 @@ export default function HomePage() {
   const [totalCount, setTotalCount] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [initialLoad, setInitialLoad] = useState(true);
+  const [searching, setSearching] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
 
   const [query, setQuery] = useState("");
@@ -39,9 +40,12 @@ export default function HomePage() {
   const [sort, setSort] = useState<SortOrder>("newest");
   const searchRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const fetchIdRef = useRef(0);
 
   const fetchRuns = useCallback(
     async (q: string, status: StatusFilter, sortOrder: SortOrder, offset: number, append: boolean) => {
+      const id = ++fetchIdRef.current;
+
       const params = new URLSearchParams();
       if (q) params.set("q", q);
       if (status) params.set("status", status);
@@ -53,34 +57,53 @@ export default function HomePage() {
         `/v1/projects/demo-project/runs?${params}`,
       );
 
-      setRuns((prev) => (append ? [...prev, ...data.runs] : data.runs));
+      if (fetchIdRef.current !== id) return;
+
+      if (append) {
+        setRuns((prev) => {
+          const existing = new Set(prev.map((r) => r.id));
+          return [...prev, ...data.runs.filter((r) => !existing.has(r.id))];
+        });
+      } else {
+        setRuns(data.runs);
+      }
       setTotalCount(data.total_count);
       setHasMore(data.has_more);
     },
     [],
   );
 
+  // Single effect for all filter/sort/search changes.
+  // Search gets debounced; status/sort are immediate.
+  const prevFiltersRef = useRef({ query, statusFilter, sort });
   useEffect(() => {
-    setLoading(true);
-    setError(null);
-    fetchRuns(query, statusFilter, sort, 0, false)
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, sort]);
-
-  useEffect(() => {
+    const prev = prevFiltersRef.current;
+    prevFiltersRef.current = { query, statusFilter, sort };
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      setLoading(true);
+
+    const searchChanged = query !== prev.query;
+    const filtersChanged = statusFilter !== prev.statusFilter || sort !== prev.sort;
+
+    function doFetch() {
       setError(null);
+      if (!runs.length) setInitialLoad(true);
+      else setSearching(true);
       fetchRuns(query, statusFilter, sort, 0, false)
         .catch((err) => setError(err.message))
-        .finally(() => setLoading(false));
-    }, 250);
+        .finally(() => { setInitialLoad(false); setSearching(false); });
+    }
+
+    if (filtersChanged) {
+      doFetch();
+    } else if (searchChanged) {
+      debounceRef.current = setTimeout(doFetch, 250);
+    } else {
+      doFetch();
+    }
+
     return () => clearTimeout(debounceRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query]);
+  }, [query, statusFilter, sort]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -99,6 +122,8 @@ export default function HomePage() {
       .catch((err) => setError(err.message))
       .finally(() => setLoadingMore(false));
   }
+
+  const loading = initialLoad;
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -169,10 +194,13 @@ export default function HomePage() {
       {/* Count bar */}
       {!loading && !error && (
         <div className="mb-4 flex items-center justify-between">
-          <p className="text-[11px] text-neutral-400">
+          <p className={`text-[11px] text-neutral-400 transition-opacity ${searching ? "opacity-50" : ""}`}>
             {totalCount} {totalCount === 1 ? "run" : "runs"}
             {(query || statusFilter) ? " matched" : ""}
           </p>
+          {searching && (
+            <span className="text-[10px] text-neutral-400">Searching…</span>
+          )}
         </div>
       )}
 

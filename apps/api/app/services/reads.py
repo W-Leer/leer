@@ -31,8 +31,9 @@ def list_runs_for_project(
     if status:
         base = base.where(Run.status == status)
 
-    if q:
-        pattern = f"%{q}%"
+    if q and q.strip():
+        escaped = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
         base = base.where(
             or_(
                 Run.workflow_name.ilike(pattern),
