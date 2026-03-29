@@ -28,9 +28,9 @@ export function formatDuration(ms: number | null): string {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  completed: "bg-emerald-50 text-emerald-700",
-  running: "bg-blue-50 text-blue-700",
-  failed: "bg-red-50 text-red-700",
+  completed: "bg-[var(--badge-success-bg)] text-[var(--badge-success-text)]",
+  running: "bg-[var(--badge-info-bg)] text-[var(--badge-info-text)]",
+  failed: "bg-[var(--badge-error-bg)] text-[var(--badge-error-text)]",
   pending: "bg-neutral-100 text-neutral-500",
 };
 

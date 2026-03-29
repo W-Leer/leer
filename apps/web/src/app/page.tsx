@@ -14,6 +14,7 @@ import type { ProjectRunsResponse, RunListItem } from "@/lib/types";
 type StatusFilter = "" | "completed" | "failed";
 type SortOrder = "newest" | "oldest";
 const PAGE_SIZE = 20;
+const SCROLL_KEY = "leer-runs-scroll";
 
 const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: "", label: "All" },
@@ -26,6 +27,55 @@ const SORT_OPTIONS: { value: SortOrder; label: string }[] = [
   { value: "oldest", label: "Oldest" },
 ];
 
+// ---------------------------------------------------------------------------
+// URL helpers
+// ---------------------------------------------------------------------------
+
+function parseUrlParams(): { q: string; status: StatusFilter; sort: SortOrder; limit: number } {
+  if (typeof window === "undefined") return { q: "", status: "", sort: "newest", limit: PAGE_SIZE };
+  const p = new URLSearchParams(window.location.search);
+  const st = p.get("status");
+  const so = p.get("sort");
+  return {
+    q: p.get("q") ?? "",
+    status: st === "completed" || st === "failed" ? st : "",
+    sort: so === "newest" || so === "oldest" ? so : "newest",
+    limit: Math.min(100, Math.max(PAGE_SIZE, parseInt(p.get("limit") ?? "", 10) || PAGE_SIZE)),
+  };
+}
+
+function buildUrl(q: string, status: StatusFilter, sort: SortOrder, limit: number): string {
+  const p = new URLSearchParams();
+  if (q) p.set("q", q);
+  if (status) p.set("status", status);
+  if (sort !== "newest") p.set("sort", sort);
+  if (limit > PAGE_SIZE) p.set("limit", String(limit));
+  const qs = p.toString();
+  return qs ? `/?${qs}` : "/";
+}
+
+// ---------------------------------------------------------------------------
+// Scroll helpers — targets <main> in Shell
+// ---------------------------------------------------------------------------
+
+function saveScrollPosition() {
+  const main = document.querySelector("main");
+  if (main) sessionStorage.setItem(SCROLL_KEY, String(main.scrollTop));
+}
+
+function restoreScrollPosition() {
+  const main = document.querySelector("main");
+  const saved = sessionStorage.getItem(SCROLL_KEY);
+  if (main && saved) {
+    main.scrollTop = parseInt(saved, 10);
+    sessionStorage.removeItem(SCROLL_KEY);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Page component
+// ---------------------------------------------------------------------------
+
 export default function HomePage() {
   const [runs, setRuns] = useState<RunListItem[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -35,22 +85,26 @@ export default function HomePage() {
   const [searching, setSearching] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("");
-  const [sort, setSort] = useState<SortOrder>("newest");
+  const initParams = useRef(parseUrlParams());
+  const [query, setQuery] = useState(initParams.current.q);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(initParams.current.status);
+  const [sort, setSort] = useState<SortOrder>(initParams.current.sort);
+
   const searchRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const fetchIdRef = useRef(0);
+  const loadedCountRef = useRef(0);
+  const isPopstateRef = useRef(false);
+  const nextLimitRef = useRef(initParams.current.limit);
 
   const fetchRuns = useCallback(
-    async (q: string, status: StatusFilter, sortOrder: SortOrder, offset: number, append: boolean) => {
+    async (q: string, status: StatusFilter, sortOrder: SortOrder, offset: number, limit: number, append: boolean) => {
       const id = ++fetchIdRef.current;
-
       const params = new URLSearchParams();
       if (q) params.set("q", q);
       if (status) params.set("status", status);
       params.set("sort", sortOrder);
-      params.set("limit", String(PAGE_SIZE));
+      params.set("limit", String(limit));
       params.set("offset", String(offset));
 
       const data = await apiFetch<ProjectRunsResponse>(
@@ -62,10 +116,13 @@ export default function HomePage() {
       if (append) {
         setRuns((prev) => {
           const existing = new Set(prev.map((r) => r.id));
-          return [...prev, ...data.runs.filter((r) => !existing.has(r.id))];
+          const merged = [...prev, ...data.runs.filter((r) => !existing.has(r.id))];
+          loadedCountRef.current = merged.length;
+          return merged;
         });
       } else {
         setRuns(data.runs);
+        loadedCountRef.current = data.runs.length;
       }
       setTotalCount(data.total_count);
       setHasMore(data.has_more);
@@ -73,36 +130,77 @@ export default function HomePage() {
     [],
   );
 
-  const prevFiltersRef = useRef({ query, statusFilter, sort });
+  // Main data effect — handles mount, filter/sort changes, debounced search, popstate
+  const prevRef = useRef({ query, statusFilter, sort });
+  const didMountRef = useRef(false);
   useEffect(() => {
-    const prev = prevFiltersRef.current;
-    prevFiltersRef.current = { query, statusFilter, sort };
+    const prev = prevRef.current;
+    prevRef.current = { query, statusFilter, sort };
     clearTimeout(debounceRef.current);
+
+    const isMount = !didMountRef.current;
+    didMountRef.current = true;
+
+    const popstate = isPopstateRef.current;
+    isPopstateRef.current = false;
 
     const searchChanged = query !== prev.query;
     const filtersChanged = statusFilter !== prev.statusFilter || sort !== prev.sort;
 
-    function doFetch() {
+    function execute() {
       setError(null);
-      if (!runs.length) setInitialLoad(true);
+      const limit = isMount || popstate ? nextLimitRef.current : PAGE_SIZE;
+      nextLimitRef.current = PAGE_SIZE;
+
+      if (loadedCountRef.current === 0) setInitialLoad(true);
       else setSearching(true);
-      fetchRuns(query, statusFilter, sort, 0, false)
+
+      fetchRuns(query, statusFilter, sort, 0, limit, false)
         .catch((err) => setError(err.message))
-        .finally(() => { setInitialLoad(false); setSearching(false); });
+        .finally(() => {
+          setInitialLoad(false);
+          setSearching(false);
+
+          if (!popstate && !isMount) {
+            const url = buildUrl(query, statusFilter, sort, PAGE_SIZE);
+            if (filtersChanged) {
+              window.history.pushState(null, "", url);
+            } else {
+              window.history.replaceState(null, "", url);
+            }
+          }
+
+          if (isMount) {
+            requestAnimationFrame(restoreScrollPosition);
+          }
+        });
     }
 
-    if (filtersChanged) {
-      doFetch();
+    if (isMount || popstate || filtersChanged) {
+      execute();
     } else if (searchChanged) {
-      debounceRef.current = setTimeout(doFetch, 250);
-    } else {
-      doFetch();
+      debounceRef.current = setTimeout(execute, 250);
     }
 
     return () => clearTimeout(debounceRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, statusFilter, sort]);
 
+  // Popstate: sync URL → state
+  useEffect(() => {
+    function onPopstate() {
+      const p = parseUrlParams();
+      isPopstateRef.current = true;
+      nextLimitRef.current = p.limit;
+      setQuery(p.q);
+      setStatusFilter(p.status);
+      setSort(p.sort);
+    }
+    window.addEventListener("popstate", onPopstate);
+    return () => window.removeEventListener("popstate", onPopstate);
+  }, []);
+
+  // "/" keyboard shortcut
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "/" && document.activeElement?.tagName !== "INPUT") {
@@ -116,9 +214,14 @@ export default function HomePage() {
 
   function loadMore() {
     setLoadingMore(true);
-    fetchRuns(query, statusFilter, sort, runs.length, true)
+    const offset = loadedCountRef.current;
+    fetchRuns(query, statusFilter, sort, offset, PAGE_SIZE, true)
       .catch((err) => setError(err.message))
-      .finally(() => setLoadingMore(false));
+      .finally(() => {
+        setLoadingMore(false);
+        const url = buildUrl(query, statusFilter, sort, loadedCountRef.current);
+        window.history.replaceState(null, "", url);
+      });
   }
 
   const loading = initialLoad;
@@ -127,7 +230,7 @@ export default function HomePage() {
     <div className="-mx-10 -mt-8">
       {/* ── Sticky header ── */}
       <div className="sticky top-0 z-10 border-b border-neutral-100 bg-[var(--background)]/80 backdrop-blur-sm">
-        <div className="max-w-5xl px-10 pb-4 pt-8">
+        <div className="max-w-6xl px-10 pb-4 pt-8">
           {/* Title */}
           <div className="mb-5">
             <h1 className="text-[17px] font-semibold tracking-tight text-neutral-900">Runs</h1>
@@ -137,7 +240,7 @@ export default function HomePage() {
           {/* Control bar */}
           <div className="flex items-center gap-3">
             {/* Search */}
-            <div className="relative flex-1 max-w-md">
+            <div className="relative flex-1 max-w-lg">
               <svg className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
               </svg>
@@ -208,7 +311,7 @@ export default function HomePage() {
       </div>
 
       {/* ── Run list ── */}
-      <div className="max-w-5xl px-10 pb-12 pt-4">
+      <div className="max-w-6xl px-10 pb-12 pt-4">
         {loading ? (
           <div className="space-y-1">
             {[...Array(5)].map((_, i) => (
@@ -216,7 +319,7 @@ export default function HomePage() {
             ))}
           </div>
         ) : error ? (
-          <div className="rounded-lg bg-red-50 p-5 text-center text-sm text-red-600">
+          <div className="rounded-lg bg-[var(--tint-error-block)] p-5 text-center text-sm text-[var(--error-text)]">
             Failed to load runs: {error}
           </div>
         ) : runs.length === 0 ? (
@@ -259,6 +362,10 @@ export default function HomePage() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
 function SkeletonCard() {
   return (
     <div className="animate-pulse rounded-lg px-4 py-4">
@@ -280,12 +387,13 @@ function RunCard({ run }: { run: RunListItem }) {
   const failed = run.status === "failed";
   const preview = formatSummary(run.output_summary, 160);
   const accent = failed
-    ? "bg-red-200 group-hover:bg-red-500"
+    ? "bg-[var(--accent-fail)] group-hover:bg-[var(--accent-fail-hover)]"
     : "bg-transparent group-hover:bg-neutral-800";
 
   return (
     <Link
       href={`/runs/${run.id}`}
+      onClick={saveScrollPosition}
       className="group flex items-stretch rounded-lg transition-all duration-100 hover:bg-neutral-50 hover:shadow-[0_1px_3px_rgba(0,0,0,0.04)]"
     >
       <div className={`w-[2px] shrink-0 rounded-l-lg transition-colors duration-150 ${accent}`} />

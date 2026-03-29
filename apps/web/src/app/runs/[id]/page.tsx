@@ -37,7 +37,7 @@ export default function RunDetailPage() {
 
   if (error) {
     return (
-      <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+      <div className="rounded-lg bg-[var(--tint-error-block)] p-4 text-sm text-[var(--error-text)]">
         Failed to load run: {error}
       </div>
     );
@@ -223,32 +223,32 @@ function ErrorBlock({ data }: { data: Record<string, unknown> }) {
   return (
     <div className="mt-6">
       <div className="mb-1.5 flex items-center justify-between">
-        <span className="text-xs font-medium text-red-500">Error</span>
+        <span className="text-xs font-medium text-[var(--error-accent)]">Error</span>
         <div className="flex items-center gap-1">
           <CopyButton text={raw ? rawText : (detail ?? headline)} />
           <RawToggle raw={raw} onToggle={() => setRaw(!raw)} />
         </div>
       </div>
-      <div className="rounded-md bg-red-50/60 px-4 py-3">
+      <div className="rounded-md bg-[var(--tint-error-block)] px-4 py-3">
         {raw ? (
-          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-red-700">
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-[var(--error-text)]">
             {rawText}
           </pre>
         ) : (
           <>
-            <p className="font-mono text-[13px] font-medium leading-snug text-red-800">
+            <p className="font-mono text-[13px] font-medium leading-snug text-[var(--error-text-emphasis)]">
               {headline}
             </p>
             {detail && detail !== headline && (
               <>
                 <button
                   onClick={() => setExpanded(!expanded)}
-                  className="mt-2.5 text-xs font-medium text-red-500 hover:text-red-700"
+                  className="mt-2.5 text-xs font-medium text-[var(--error-accent)] hover:text-[var(--error-text)]"
                 >
                   {expanded ? "Hide full traceback" : "Show full traceback"}
                 </button>
                 {expanded && (
-                  <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-red-600/80">
+                  <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-[var(--error-text-muted)]">
                     {detail}
                   </pre>
                 )}
@@ -298,7 +298,7 @@ function StepCard({
   const dotColor = expanded
     ? "border-neutral-500 bg-neutral-500"
     : step.status === "failed"
-      ? "border-red-400 bg-red-400"
+      ? "border-[var(--error-dot)] bg-[var(--error-dot)]"
       : "border-neutral-300 bg-white";
 
   return (
@@ -413,9 +413,9 @@ function StepSection({
   children: React.ReactNode;
 }) {
   const bg = {
-    input: "bg-blue-50/40",
-    output: "bg-neutral-50/70",
-    error: "bg-red-50/40",
+    input: "bg-[var(--tint-input)]",
+    output: "bg-[var(--tint-output)]",
+    error: "bg-[var(--tint-error)]",
   }[variant];
 
   return (
@@ -476,22 +476,22 @@ function InlineError({ data }: { data: Record<string, unknown> }) {
         <RawToggle raw={raw} onToggle={() => setRaw(!raw)} />
       </div>
       {raw ? (
-        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-red-700">
+        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-[var(--error-text)]">
           {rawText}
         </pre>
       ) : (
         <>
-          <p className="font-mono text-[13px] font-medium leading-snug text-red-800">{headline}</p>
+          <p className="font-mono text-[13px] font-medium leading-snug text-[var(--error-text-emphasis)]">{headline}</p>
           {detail && detail !== headline && (
             <>
               <button
                 onClick={() => setExpanded(!expanded)}
-                className="mt-2 text-xs font-medium text-red-500 hover:text-red-700"
+                className="mt-2 text-xs font-medium text-[var(--error-accent)] hover:text-[var(--error-text)]"
               >
                 {expanded ? "Hide full traceback" : "Show full traceback"}
               </button>
               {expanded && (
-                <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-red-600/80">
+                <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-[var(--error-text-muted)]">
                   {detail}
                 </pre>
               )}

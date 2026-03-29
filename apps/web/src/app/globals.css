@@ -1,13 +1,114 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #fafafa;
   --foreground: #111111;
+
+  --neutral-50: #fafafa;
+  --neutral-100: #f5f5f5;
+  --neutral-200: #e5e5e5;
+  --neutral-300: #d4d4d4;
+  --neutral-400: #a3a3a3;
+  --neutral-500: #737373;
+  --neutral-600: #525252;
+  --neutral-700: #404040;
+  --neutral-800: #262626;
+  --neutral-900: #171717;
+  --neutral-950: #0a0a0a;
+  --white: #ffffff;
+
+  --badge-success-bg: #ecfdf5;
+  --badge-success-text: #047857;
+  --badge-error-bg: #fef2f2;
+  --badge-error-text: #b91c1c;
+  --badge-info-bg: #eff6ff;
+  --badge-info-text: #1d4ed8;
+
+  --tint-input: rgba(239, 246, 255, 0.4);
+  --tint-output: rgba(245, 245, 245, 0.7);
+  --tint-error: rgba(254, 242, 242, 0.4);
+  --tint-error-block: rgba(254, 242, 242, 0.6);
+  --tint-diff: rgba(255, 251, 235, 0.3);
+  --tint-diff-strong: rgba(255, 251, 235, 0.4);
+  --tint-diff-row: rgba(255, 251, 235, 0.6);
+  --tint-diff-error-row: rgba(254, 242, 242, 0.6);
+
+  --diff-badge-bg: #fef3c7;
+  --diff-badge-text: #b45309;
+
+  --error-text: #b91c1c;
+  --error-text-emphasis: #991b1b;
+  --error-accent: #ef4444;
+  --error-text-muted: rgba(220, 38, 38, 0.8);
+
+  --accent-fail: #fecaca;
+  --accent-fail-hover: #ef4444;
+  --error-dot: #f87171;
+}
+
+.dark {
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+
+  --neutral-50: #141414;
+  --neutral-100: #1c1c1c;
+  --neutral-200: #2c2c2c;
+  --neutral-300: #3f3f3f;
+  --neutral-400: #737373;
+  --neutral-500: #a3a3a3;
+  --neutral-600: #c4c4c4;
+  --neutral-700: #d4d4d4;
+  --neutral-800: #e5e5e5;
+  --neutral-900: #f0f0f0;
+  --neutral-950: #fafafa;
+  --white: #161616;
+
+  --badge-success-bg: #052e16;
+  --badge-success-text: #6ee7b7;
+  --badge-error-bg: #450a0a;
+  --badge-error-text: #fca5a5;
+  --badge-info-bg: #1e3a5f;
+  --badge-info-text: #93c5fd;
+
+  --tint-input: rgba(30, 58, 138, 0.15);
+  --tint-output: rgba(38, 38, 38, 0.4);
+  --tint-error: rgba(127, 29, 29, 0.15);
+  --tint-error-block: rgba(127, 29, 29, 0.25);
+  --tint-diff: rgba(120, 53, 15, 0.12);
+  --tint-diff-strong: rgba(120, 53, 15, 0.18);
+  --tint-diff-row: rgba(120, 53, 15, 0.25);
+  --tint-diff-error-row: rgba(127, 29, 29, 0.25);
+
+  --diff-badge-bg: #78350f;
+  --diff-badge-text: #fcd34d;
+
+  --error-text: #fca5a5;
+  --error-text-emphasis: #fecaca;
+  --error-accent: #f87171;
+  --error-text-muted: rgba(248, 113, 113, 0.8);
+
+  --accent-fail: #7f1d1d;
+  --accent-fail-hover: #ef4444;
+  --error-dot: #f87171;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-white: var(--white);
+  --color-neutral-50: var(--neutral-50);
+  --color-neutral-100: var(--neutral-100);
+  --color-neutral-200: var(--neutral-200);
+  --color-neutral-300: var(--neutral-300);
+  --color-neutral-400: var(--neutral-400);
+  --color-neutral-500: var(--neutral-500);
+  --color-neutral-600: var(--neutral-600);
+  --color-neutral-700: var(--neutral-700);
+  --color-neutral-800: var(--neutral-800);
+  --color-neutral-900: var(--neutral-900);
+  --color-neutral-950: var(--neutral-950);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }

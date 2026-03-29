@@ -28,7 +28,7 @@ export default function ComparePage() {
 
   if (error) {
     return (
-      <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+      <div className="rounded-lg bg-[var(--tint-error-block)] p-4 text-sm text-[var(--error-text)]">
         Failed to load comparison: {error}
       </div>
     );
@@ -87,7 +87,7 @@ function RunDiffSection({ diff }: { diff: CompareRunDiff }) {
   const hasDiff = diff.status_diff || diff.output_diff || diff.error_diff;
 
   return (
-    <section className={`mb-8 rounded-lg p-5 ${hasDiff ? "bg-amber-50/30 shadow-[0_1px_4px_rgba(0,0,0,0.05)]" : "bg-white shadow-[0_1px_4px_rgba(0,0,0,0.05)]"}`}>
+    <section className={`mb-8 rounded-lg p-5 ${hasDiff ? "bg-[var(--tint-diff)] shadow-[0_1px_4px_rgba(0,0,0,0.05)]" : "bg-white shadow-[0_1px_4px_rgba(0,0,0,0.05)]"}`}>
       <h2 className="mb-5 text-lg font-semibold tracking-tight">Run Result</h2>
 
       <div className="space-y-5">
@@ -114,9 +114,9 @@ function StepDiffCard({ step }: { step: CompareStepDiff }) {
   const missing = !step.exists_in_a || !step.exists_in_b;
 
   const cardStyle = missing
-    ? "bg-amber-50/40 shadow-[0_1px_4px_rgba(0,0,0,0.05)]"
+    ? "bg-[var(--tint-diff-strong)] shadow-[0_1px_4px_rgba(0,0,0,0.05)]"
     : hasDiff
-      ? "bg-amber-50/30 shadow-[0_1px_4px_rgba(0,0,0,0.05)]"
+      ? "bg-[var(--tint-diff)] shadow-[0_1px_4px_rgba(0,0,0,0.05)]"
       : "bg-white shadow-[0_1px_4px_rgba(0,0,0,0.05)]";
 
   const stepName = step.name_a ?? step.name_b ?? "—";
@@ -131,7 +131,7 @@ function StepDiffCard({ step }: { step: CompareStepDiff }) {
           {stepType}
         </span>
         {missing && (
-          <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[10px] font-medium text-amber-700">
+          <span className="rounded-full bg-[var(--diff-badge-bg)] px-2.5 py-0.5 text-[10px] font-medium text-[var(--diff-badge-text)]">
             {!step.exists_in_a ? "missing in A" : "missing in B"}
           </span>
         )}
@@ -172,7 +172,7 @@ function DiffRow({
   children: [React.ReactNode, React.ReactNode];
 }) {
   const bg = diff
-    ? isError ? "bg-red-50/60" : "bg-amber-50/60"
+    ? isError ? "bg-[var(--tint-diff-error-row)]" : "bg-[var(--tint-diff-row)]"
     : "bg-neutral-50/50";
 
   return (
@@ -180,7 +180,7 @@ function DiffRow({
       <div className="mb-2.5 flex items-center gap-2 text-[11px] font-medium text-neutral-400">
         {label}
         {diff && (
-          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-700">
+          <span className="rounded bg-[var(--diff-badge-bg)] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[var(--diff-badge-text)]">
             changed
           </span>
         )}
@@ -202,7 +202,7 @@ function DiffCellText({
   value: string | null;
   isError?: boolean;
 }) {
-  const textColor = isError ? "text-red-700" : "text-neutral-700";
+  const textColor = isError ? "text-[var(--error-text)]" : "text-neutral-700";
 
   return (
     <div>
@@ -231,7 +231,7 @@ function DataDiffRow({
 }) {
   const [raw, setRaw] = useState(false);
   const hasAny = dataA != null || dataB != null;
-  const bg = diff ? "bg-amber-50/60" : "bg-neutral-50/50";
+  const bg = diff ? "bg-[var(--tint-diff-row)]" : "bg-neutral-50/50";
 
   return (
     <div className={`rounded-md px-4 py-3 ${bg}`}>
@@ -239,7 +239,7 @@ function DataDiffRow({
         <span className="flex items-center gap-2">
           {label}
           {diff && (
-            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-700">
+            <span className="rounded bg-[var(--diff-badge-bg)] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[var(--diff-badge-text)]">
               changed
             </span>
           )}
