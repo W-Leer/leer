@@ -16,6 +16,7 @@ import {
 } from "@/lib/format";
 import type { TimelineResponse, TimelineStep, TimelineEvent } from "@/lib/types";
 import { StructuredValue } from "@/components/structured-value";
+import { LlmStepDetail } from "@/components/llm-step-detail";
 import { GitCompareArrows } from "lucide-react";
 
 export default function RunDetailPage() {
@@ -309,6 +310,9 @@ function StepCard({
               </span>
             </div>
             <div className="flex items-center gap-4 text-[11px] text-neutral-400">
+              {step.model_name && (
+                <span className="font-mono text-neutral-500">{step.model_name}</span>
+              )}
               <span>{stepDuration(step)}</span>
               <span className="font-mono">#{step.sequence_index}</span>
             </div>
@@ -322,7 +326,11 @@ function StepCard({
           }`}
         >
           <div className="overflow-hidden">
-            <StepDetailPanel step={step} />
+            {step.llm ? (
+              <LlmStepDetail llm={step.llm} errorSummary={step.error_summary} />
+            ) : (
+              <StepDetailPanel step={step} />
+            )}
           </div>
         </div>
       </div>
