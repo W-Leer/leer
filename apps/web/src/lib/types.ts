@@ -123,25 +123,50 @@ export interface CompareRunSummary {
   workflow_name: string;
   status: string;
   created_at: string;
+  total_steps: number;
+  total_duration_ms: number | null;
 }
 
 export interface CompareStepDiff {
-  sequence_index: number;
+  match_kind: "exact_name" | "fallback_type_index" | "missing";
+  exists_in_a: boolean;
+  exists_in_b: boolean;
+
+  sequence_index_a: number | null;
+  sequence_index_b: number | null;
+
   name_a: string | null;
   name_b: string | null;
   step_type_a: string | null;
   step_type_b: string | null;
-  exists_in_a: boolean;
-  exists_in_b: boolean;
+
   status_a: string | null;
   status_b: string | null;
   status_diff: boolean;
+
+  input_summary_a: Record<string, unknown> | null;
+  input_summary_b: Record<string, unknown> | null;
+  input_diff: boolean;
+
   output_summary_a: Record<string, unknown> | null;
   output_summary_b: Record<string, unknown> | null;
   output_diff: boolean;
+
   error_summary_a: Record<string, unknown> | null;
   error_summary_b: Record<string, unknown> | null;
   error_diff: boolean;
+
+  duration_ms_a: number | null;
+  duration_ms_b: number | null;
+
+  model_provider_a: string | null;
+  model_provider_b: string | null;
+
+  model_name_a: string | null;
+  model_name_b: string | null;
+
+  llm_a: LLMShape | null;
+  llm_b: LLMShape | null;
 }
 
 export interface CompareRunDiff {

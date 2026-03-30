@@ -17,13 +17,10 @@ import type {
   LLMShape,
   ProjectRunsResponse,
   RunListItem,
-  TimelineResponse,
   TimelineRun,
 } from "@/lib/types";
 
 type Dict = Record<string, unknown>;
-type LlmPair = { a: LLMShape | null; b: LLMShape | null };
-type LlmMap = Map<number, LlmPair>;
 
 function toSelected(run: TimelineRun | CompareRunSummary): SelectedRun {
   return {
@@ -52,7 +49,6 @@ function ComparePage() {
   const [runA, setRunA] = useState<SelectedRun | null>(null);
   const [runB, setRunB] = useState<SelectedRun | null>(null);
   const [compareData, setCompareData] = useState<CompareResponse | null>(null);
-  const [llmMap, setLlmMap] = useState<LlmMap>(new Map());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [quickPicks, setQuickPicks] = useState<RunListItem[]>([]);
@@ -91,28 +87,11 @@ function ComparePage() {
     setLoading(true);
     setError(null);
     setCompareData(null);
-    setLlmMap(new Map());
     try {
-      const [data, tlA, tlB] = await Promise.all([
-        apiFetch<CompareResponse>(`/v1/runs/${a}/compare/${b}`),
-        apiFetch<TimelineResponse>(`/v1/runs/${a}/timeline`),
-        apiFetch<TimelineResponse>(`/v1/runs/${b}/timeline`),
-      ]);
-
-      const map: LlmMap = new Map();
-      for (const s of tlA.steps) {
-        map.set(s.sequence_index, { a: s.llm, b: null });
-      }
-      for (const s of tlB.steps) {
-        const entry = map.get(s.sequence_index) ?? { a: null, b: null };
-        entry.b = s.llm;
-        map.set(s.sequence_index, entry);
-      }
-
+      const data = await apiFetch<CompareResponse>(`/v1/runs/${a}/compare/${b}`);
       setCompareData(data);
       setRunA(toSelected(data.run_a));
       setRunB(toSelected(data.run_b));
-      setLlmMap(map);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to compare runs");
     } finally {
@@ -273,7 +252,7 @@ function ComparePage() {
         </div>
       )}
 
-      {compareData && <CompareResults data={compareData} llmMap={llmMap} />}
+      {compareData && <CompareResults data={compareData} />}
     </div>
   );
 }
@@ -304,7 +283,11 @@ function QuickPickChip({ run, onClick }: { run: RunListItem; onClick: () => void
 // Comparison results
 // ===========================================================================
 
-function CompareResults({ data, llmMap }: { data: CompareResponse; llmMap: LlmMap }) {
+function CompareResults({ data }: { data: CompareResponse }) {
+  const matchedCount = data.steps.filter((s) => s.match_kind !== "missing").length;
+  const missingCount = data.steps.filter((s) => s.match_kind === "missing").length;
+  const lowOverlap = data.steps.length > 0 && matchedCount === 0;
+
   return (
     <div>
       <div className="mb-6 grid grid-cols-2 gap-4">
@@ -315,22 +298,31 @@ function CompareResults({ data, llmMap }: { data: CompareResponse; llmMap: LlmMa
       <RunDiffSection diff={data.run_diff} />
 
       <section>
-        <h2 className="mb-5 text-[13px] font-semibold tracking-tight text-neutral-900">Steps</h2>
+        <div className="mb-5 flex items-center gap-3">
+          <h2 className="text-[13px] font-semibold tracking-tight text-neutral-900">Steps</h2>
+          {data.steps.length > 0 && (
+            <span className="text-[11px] text-neutral-400">
+              {matchedCount} matched · {missingCount} missing
+            </span>
+          )}
+        </div>
+
+        {lowOverlap && (
+          <div className="mb-4 flex items-start gap-2.5 rounded-lg bg-neutral-50 px-4 py-2.5">
+            <Lightbulb size={13} className="mt-0.5 shrink-0 text-neutral-400" />
+            <p className="text-[11px] leading-relaxed text-neutral-400">
+              Low structural overlap between these runs. Most steps could not be matched.
+            </p>
+          </div>
+        )}
+
         {data.steps.length === 0 ? (
           <p className="text-sm text-neutral-500">No steps to compare.</p>
         ) : (
           <div className="space-y-5">
-            {data.steps.map((step) => {
-              const pair = llmMap.get(step.sequence_index);
-              return (
-                <StepDiffCard
-                  key={step.sequence_index}
-                  step={step}
-                  llmA={pair?.a ?? null}
-                  llmB={pair?.b ?? null}
-                />
-              );
-            })}
+            {data.steps.map((step, i) => (
+              <StepDiffCard key={i} step={step} />
+            ))}
           </div>
         )}
       </section>
@@ -350,7 +342,15 @@ function RunSummaryCard({ label, run }: { label: string; run: CompareRunSummary 
           {run.status}
         </span>
       </div>
-      <div className="mt-1 text-sm text-neutral-500">{formatDate(run.created_at)}</div>
+      <div className="mt-1 flex items-center gap-3 text-sm text-neutral-500">
+        <span>{formatDate(run.created_at)}</span>
+        {run.total_steps > 0 && (
+          <span className="text-xs text-neutral-400">{run.total_steps} steps</span>
+        )}
+        {run.total_duration_ms != null && (
+          <span className="text-xs text-neutral-400">{formatDuration(run.total_duration_ms)}</span>
+        )}
+      </div>
       <div className="mt-0.5 font-mono text-xs text-neutral-400">
         <Link href={`/runs/${run.id}`} className="hover:text-neutral-600">
           {run.id.slice(0, 8)}
@@ -401,18 +401,11 @@ function RunDiffSection({ diff }: { diff: CompareRunDiff }) {
 // Step diff card — switches between generic and LLM-aware rendering
 // ===========================================================================
 
-function StepDiffCard({
-  step,
-  llmA,
-  llmB,
-}: {
-  step: CompareStepDiff;
-  llmA: LLMShape | null;
-  llmB: LLMShape | null;
-}) {
-  const hasDiff = step.status_diff || step.output_diff || step.error_diff;
-  const missing = !step.exists_in_a || !step.exists_in_b;
-  const isLlm = !!llmA || !!llmB;
+function StepDiffCard({ step }: { step: CompareStepDiff }) {
+  const hasDiff = step.status_diff || step.output_diff || step.error_diff || step.input_diff;
+  const missing = step.match_kind === "missing";
+  const isFallback = step.match_kind === "fallback_type_index";
+  const isLlm = !!step.llm_a || !!step.llm_b;
 
   const cardStyle = missing
     ? "bg-[var(--tint-diff-strong)] shadow-[0_1px_4px_rgba(0,0,0,0.05)]"
@@ -420,33 +413,13 @@ function StepDiffCard({
       ? "bg-[var(--tint-diff)] shadow-[0_1px_4px_rgba(0,0,0,0.05)]"
       : "bg-white shadow-[0_1px_4px_rgba(0,0,0,0.05)]";
 
-  const stepName = step.name_a ?? step.name_b ?? "—";
-  const stepType = step.step_type_a ?? step.step_type_b ?? "—";
-
   return (
     <div className={`rounded-lg p-5 ${cardStyle}`}>
-      <div className="mb-5 flex items-center gap-2">
-        <span className="font-mono text-xs text-neutral-400">#{step.sequence_index}</span>
-        <span className="text-[13px] font-semibold tracking-tight text-neutral-900">
-          {stepName}
-        </span>
-        <span className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${
-          isLlm
-            ? "bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400"
-            : "bg-neutral-100 text-neutral-400"
-        }`}>
-          {stepType}
-        </span>
-        {missing && (
-          <span className="rounded-full bg-[var(--diff-badge-bg)] px-2.5 py-0.5 text-[10px] font-medium text-[var(--diff-badge-text)]">
-            {!step.exists_in_a ? "missing in A" : "missing in B"}
-          </span>
-        )}
-      </div>
+      <StepDiffHeader step={step} isLlm={isLlm} missing={missing} isFallback={isFallback} />
 
       <div className="space-y-5">
-        {/* LLM metadata diff — only for LLM steps */}
-        {isLlm && <LlmMetaDiff a={llmA} b={llmB} />}
+        {/* LLM metadata diff */}
+        {isLlm && <LlmMetaDiff a={step.llm_a} b={step.llm_b} />}
 
         {/* Status — always shown */}
         <DiffRow label="Status" diff={step.status_diff}>
@@ -454,12 +427,23 @@ function StepDiffCard({
           <DiffCellText side="B" value={step.status_b} />
         </DiffRow>
 
-        {/* Input — only for LLM steps */}
-        {isLlm && <LlmInputDiff a={llmA} b={llmB} />}
+        {/* Input — LLM-aware or generic */}
+        {isLlm ? (
+          <LlmInputDiff a={step.llm_a} b={step.llm_b} />
+        ) : (
+          (step.input_summary_a || step.input_summary_b) && (
+            <DataDiffRow
+              label="Input"
+              diff={step.input_diff}
+              dataA={step.input_summary_a}
+              dataB={step.input_summary_b}
+            />
+          )
+        )}
 
         {/* Output — LLM-aware or generic */}
         {isLlm ? (
-          <LlmOutputDiff a={llmA} b={llmB} diff={step.output_diff} />
+          <LlmOutputDiff a={step.llm_a} b={step.llm_b} diff={step.output_diff} />
         ) : (
           <DataDiffRow
             label="Output"
@@ -478,8 +462,90 @@ function StepDiffCard({
         )}
 
         {/* Usage — only for LLM steps */}
-        {isLlm && <LlmUsageDiff a={llmA} b={llmB} />}
+        {isLlm && <LlmUsageDiff a={step.llm_a} b={step.llm_b} />}
       </div>
+    </div>
+  );
+}
+
+// ===========================================================================
+// Step header — name, type, match labels, sequence indexes
+// ===========================================================================
+
+function StepDiffHeader({
+  step,
+  isLlm,
+  missing,
+  isFallback,
+}: {
+  step: CompareStepDiff;
+  isLlm: boolean;
+  missing: boolean;
+  isFallback: boolean;
+}) {
+  const nameA = step.name_a;
+  const nameB = step.name_b;
+  const namesMatch = nameA && nameB && nameA === nameB;
+  const displayName = namesMatch ? nameA : (nameA ?? nameB ?? "—");
+
+  const stepType = step.step_type_a ?? step.step_type_b ?? "—";
+
+  const idxA = step.sequence_index_a;
+  const idxB = step.sequence_index_b;
+  const idxLabel =
+    idxA != null && idxB != null
+      ? idxA === idxB
+        ? `#${idxA}`
+        : `#${idxA}→#${idxB}`
+      : idxA != null
+        ? `#${idxA}`
+        : idxB != null
+          ? `#${idxB}`
+          : null;
+
+  return (
+    <div className="mb-5 flex flex-wrap items-center gap-2">
+      {idxLabel && (
+        <span className="font-mono text-xs text-neutral-400">{idxLabel}</span>
+      )}
+      <span className="text-[13px] font-semibold tracking-tight text-neutral-900">
+        {displayName}
+      </span>
+      {!namesMatch && nameA && nameB && (
+        <span className="text-[11px] text-neutral-400">
+          → {nameB}
+        </span>
+      )}
+      <span
+        className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${
+          isLlm
+            ? "bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400"
+            : "bg-neutral-100 text-neutral-400"
+        }`}
+      >
+        {stepType}
+      </span>
+
+      {/* Duration A vs B */}
+      {(step.duration_ms_a != null || step.duration_ms_b != null) && (
+        <span className="text-[11px] text-neutral-400">
+          {step.duration_ms_a != null ? formatDuration(step.duration_ms_a) : "—"}
+          {step.exists_in_a && step.exists_in_b && " → "}
+          {step.exists_in_a && step.exists_in_b && (step.duration_ms_b != null ? formatDuration(step.duration_ms_b) : "—")}
+        </span>
+      )}
+
+      {/* Match kind labels */}
+      {missing && (
+        <span className="rounded-full bg-[var(--diff-badge-bg)] px-2.5 py-0.5 text-[10px] font-medium text-[var(--diff-badge-text)]">
+          {!step.exists_in_a ? "missing in A" : "missing in B"}
+        </span>
+      )}
+      {isFallback && (
+        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-400">
+          approx match
+        </span>
+      )}
     </div>
   );
 }
@@ -538,6 +604,11 @@ function MetaPills({ llm }: { llm: LLMShape | null }) {
       {llm.meta.finish_reason && (
         <span className="text-neutral-400">
           finish <span className="font-medium text-neutral-700">{llm.meta.finish_reason}</span>
+        </span>
+      )}
+      {llm.usage.total_tokens != null && (
+        <span className="text-neutral-400">
+          tokens <span className="font-medium tabular-nums text-neutral-700">{llm.usage.total_tokens.toLocaleString()}</span>
         </span>
       )}
     </div>
