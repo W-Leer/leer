@@ -55,10 +55,14 @@ class ArtifactPayload(BaseModel):
     id: UUID
     step_id: UUID | None = None
     artifact_type: str
+    role: str | None = None
+    format: str | None = None
     storage_kind: str
+    sequence_index: int | None = None
     mime_type: str | None = None
     inline_data: dict[str, Any] | None = None
     blob_path: str | None = None
+    preview_text: str | None = None
     metadata: dict[str, Any] = {}
 
 
@@ -209,9 +213,13 @@ class TimelineArtifact(BaseModel):
     id: UUID
     step_id: UUID | None = None
     artifact_type: str
+    role: str | None = None
+    format: str | None = Field(default=None, validation_alias="format_")
     storage_kind: str
+    sequence_index: int | None = None
     mime_type: str | None = None
     inline_data: dict[str, Any] | None = None
+    preview_text: str | None = None
     metadata: dict[str, Any] = Field(default={}, validation_alias="metadata_")
 
     model_config = {"from_attributes": True, "populate_by_name": True}

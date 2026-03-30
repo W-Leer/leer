@@ -46,9 +46,13 @@ class TraceArtifact:
     storage_kind: str = "inline"
     id: str = field(default_factory=_uuid)
     step_id: str | None = None
+    role: str | None = None
+    format: str | None = None
+    sequence_index: int | None = None
     mime_type: str | None = None
     inline_data: dict[str, Any] | None = None
     blob_path: str | None = None
+    preview_text: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

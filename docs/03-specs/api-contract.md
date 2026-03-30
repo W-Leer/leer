@@ -166,13 +166,17 @@ Represents payload objects associated with the run or steps.
   {
     "id": "uuid",
     "step_id": "uuid",
-    "artifact_type": "prompt",
+    "artifact_type": "llm_request",
+    "role": "input",
+    "format": "json",
     "storage_kind": "inline",
+    "sequence_index": 0,
     "mime_type": "application/json",
     "inline_data": {
-      "text": "Summarize this text"
+      "messages": [{"role": "user", "content": "Summarize this text"}]
     },
     "blob_path": null,
+    "preview_text": "user: Summarize this text",
     "metadata": {}
   }
 ]
@@ -186,14 +190,33 @@ Represents payload objects associated with the run or steps.
 
 ### Optional fields
 - step_id
+- role (input | output | intermediate)
+- format (json | text | markdown | file_ref)
+- sequence_index
 - mime_type
 - inline_data
 - blob_path
+- preview_text
+
+### artifact_type values
+- llm_request
+- llm_response
+- tool_call
+- tool_result
+- file
+- image
+- audio
+- document
+
+### storage_kind values
+- inline
+- blob (future: reference to blob storage)
 
 ### Notes
 For MVP:
 - inline artifacts are enough
 - blob-backed artifacts may be added later
+- preview_text provides a short human-readable summary
 
 ---
 

@@ -51,9 +51,8 @@ Fields:
 - file_ref
 
 ### storage_kind
-- inline_json
-- inline_text
-- blob_ref
+- inline
+- blob
 
 ---
 

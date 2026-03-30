@@ -146,13 +146,17 @@ class Artifact(Base):
     step_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("steps.id", ondelete="CASCADE"))
 
     artifact_type: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str | None] = mapped_column(Text)
+    format_: Mapped[str | None] = mapped_column("format", Text)
     storage_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    sequence_index: Mapped[int | None] = mapped_column(Integer)
 
     mime_type: Mapped[str | None] = mapped_column(Text)
     size_bytes: Mapped[int | None] = mapped_column(BigInteger)
 
     inline_data: Mapped[dict | None] = mapped_column(JSONB)
     blob_path: Mapped[str | None] = mapped_column(Text)
+    preview_text: Mapped[str | None] = mapped_column(Text)
 
     sha256: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default="now()")

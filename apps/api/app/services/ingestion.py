@@ -87,10 +87,14 @@ def ingest_run(session: Session, request: IngestRunRequest) -> uuid.UUID:
             run_id=request.run.id,
             step_id=a.step_id,
             artifact_type=a.artifact_type,
+            role=a.role,
+            format_=a.format,
             storage_kind=a.storage_kind,
+            sequence_index=a.sequence_index,
             mime_type=a.mime_type,
             inline_data=a.inline_data,
             blob_path=a.blob_path,
+            preview_text=a.preview_text,
             metadata_=a.metadata,
         )
         session.add(artifact)
