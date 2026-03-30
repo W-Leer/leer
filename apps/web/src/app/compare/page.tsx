@@ -317,7 +317,7 @@ function CompareResults({ data }: { data: CompareResponse }) {
       <RunDiffSection diff={data.run_diff} />
 
       <section>
-        <h2 className="mb-6 text-lg font-semibold tracking-tight text-neutral-900">Steps</h2>
+        <h2 className="mb-5 text-[13px] font-semibold tracking-tight text-neutral-900">Steps</h2>
         {data.steps.length === 0 ? (
           <p className="text-sm text-neutral-500">No steps to compare.</p>
         ) : (
@@ -335,7 +335,7 @@ function CompareResults({ data }: { data: CompareResponse }) {
 function RunSummaryCard({ label, run }: { label: string; run: CompareRunSummary }) {
   return (
     <div className="rounded-lg bg-white p-4 shadow-[0_1px_4px_rgba(0,0,0,0.05)]">
-      <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
+      <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
         {label}
       </div>
       <div className="flex items-center gap-2">
@@ -367,7 +367,7 @@ function RunDiffSection({ diff }: { diff: CompareRunDiff }) {
           : "bg-white shadow-[0_1px_4px_rgba(0,0,0,0.05)]"
       }`}
     >
-      <h2 className="mb-5 text-lg font-semibold tracking-tight text-neutral-900">Run Result</h2>
+      <h2 className="mb-5 text-[13px] font-semibold tracking-tight text-neutral-900">Run Result</h2>
 
       <div className="space-y-5">
         <DiffRow label="Status" diff={diff.status_diff}>
@@ -405,6 +405,7 @@ function StepDiffCard({ step }: { step: CompareStepDiff }) {
 
   const stepName = step.name_a ?? step.name_b ?? "—";
   const stepType = step.step_type_a ?? step.step_type_b ?? "—";
+  const isLlm = stepType === "llm";
 
   return (
     <div className={`rounded-lg p-5 ${cardStyle}`}>
@@ -413,7 +414,11 @@ function StepDiffCard({ step }: { step: CompareStepDiff }) {
         <span className="text-[13px] font-semibold tracking-tight text-neutral-900">
           {stepName}
         </span>
-        <span className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[10px] text-neutral-400">
+        <span className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${
+          isLlm
+            ? "bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400"
+            : "bg-neutral-100 text-neutral-400"
+        }`}>
           {stepType}
         </span>
         {missing && (
@@ -478,10 +483,10 @@ function DiffRow({
 
   return (
     <div className={`rounded-md px-4 py-3 ${bg}`}>
-      <div className="mb-2.5 flex items-center gap-2 text-[11px] font-medium text-neutral-400">
+      <div className="mb-2.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
         {label}
         {diff && (
-          <span className="rounded bg-[var(--diff-badge-bg)] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[var(--diff-badge-text)]">
+          <span className="rounded bg-[var(--diff-badge-bg)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--diff-badge-text)]">
             changed
           </span>
         )}
@@ -538,11 +543,11 @@ function DataDiffRow({
 
   return (
     <div className={`rounded-md px-4 py-3 ${bg}`}>
-      <div className="mb-2.5 flex items-center gap-2 text-[11px] font-medium text-neutral-400">
+      <div className="mb-2.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
         <span className="flex items-center gap-2">
           {label}
           {diff && (
-            <span className="rounded bg-[var(--diff-badge-bg)] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[var(--diff-badge-text)]">
+            <span className="rounded bg-[var(--diff-badge-bg)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--diff-badge-text)]">
               changed
             </span>
           )}

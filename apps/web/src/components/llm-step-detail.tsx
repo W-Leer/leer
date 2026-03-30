@@ -40,6 +40,10 @@ function RawToggle({ raw, onToggle }: { raw: boolean; onToggle: () => void }) {
   );
 }
 
+function EmptyHint({ text }: { text: string }) {
+  return <p className="py-0.5 text-xs italic text-neutral-400">{text}</p>;
+}
+
 const ROLE_STYLES: Record<string, string> = {
   system: "text-violet-500/80 dark:text-violet-400/70",
   developer: "text-violet-500/80 dark:text-violet-400/70",
@@ -62,6 +66,7 @@ export function LlmStepDetail({
   const [raw, setRaw] = useState(false);
   const rawText = JSON.stringify(llm, null, 2);
 
+  const hasInput = !!llm.input.system || llm.input.messages.length > 0 || llm.input.tools.length > 0 || Object.keys(llm.input.params).length > 0;
   const hasOutput = !!llm.output.text || llm.output.tool_calls.length > 0;
   const hasError = errorSummary && Object.keys(errorSummary).length > 0;
 
@@ -82,8 +87,10 @@ export function LlmStepDetail({
         </pre>
       ) : (
         <>
-          <InputSection llm={llm} />
-          {(hasOutput || !hasError) && <OutputSection llm={llm} />}
+          {hasInput && <InputSection llm={llm} />}
+          {!hasInput && !hasError && <EmptyHint text="No prompt captured" />}
+          {hasOutput && <OutputSection llm={llm} />}
+          {!hasOutput && !hasError && <EmptyHint text="No response captured" />}
           {hasError && <ErrorSection data={errorSummary!} />}
           <UsageRow usage={llm.usage} />
         </>
@@ -141,31 +148,22 @@ function MetadataRow({ llm }: { llm: LLMShape }) {
 
 function InputSection({ llm }: { llm: LLMShape }) {
   const input = llm.input;
-  const hasSystem = !!input.system;
-  const hasMessages = input.messages.length > 0;
-  const hasTools = input.tools.length > 0;
-  const hasParams = Object.keys(input.params).length > 0;
-  const hasContent = hasSystem || hasMessages || hasTools || hasParams;
 
   return (
     <div className="rounded-md bg-[var(--tint-input)] px-4 py-3">
       <div className="mb-2.5 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
         Input
       </div>
-      {!hasContent ? (
-        <p className="py-0.5 text-xs italic text-neutral-400">No prompt captured</p>
-      ) : (
-        <div className="space-y-4">
-          {hasSystem && <MessageBlock role="system" content={input.system!} />}
-          {input.messages.map((msg, i) => {
-            const role = (msg.role as string) ?? "unknown";
-            const content = extractMessageContent(msg);
-            return <MessageBlock key={i} role={role} content={content} />;
-          })}
-          {hasTools && <ToolsList tools={input.tools} />}
-          {hasParams && <ParamsBlock params={input.params} />}
-        </div>
-      )}
+      <div className="space-y-4">
+        {input.system && <MessageBlock role="system" content={input.system} />}
+        {input.messages.map((msg, i) => {
+          const role = (msg.role as string) ?? "unknown";
+          const content = extractMessageContent(msg);
+          return <MessageBlock key={i} role={role} content={content} />;
+        })}
+        {input.tools.length > 0 && <ToolsList tools={input.tools} />}
+        {Object.keys(input.params).length > 0 && <ParamsBlock params={input.params} />}
+      </div>
     </div>
   );
 }
@@ -243,27 +241,20 @@ function ParamsBlock({ params }: { params: Record<string, unknown> }) {
 
 function OutputSection({ llm }: { llm: LLMShape }) {
   const output = llm.output;
-  const hasText = !!output.text;
-  const hasToolCalls = output.tool_calls.length > 0;
-  const hasContent = hasText || hasToolCalls;
 
   return (
     <div className="rounded-md bg-[var(--tint-output)] px-4 py-3">
       <div className="mb-2.5 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
         Output
       </div>
-      {!hasContent ? (
-        <p className="py-0.5 text-xs italic text-neutral-400">No response captured</p>
-      ) : (
-        <div className="space-y-3">
-          {hasText && (
-            <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-neutral-700">
-              {output.text}
-            </pre>
-          )}
-          {hasToolCalls && <ToolCallsList calls={output.tool_calls} />}
-        </div>
-      )}
+      <div className="space-y-3">
+        {output.text && (
+          <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-neutral-700">
+            {output.text}
+          </pre>
+        )}
+        {output.tool_calls.length > 0 && <ToolCallsList calls={output.tool_calls} />}
+      </div>
     </div>
   );
 }

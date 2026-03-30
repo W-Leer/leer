@@ -302,7 +302,11 @@ function StepCard({
             <div className="flex items-center gap-2.5">
               <span className={`text-[10px] transition-transform duration-150 ${expanded ? "rotate-90" : ""} text-neutral-400`}>▶</span>
               <span className="text-[13px] font-semibold tracking-tight text-neutral-900">{step.name}</span>
-              <span className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[10px] text-neutral-400">
+              <span className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${
+                step.step_type === "llm"
+                  ? "bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400"
+                  : "bg-neutral-100 text-neutral-400"
+              }`}>
                 {step.step_type}
               </span>
               <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusClass(step.status)}`}>
