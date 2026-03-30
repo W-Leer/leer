@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import {
   errorDetail,
@@ -15,14 +16,13 @@ import {
 } from "@/lib/format";
 import type { TimelineResponse, TimelineStep, TimelineEvent } from "@/lib/types";
 import { StructuredValue } from "@/components/structured-value";
+import { GitCompareArrows } from "lucide-react";
 
 export default function RunDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
   const [data, setData] = useState<TimelineResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [compareId, setCompareId] = useState("");
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -51,11 +51,20 @@ export default function RunDetailPage() {
     <div className="max-w-4xl">
       {/* Run header */}
       <div className="mb-10 rounded-lg bg-white p-6 shadow-[0_1px_4px_rgba(0,0,0,0.05)]">
-        <div className="flex items-center gap-3">
-          <h1 className="text-xl font-semibold tracking-tight text-neutral-900">{run.workflow_name}</h1>
-          <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${statusClass(run.status)}`}>
-            {run.status}
-          </span>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-semibold tracking-tight text-neutral-900">{run.workflow_name}</h1>
+            <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${statusClass(run.status)}`}>
+              {run.status}
+            </span>
+          </div>
+          <Link
+            href={`/compare?a=${id}`}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-neutral-200 px-3 py-1.5 text-[11px] font-medium text-neutral-500 transition-colors hover:border-neutral-300 hover:bg-neutral-50 hover:text-neutral-700"
+          >
+            <GitCompareArrows size={13} />
+            Compare
+          </Link>
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-x-8 gap-y-2 text-sm sm:grid-cols-3">
@@ -76,33 +85,6 @@ export default function RunDetailPage() {
         {run.error_summary && (
           <ErrorBlock data={run.error_summary} />
         )}
-      </div>
-
-      {/* Compare action */}
-      <div className="mb-10 flex items-center gap-2">
-        <input
-          type="text"
-          placeholder="Other run ID…"
-          value={compareId}
-          onChange={(e) => setCompareId(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              const trimmed = compareId.trim();
-              if (trimmed) router.push(`/runs/${id}/compare/${trimmed}`);
-            }
-          }}
-          className="w-72 rounded border border-neutral-200 px-3 py-1.5 font-mono text-sm placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none"
-        />
-        <button
-          onClick={() => {
-            const trimmed = compareId.trim();
-            if (trimmed) router.push(`/runs/${id}/compare/${trimmed}`);
-          }}
-          disabled={!compareId.trim()}
-          className="rounded bg-neutral-800 px-4 py-1.5 text-sm font-medium text-white transition-opacity disabled:opacity-40"
-        >
-          Compare
-        </button>
       </div>
 
       {/* Steps timeline */}

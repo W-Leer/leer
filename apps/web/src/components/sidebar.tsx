@@ -37,7 +37,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const { theme, toggle } = useTheme();
   const isRuns = pathname === "/" || pathname.startsWith("/runs");
-  const isCompare = pathname.includes("/compare");
+  const isCompare = pathname.startsWith("/compare");
 
   const collapsed = useSyncExternalStore(
     subscribeCollapse,
@@ -107,7 +107,7 @@ export function Sidebar() {
           collapsed={collapsed}
         />
         <NavItem
-          href="/"
+          href="/compare"
           icon={GitCompareArrows}
           label="Compare"
           active={isCompare}
@@ -121,7 +121,7 @@ export function Sidebar() {
           collapsed ? "px-1.5" : "px-3"
         }`}
       >
-        <Tooltip label={theme === "dark" ? "Light mode" : "Dark mode"} enabled={collapsed}>
+        <Tooltip label={ "Appearance"} enabled={collapsed}>
           <button
             onClick={toggle}
             className={`flex w-full items-center rounded-md py-1.5 text-neutral-500 transition-colors hover:bg-neutral-50 hover:text-neutral-700 ${
@@ -131,7 +131,7 @@ export function Sidebar() {
             {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
             {!collapsed && (
               <span className="whitespace-nowrap text-[11px] font-medium">
-                {theme === "dark" ? "Light mode" : "Dark mode"}
+                Appearance
               </span>
             )}
           </button>
