@@ -45,6 +45,41 @@ export interface TimelineRun {
   total_duration_ms: number | null;
 }
 
+export interface StepArtifactRef {
+  id: string;
+  kind: string;
+  role: string | null;
+  format: string | null;
+  preview_text: string | null;
+  sequence_index: number | null;
+}
+
+export interface LLMShape {
+  provider: string;
+  model: string | null;
+  input: {
+    system: string | null;
+    messages: Record<string, unknown>[];
+    tools: Record<string, unknown>[];
+    params: Record<string, unknown>;
+  };
+  output: {
+    text: string | null;
+    tool_calls: Record<string, unknown>[];
+    content_blocks: Record<string, unknown>[];
+  };
+  usage: {
+    prompt_tokens: number | null;
+    completion_tokens: number | null;
+    total_tokens: number | null;
+  };
+  meta: {
+    finish_reason: string | null;
+    request_id: string | null;
+    latency_ms: number | null;
+  };
+}
+
 export interface TimelineStep {
   id: string;
   parent_step_id: string | null;
@@ -58,6 +93,13 @@ export interface TimelineStep {
   output_summary: Record<string, unknown> | null;
   error_summary: Record<string, unknown> | null;
   metadata: Record<string, unknown>;
+
+  model_provider: string | null;
+  model_name: string | null;
+  duration_ms: number | null;
+
+  llm: LLMShape | null;
+  artifacts: StepArtifactRef[];
 }
 
 export interface TimelineEvent {
@@ -73,7 +115,7 @@ export interface TimelineResponse {
   run: TimelineRun;
   steps: TimelineStep[];
   events: TimelineEvent[];
-  artifacts: unknown[];
+  artifacts: StepArtifactRef[];
 }
 
 export interface CompareRunSummary {

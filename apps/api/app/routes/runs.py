@@ -1,17 +1,21 @@
-from typing import Literal
+from collections import defaultdict
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_session
+from app.models import Artifact, Step
 from app.schemas import (
     CompareResponse,
     CompareRunSummary,
     ProjectRunsResponse,
     ProjectSummary,
     RunDetailResponse,
+    StepArtifactRef,
     TimelineResponse,
+    TimelineStep,
 )
 from app.services.compare import build_run_diff, build_step_diffs
 from app.services.reads import (
@@ -83,7 +87,60 @@ def get_run_timeline(
     events = get_events_for_run(session, run_id)
     artifacts = get_artifacts_for_run(session, run_id)
 
-    return TimelineResponse(run=run, steps=steps, events=events, artifacts=artifacts)
+    artifact_refs = [_artifact_ref(a) for a in artifacts]
+    refs_by_step: dict[UUID | None, list[StepArtifactRef]] = defaultdict(list)
+    for a, ref in zip(artifacts, artifact_refs):
+        refs_by_step[a.step_id].append(ref)
+
+    enriched_steps = [
+        _enrich_step(s, refs_by_step.get(s.id, []))
+        for s in steps
+    ]
+
+    return TimelineResponse(
+        run=run,
+        steps=enriched_steps,
+        events=events,
+        artifacts=artifact_refs,
+    )
+
+
+def _artifact_ref(a: Artifact) -> StepArtifactRef:
+    return StepArtifactRef(
+        id=a.id,
+        kind=a.artifact_type,
+        role=a.role,
+        format=a.format_,
+        preview_text=a.preview_text,
+        sequence_index=a.sequence_index,
+    )
+
+
+def _enrich_step(s: Step, artifact_refs: list[StepArtifactRef]) -> TimelineStep:
+    raw_meta: dict[str, Any] = dict(s.metadata_ or {})
+    llm = raw_meta.pop("llm", None)
+
+    sorted_refs = sorted(artifact_refs, key=lambda r: r.sequence_index or 0)
+
+    return TimelineStep(
+        id=s.id,
+        parent_step_id=s.parent_step_id,
+        sequence_index=s.sequence_index,
+        name=s.name,
+        step_type=s.step_type,
+        status=s.status,
+        started_at=s.started_at,
+        ended_at=s.ended_at,
+        input_summary=s.input_summary,
+        output_summary=s.output_summary,
+        error_summary=s.error_summary,
+        metadata=raw_meta,
+        model_provider=s.model_provider,
+        model_name=s.model_name,
+        duration_ms=s.duration_ms,
+        llm=llm,
+        artifacts=sorted_refs,
+    )
 
 
 @router.get("/runs/{run_id}/compare/{other_run_id}", response_model=CompareResponse)

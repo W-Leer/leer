@@ -181,6 +181,16 @@ class TimelineRun(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class StepArtifactRef(BaseModel):
+    """Lightweight artifact reference — no inline_data or blob_path."""
+    id: UUID
+    kind: str
+    role: str | None = None
+    format: str | None = None
+    preview_text: str | None = None
+    sequence_index: int | None = None
+
+
 class TimelineStep(BaseModel):
     id: UUID
     parent_step_id: UUID | None = None
@@ -193,9 +203,14 @@ class TimelineStep(BaseModel):
     input_summary: dict[str, Any] | None = None
     output_summary: dict[str, Any] | None = None
     error_summary: dict[str, Any] | None = None
-    metadata: dict[str, Any] = Field(default={}, validation_alias="metadata_")
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
-    model_config = {"from_attributes": True, "populate_by_name": True}
+    model_provider: str | None = None
+    model_name: str | None = None
+    duration_ms: int | None = None
+
+    llm: dict[str, Any] | None = None
+    artifacts: list[StepArtifactRef] = Field(default_factory=list)
 
 
 class TimelineEvent(BaseModel):
@@ -204,32 +219,16 @@ class TimelineEvent(BaseModel):
     event_type: str
     sequence_index: int
     timestamp: datetime
-    payload: dict[str, Any] = {}
+    payload: dict[str, Any] = Field(default_factory=dict)
 
     model_config = {"from_attributes": True}
-
-
-class TimelineArtifact(BaseModel):
-    id: UUID
-    step_id: UUID | None = None
-    artifact_type: str
-    role: str | None = None
-    format: str | None = Field(default=None, validation_alias="format_")
-    storage_kind: str
-    sequence_index: int | None = None
-    mime_type: str | None = None
-    inline_data: dict[str, Any] | None = None
-    preview_text: str | None = None
-    metadata: dict[str, Any] = Field(default={}, validation_alias="metadata_")
-
-    model_config = {"from_attributes": True, "populate_by_name": True}
 
 
 class TimelineResponse(BaseModel):
     run: TimelineRun
     steps: list[TimelineStep]
     events: list[TimelineEvent]
-    artifacts: list[TimelineArtifact]
+    artifacts: list[StepArtifactRef]
 
 
 # --- Compare Responses ---
