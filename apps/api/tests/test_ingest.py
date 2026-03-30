@@ -113,6 +113,43 @@ def test_ingest_creates_project_and_records():
         session.close()
 
 
+def test_ingest_populates_step_and_run_llm_columns():
+    """When a step carries provider/model/usage metadata, ingestion promotes them to first-class columns."""
+    payload = _make_payload()
+    slug = f"test-{uuid.uuid4().hex[:8]}"
+    payload["project_slug"] = slug
+
+    payload["steps"][0]["step_type"] = "llm"
+    payload["steps"][0]["metadata"] = {
+        "provider": "openai",
+        "model": "gpt-4.1",
+        "latency_ms": 150,
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+    }
+
+    resp = client.post("/v1/ingest/runs", json=payload)
+    assert resp.status_code == 201
+
+    session: Session = next(get_session())
+    try:
+        step = session.query(Step).filter_by(id=payload["steps"][0]["id"]).first()
+        assert step is not None
+        assert step.model_provider == "openai"
+        assert step.model_name == "gpt-4.1"
+        assert step.duration_ms is not None
+        assert step.token_input == 10
+        assert step.token_output == 5
+
+        run = session.query(Run).filter_by(id=payload["run"]["id"]).first()
+        assert run is not None
+        assert run.model_provider == "openai"
+        assert run.model_name == "gpt-4.1"
+        assert run.total_tokens_input == 10
+        assert run.total_tokens_output == 5
+    finally:
+        session.close()
+
+
 def test_ingest_with_artifacts():
     payload = _make_payload()
     step_id = payload["steps"][0]["id"]

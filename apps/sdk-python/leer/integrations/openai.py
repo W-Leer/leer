@@ -68,9 +68,7 @@ class _WrappedCompletions:
         self._completions = completions
 
     def create(self, *args: Any, **kwargs: Any) -> Any:
-        return _instrumented_create(
-            self._completions.create, args, kwargs, api_style="chat",
-        )
+        return _instrumented_create(self._completions.create, args, kwargs)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._completions, name)
@@ -81,9 +79,7 @@ class _WrappedResponses:
         self._responses = responses
 
     def create(self, *args: Any, **kwargs: Any) -> Any:
-        return _instrumented_create(
-            self._responses.create, args, kwargs, api_style="responses",
-        )
+        return _instrumented_create(self._responses.create, args, kwargs)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._responses, name)
@@ -97,9 +93,13 @@ def _instrumented_create(
     original_fn: Any,
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
-    api_style: str,
 ) -> Any:
-    """Call the original create() and instrument it when inside a trace."""
+    """Call the original create() and instrument it when inside a trace.
+
+    Request capture relies on ``**kwargs`` — the OpenAI SDK's ``create()``
+    methods accept keyword arguments (model, messages, input, etc.).
+    Positional args are forwarded to the provider but not recorded.
+    """
     run = get_current_run()
     if run is None:
         return original_fn(*args, **kwargs)
@@ -113,9 +113,9 @@ def _instrumented_create(
 
         try:
             result = original_fn(*args, **kwargs)
-        except Exception:
+        except Exception as exc:
             latency_ms = int((time.perf_counter() - t0) * 1000)
-            _safe_enrich_error(s, request_dict, latency_ms)
+            _safe_enrich_error(s, request_dict, latency_ms, exc)
             raise
 
         latency_ms = int((time.perf_counter() - t0) * 1000)
@@ -178,6 +178,7 @@ def _safe_enrich_error(
     s: Any,
     request_dict: dict[str, Any],
     latency_ms: int,
+    exc: BaseException,
 ) -> None:
     """Best-effort metadata on a failed LLM call. Never raises."""
     try:
@@ -185,6 +186,8 @@ def _safe_enrich_error(
             "provider": "openai",
             "model": request_dict.get("model"),
             "latency_ms": latency_ms,
+            "error_type": type(exc).__name__,
+            "error_message": str(exc)[:500],
         })
 
         attach_artifact(create_json_artifact(

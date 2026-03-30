@@ -80,5 +80,6 @@ def get_artifacts_for_run(session: Session, run_id: uuid.UUID) -> list[Artifact]
     stmt = (
         select(Artifact)
         .where(Artifact.run_id == run_id)
+        .order_by(Artifact.sequence_index.asc())
     )
     return list(session.execute(stmt).scalars().all())

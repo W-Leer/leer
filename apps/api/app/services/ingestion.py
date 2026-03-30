@@ -50,7 +50,32 @@ def ingest_run(session: Session, request: IngestRunRequest) -> uuid.UUID:
     )
     session.add(run)
 
+    total_tokens_in = 0
+    total_tokens_out = 0
+    run_provider: str | None = None
+    run_model: str | None = None
+
     for s in request.steps:
+        step_duration = None
+        if s.started_at and s.ended_at:
+            step_duration = int((s.ended_at - s.started_at).total_seconds() * 1000)
+
+        step_provider = s.metadata.get("provider") if s.metadata else None
+        step_model = s.metadata.get("model") if s.metadata else None
+
+        usage = s.metadata.get("usage", {}) if s.metadata else {}
+        step_tokens_in = usage.get("prompt_tokens")
+        step_tokens_out = usage.get("completion_tokens")
+
+        if step_provider and not run_provider:
+            run_provider = step_provider
+        if step_model and not run_model:
+            run_model = step_model
+        if step_tokens_in:
+            total_tokens_in += step_tokens_in
+        if step_tokens_out:
+            total_tokens_out += step_tokens_out
+
         step = Step(
             id=s.id,
             run_id=request.run.id,
@@ -65,8 +90,22 @@ def ingest_run(session: Session, request: IngestRunRequest) -> uuid.UUID:
             output_summary=s.output_summary,
             error_summary=s.error_summary,
             metadata_=s.metadata,
+            model_provider=step_provider,
+            model_name=step_model,
+            duration_ms=step_duration,
+            token_input=step_tokens_in,
+            token_output=step_tokens_out,
         )
         session.add(step)
+
+    if run_provider:
+        run.model_provider = run_provider
+    if run_model:
+        run.model_name = run_model
+    if total_tokens_in:
+        run.total_tokens_input = total_tokens_in
+    if total_tokens_out:
+        run.total_tokens_output = total_tokens_out
 
     for e in request.events:
         event = Event(
