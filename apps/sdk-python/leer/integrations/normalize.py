@@ -11,6 +11,7 @@ them here.
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -30,6 +31,7 @@ class LLMInput:
 @dataclass
 class LLMOutput:
     text: str | None = None
+    content_blocks: list[dict[str, Any]] = field(default_factory=list)
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -45,13 +47,12 @@ class LLMMeta:
     latency_ms: int | None = None
     finish_reason: str | None = None
     request_id: str | None = None
-    status: str = "ok"
 
 
 @dataclass
 class NormalizedLLMCall:
     provider: str
-    model: str
+    model: str | None
     input: LLMInput
     output: LLMOutput
     usage: LLMUsage
@@ -62,19 +63,8 @@ class NormalizedLLMCall:
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Shared helpers
 # ---------------------------------------------------------------------------
-
-_OPENAI_PARAMS = frozenset({
-    "temperature", "max_tokens", "max_completion_tokens", "top_p",
-    "frequency_penalty", "presence_penalty", "stop", "seed",
-    "response_format", "logprobs", "top_logprobs",
-})
-
-_ANTHROPIC_PARAMS = frozenset({
-    "temperature", "max_tokens", "top_p", "top_k", "stop_sequences",
-})
-
 
 def _safe_get(d: dict[str, Any], *keys: str, default: Any = None) -> Any:
     """Traverse nested dicts safely."""
@@ -86,8 +76,42 @@ def _safe_get(d: dict[str, Any], *keys: str, default: Any = None) -> Any:
     return cur
 
 
+def _extract_params(request: dict[str, Any], known: frozenset[str]) -> dict[str, Any]:
+    return {k: v for k, v in request.items() if k in known}
+
+
+def _parse_arguments(raw: Any) -> Any:
+    """Parse JSON-string arguments into structured data when possible."""
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            return raw
+    return raw
+
+
+def _resolve_model(response: dict[str, Any], request: dict[str, Any]) -> str | None:
+    return response.get("model") or request.get("model") or None
+
+
 # ---------------------------------------------------------------------------
-# OpenAI normalizer
+# OpenAI — parameter sets
+# ---------------------------------------------------------------------------
+
+_OPENAI_CHAT_PARAMS = frozenset({
+    "temperature", "max_tokens", "max_completion_tokens", "top_p",
+    "frequency_penalty", "presence_penalty", "stop", "seed",
+    "response_format", "logprobs", "top_logprobs",
+})
+
+_OPENAI_RESPONSES_PARAMS = frozenset({
+    "temperature", "max_output_tokens", "top_p",
+    "truncation", "text", "store", "reasoning",
+})
+
+
+# ---------------------------------------------------------------------------
+# OpenAI — public entry point
 # ---------------------------------------------------------------------------
 
 def normalize_openai(
@@ -96,52 +120,77 @@ def normalize_openai(
     *,
     latency_ms: int | None = None,
 ) -> NormalizedLLMCall:
-    """Normalize an OpenAI chat completion request + response.
+    """Normalize an OpenAI request + response.
 
-    Handles the ``client.chat.completions.create()`` path.
+    Auto-detects the API shape (chat completions vs. responses) and
+    dispatches to the appropriate helper.
     """
+    if "output" in response and "choices" not in response:
+        return _normalize_openai_responses(request, response, latency_ms=latency_ms)
+    return _normalize_openai_chat(request, response, latency_ms=latency_ms)
+
+
+# ---------------------------------------------------------------------------
+# OpenAI — chat completions shape
+# ---------------------------------------------------------------------------
+
+def _normalize_openai_chat(
+    request: dict[str, Any],
+    response: dict[str, Any],
+    *,
+    latency_ms: int | None = None,
+) -> NormalizedLLMCall:
+    """Normalize ``client.chat.completions.create()``."""
     messages = list(request.get("messages", []))
 
     system: str | None = None
     non_system: list[dict[str, Any]] = []
     for msg in messages:
-        if msg.get("role") == "system":
+        if msg.get("role") in ("system", "developer"):
             system = msg.get("content") or system
         else:
             non_system.append(msg)
 
-    params = {k: v for k, v in request.items() if k in _OPENAI_PARAMS}
+    params = _extract_params(request, _OPENAI_CHAT_PARAMS)
 
-    # --- response ---
-    choice = _safe_get(response, "choices", default=[{}])
-    first = choice[0] if isinstance(choice, list) and choice else {}
+    choices = response.get("choices") or []
+    first = choices[0] if isinstance(choices, list) and choices else {}
     message = first.get("message", {}) if isinstance(first, dict) else {}
 
     text = message.get("content") if isinstance(message, dict) else None
 
     raw_tool_calls = message.get("tool_calls", []) if isinstance(message, dict) else []
-    tool_calls = [
-        {
-            "id": tc.get("id"),
-            "type": tc.get("type", "function"),
-            "function": tc.get("function", {}),
-        }
-        for tc in (raw_tool_calls or [])
-        if isinstance(tc, dict)
-    ]
+    tool_calls: list[dict[str, Any]] = []
+    for tc in (raw_tool_calls or []):
+        if not isinstance(tc, dict):
+            continue
+        tc_type = tc.get("type", "function")
+        if tc_type == "function":
+            tool_calls.append({
+                "id": tc.get("id"),
+                "name": _safe_get(tc, "function", "name"),
+                "arguments": _parse_arguments(_safe_get(tc, "function", "arguments")),
+            })
+        elif tc_type == "custom":
+            tool_calls.append({
+                "id": tc.get("id"),
+                "name": _safe_get(tc, "custom", "name"),
+                "arguments": _parse_arguments(_safe_get(tc, "custom", "input")),
+            })
+
+    content_blocks: list[dict[str, Any]] = []
+    if text:
+        content_blocks.append({"type": "text", "text": text})
+    for tc in tool_calls:
+        content_blocks.append({"type": "tool_call", **tc})
 
     usage_raw = response.get("usage") or {}
-    usage = LLMUsage(
-        prompt_tokens=usage_raw.get("prompt_tokens"),
-        completion_tokens=usage_raw.get("completion_tokens"),
-        total_tokens=usage_raw.get("total_tokens"),
-    )
 
     finish_reason = first.get("finish_reason") if isinstance(first, dict) else None
 
     return NormalizedLLMCall(
         provider="openai",
-        model=response.get("model") or request.get("model", "unknown"),
+        model=_resolve_model(response, request),
         input=LLMInput(
             system=system,
             messages=non_system,
@@ -150,21 +199,132 @@ def normalize_openai(
         ),
         output=LLMOutput(
             text=text,
+            content_blocks=content_blocks,
             tool_calls=tool_calls,
         ),
-        usage=usage,
+        usage=LLMUsage(
+            prompt_tokens=usage_raw.get("prompt_tokens"),
+            completion_tokens=usage_raw.get("completion_tokens"),
+            total_tokens=usage_raw.get("total_tokens"),
+        ),
         meta=LLMMeta(
             latency_ms=latency_ms,
             finish_reason=finish_reason,
             request_id=response.get("id"),
-            status="error" if finish_reason == "error" else "ok",
         ),
     )
 
 
 # ---------------------------------------------------------------------------
-# Anthropic normalizer
+# OpenAI — responses shape
 # ---------------------------------------------------------------------------
+
+def _normalize_openai_responses(
+    request: dict[str, Any],
+    response: dict[str, Any],
+    *,
+    latency_ms: int | None = None,
+) -> NormalizedLLMCall:
+    """Normalize ``client.responses.create()``."""
+    system = request.get("instructions")
+
+    raw_input = request.get("input", [])
+    if isinstance(raw_input, str):
+        messages: list[dict[str, Any]] = [{"role": "user", "content": raw_input}]
+    elif isinstance(raw_input, list):
+        non_system: list[dict[str, Any]] = []
+        for m in raw_input:
+            if not isinstance(m, dict):
+                continue
+            if m.get("role") == "system":
+                system = m.get("content") or system
+            else:
+                non_system.append(m)
+        messages = non_system
+    else:
+        messages = []
+
+    params = _extract_params(request, _OPENAI_RESPONSES_PARAMS)
+
+    tools_raw = request.get("tools", [])
+    tools: list[dict[str, Any]] = []
+    for t in (tools_raw or []):
+        if not isinstance(t, dict):
+            continue
+        if t.get("type") == "function":
+            tools.append(t.get("function", t))
+        else:
+            tools.append(t)
+
+    output_items = response.get("output", [])
+
+    text_parts: list[str] = []
+    tool_calls: list[dict[str, Any]] = []
+    content_blocks: list[dict[str, Any]] = []
+
+    for item in (output_items if isinstance(output_items, list) else []):
+        if not isinstance(item, dict):
+            continue
+        item_type = item.get("type")
+
+        if item_type == "message":
+            for block in (item.get("content") or []):
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "output_text":
+                    t = block.get("text", "")
+                    text_parts.append(t)
+                    content_blocks.append({"type": "text", "text": t})
+
+        elif item_type == "function_call":
+            tc = {
+                "id": item.get("call_id") or item.get("id"),
+                "name": item.get("name"),
+                "arguments": _parse_arguments(item.get("arguments")),
+            }
+            tool_calls.append(tc)
+            content_blocks.append({"type": "tool_call", **tc})
+
+    text = "\n\n".join(text_parts) if text_parts else None
+
+    usage_raw = response.get("usage") or {}
+
+    return NormalizedLLMCall(
+        provider="openai",
+        model=_resolve_model(response, request),
+        input=LLMInput(
+            system=system,
+            messages=messages,
+            tools=tools,
+            params=params,
+        ),
+        output=LLMOutput(
+            text=text,
+            content_blocks=content_blocks,
+            tool_calls=tool_calls,
+        ),
+        usage=LLMUsage(
+            prompt_tokens=usage_raw.get("input_tokens"),
+            completion_tokens=usage_raw.get("output_tokens"),
+            total_tokens=usage_raw.get("total_tokens"),
+        ),
+        meta=LLMMeta(
+            latency_ms=latency_ms,
+            finish_reason=response.get("status"),
+            request_id=response.get("id"),
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Anthropic
+# ---------------------------------------------------------------------------
+
+_ANTHROPIC_PARAMS = frozenset({
+    "temperature", "max_tokens", "top_p", "top_k", "stop_sequences",
+    "thinking",
+})
+
 
 def normalize_anthropic(
     request: dict[str, Any],
@@ -172,10 +332,7 @@ def normalize_anthropic(
     *,
     latency_ms: int | None = None,
 ) -> NormalizedLLMCall:
-    """Normalize an Anthropic messages API request + response.
-
-    Handles the ``client.messages.create()`` path.
-    """
+    """Normalize an Anthropic messages API request + response."""
     system = request.get("system")
     if isinstance(system, list):
         system = " ".join(
@@ -184,7 +341,7 @@ def normalize_anthropic(
         ) or None
 
     messages = list(request.get("messages", []))
-    params = {k: v for k, v in request.items() if k in _ANTHROPIC_PARAMS}
+    params = _extract_params(request, _ANTHROPIC_PARAMS)
 
     tools_raw = request.get("tools", [])
     tools = [
@@ -193,25 +350,36 @@ def normalize_anthropic(
         if isinstance(t, dict)
     ]
 
-    # --- response ---
-    content_blocks = response.get("content", [])
+    raw_blocks = response.get("content", [])
 
     text_parts: list[str] = []
     tool_calls: list[dict[str, Any]] = []
-    for block in (content_blocks if isinstance(content_blocks, list) else []):
+    content_blocks: list[dict[str, Any]] = []
+
+    for block in (raw_blocks if isinstance(raw_blocks, list) else []):
         if not isinstance(block, dict):
             continue
-        if block.get("type") == "text":
-            text_parts.append(block.get("text", ""))
-        elif block.get("type") == "tool_use":
-            tool_calls.append({
+        block_type = block.get("type")
+
+        if block_type == "text":
+            t = block.get("text", "")
+            text_parts.append(t)
+            content_blocks.append({"type": "text", "text": t})
+        elif block_type == "tool_use":
+            tc = {
                 "id": block.get("id"),
-                "type": "function",
-                "function": {
-                    "name": block.get("name"),
-                    "arguments": block.get("input", {}),
-                },
+                "name": block.get("name"),
+                "arguments": block.get("input", {}),
+            }
+            tool_calls.append(tc)
+            content_blocks.append({"type": "tool_call", **tc})
+        elif block_type == "thinking":
+            content_blocks.append({
+                "type": "thinking",
+                "thinking": block.get("thinking", ""),
             })
+        elif block_type == "redacted_thinking":
+            content_blocks.append({"type": "redacted_thinking"})
 
     text = "\n\n".join(text_parts) if text_parts else None
 
@@ -222,7 +390,7 @@ def normalize_anthropic(
 
     return NormalizedLLMCall(
         provider="anthropic",
-        model=response.get("model") or request.get("model", "unknown"),
+        model=_resolve_model(response, request),
         input=LLMInput(
             system=system,
             messages=messages,
@@ -231,6 +399,7 @@ def normalize_anthropic(
         ),
         output=LLMOutput(
             text=text,
+            content_blocks=content_blocks,
             tool_calls=tool_calls,
         ),
         usage=LLMUsage(
@@ -242,6 +411,5 @@ def normalize_anthropic(
             latency_ms=latency_ms,
             finish_reason=response.get("stop_reason"),
             request_id=response.get("id"),
-            status="error" if response.get("type") == "error" else "ok",
         ),
     )
