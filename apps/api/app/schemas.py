@@ -238,27 +238,52 @@ class CompareRunSummary(BaseModel):
     workflow_name: str
     status: str
     created_at: datetime
+    total_steps: int = 0
+    total_duration_ms: int | None = None
 
     model_config = {"from_attributes": True}
 
 
 class CompareStepDiff(BaseModel):
-    sequence_index: int
+    match_kind: str  # exact_name | fallback_type_index | missing
+    exists_in_a: bool
+    exists_in_b: bool
+
+    sequence_index_a: int | None = None
+    sequence_index_b: int | None = None
+
     name_a: str | None = None
     name_b: str | None = None
     step_type_a: str | None = None
     step_type_b: str | None = None
-    exists_in_a: bool
-    exists_in_b: bool
+
     status_a: str | None = None
     status_b: str | None = None
     status_diff: bool
+
+    input_summary_a: dict[str, Any] | None = None
+    input_summary_b: dict[str, Any] | None = None
+    input_diff: bool = False
+
     output_summary_a: dict[str, Any] | None = None
     output_summary_b: dict[str, Any] | None = None
     output_diff: bool
+
     error_summary_a: dict[str, Any] | None = None
     error_summary_b: dict[str, Any] | None = None
     error_diff: bool
+
+    duration_ms_a: int | None = None
+    duration_ms_b: int | None = None
+
+    model_provider_a: str | None = None
+    model_provider_b: str | None = None
+
+    model_name_a: str | None = None
+    model_name_b: str | None = None
+
+    llm_a: dict[str, Any] | None = None
+    llm_b: dict[str, Any] | None = None
 
 
 class CompareRunDiff(BaseModel):
