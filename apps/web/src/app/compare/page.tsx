@@ -4,8 +4,9 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
-import { errorHeadline, formatDate, rawJson, resolveData, statusClass, timeAgo } from "@/lib/format";
+import { errorHeadline, formatDate, formatDuration, rawJson, resolveData, statusClass, timeAgo } from "@/lib/format";
 import { StructuredValue } from "@/components/structured-value";
+import { ROLE_STYLES, extractMessageContent } from "@/components/llm-step-detail";
 import { RunSelector, type SelectedRun } from "@/components/run-selector";
 import { GitCompareArrows, Lightbulb } from "lucide-react";
 import type {
@@ -13,12 +14,16 @@ import type {
   CompareRunDiff,
   CompareRunSummary,
   CompareStepDiff,
+  LLMShape,
   ProjectRunsResponse,
   RunListItem,
+  TimelineResponse,
   TimelineRun,
 } from "@/lib/types";
 
 type Dict = Record<string, unknown>;
+type LlmPair = { a: LLMShape | null; b: LLMShape | null };
+type LlmMap = Map<number, LlmPair>;
 
 function toSelected(run: TimelineRun | CompareRunSummary): SelectedRun {
   return {
@@ -29,7 +34,6 @@ function toSelected(run: TimelineRun | CompareRunSummary): SelectedRun {
   };
 }
 
-// Wrap the page in Suspense for useSearchParams
 export default function ComparePageWrapper() {
   return (
     <Suspense fallback={<p className="text-neutral-500">Loading…</p>}>
@@ -48,13 +52,13 @@ function ComparePage() {
   const [runA, setRunA] = useState<SelectedRun | null>(null);
   const [runB, setRunB] = useState<SelectedRun | null>(null);
   const [compareData, setCompareData] = useState<CompareResponse | null>(null);
+  const [llmMap, setLlmMap] = useState<LlmMap>(new Map());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [quickPicks, setQuickPicks] = useState<RunListItem[]>([]);
 
   const didAutoLoad = useRef(false);
 
-  // Resolve URL params to SelectedRun objects
   useEffect(() => {
     if (paramA && (!runA || runA.id !== paramA)) {
       apiFetch<{ run: TimelineRun }>(`/v1/runs/${paramA}/timeline`)
@@ -69,7 +73,6 @@ function ComparePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramA, paramB]);
 
-  // Auto-fetch comparison when both URL params are present
   useEffect(() => {
     if (paramA && paramB && !didAutoLoad.current) {
       didAutoLoad.current = true;
@@ -78,7 +81,6 @@ function ComparePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramA, paramB]);
 
-  // Load quick picks on mount
   useEffect(() => {
     apiFetch<ProjectRunsResponse>("/v1/projects/demo-project/runs?limit=6&sort=newest")
       .then((d) => setQuickPicks(d.runs))
@@ -89,11 +91,28 @@ function ComparePage() {
     setLoading(true);
     setError(null);
     setCompareData(null);
+    setLlmMap(new Map());
     try {
-      const data = await apiFetch<CompareResponse>(`/v1/runs/${a}/compare/${b}`);
+      const [data, tlA, tlB] = await Promise.all([
+        apiFetch<CompareResponse>(`/v1/runs/${a}/compare/${b}`),
+        apiFetch<TimelineResponse>(`/v1/runs/${a}/timeline`),
+        apiFetch<TimelineResponse>(`/v1/runs/${b}/timeline`),
+      ]);
+
+      const map: LlmMap = new Map();
+      for (const s of tlA.steps) {
+        map.set(s.sequence_index, { a: s.llm, b: null });
+      }
+      for (const s of tlB.steps) {
+        const entry = map.get(s.sequence_index) ?? { a: null, b: null };
+        entry.b = s.llm;
+        map.set(s.sequence_index, entry);
+      }
+
       setCompareData(data);
       setRunA(toSelected(data.run_a));
       setRunB(toSelected(data.run_b));
+      setLlmMap(map);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to compare runs");
     } finally {
@@ -154,7 +173,6 @@ function ComparePage() {
   const showQuickPicks = (!runA || !runB) && quickPicks.length > 0 && !compareData;
   const needsSelection = !runA || !runB;
 
-  // Filter quick picks: exclude already-selected runs
   const visiblePicks = quickPicks.filter(
     (r) => r.id !== runA?.id && r.id !== runB?.id,
   );
@@ -163,7 +181,6 @@ function ComparePage() {
 
   return (
     <div className="max-w-5xl">
-      {/* Header */}
       <div className="mb-6">
         <h1 className="text-[17px] font-semibold tracking-tight text-neutral-900">Compare Runs</h1>
         <p className="mt-0.5 text-[12px] text-neutral-400">
@@ -171,24 +188,11 @@ function ComparePage() {
         </p>
       </div>
 
-      {/* Run selectors */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <RunSelector
-          label="Run A"
-          value={runA}
-          onChange={handleChangeA}
-          excludeId={runB?.id}
-        />
-        <RunSelector
-          label="Run B"
-          value={runB}
-          onChange={handleChangeB}
-          excludeId={runA?.id}
-          autoFocus={!!runA && !runB}
-        />
+        <RunSelector label="Run A" value={runA} onChange={handleChangeA} excludeId={runB?.id} />
+        <RunSelector label="Run B" value={runB} onChange={handleChangeB} excludeId={runA?.id} autoFocus={!!runA && !runB} />
       </div>
 
-      {/* Quick picks */}
       {showQuickPicks && visiblePicks.length > 0 && (
         <div className="mt-4">
           <div className="mb-2 text-[11px] font-medium text-neutral-400">
@@ -205,7 +209,6 @@ function ComparePage() {
         </div>
       )}
 
-      {/* Action area */}
       <div className="mb-8 mt-5">
         {sameRunError && (
           <p className="mb-2.5 text-xs text-[var(--error-accent)]">
@@ -236,7 +239,6 @@ function ComparePage() {
         )}
       </div>
 
-      {/* Loading */}
       {loading && (
         <div className="py-12 text-center">
           <div className="mx-auto mb-3 flex h-9 w-9 items-center justify-center rounded-full bg-neutral-100">
@@ -246,14 +248,12 @@ function ComparePage() {
         </div>
       )}
 
-      {/* Error */}
       {error && (
         <div className="rounded-lg bg-[var(--tint-error-block)] p-4 text-sm text-[var(--error-text)]">
           {error}
         </div>
       )}
 
-      {/* Empty state — no runs selected, no quick picks active */}
       {!compareData && !loading && !error && !runA && !runB && (
         <div className="rounded-lg border border-dashed border-neutral-200 px-6 py-14 text-center">
           <GitCompareArrows size={24} className="mx-auto mb-3 text-neutral-300" />
@@ -264,7 +264,6 @@ function ComparePage() {
         </div>
       )}
 
-      {/* Tip — shown when one run is selected */}
       {!compareData && !loading && !error && runA && !runB && (
         <div className="flex items-start gap-2.5 rounded-lg bg-neutral-50 px-4 py-2.5">
           <Lightbulb size={13} className="mt-0.5 shrink-0 text-neutral-400" />
@@ -274,8 +273,7 @@ function ComparePage() {
         </div>
       )}
 
-      {/* Results */}
-      {compareData && <CompareResults data={compareData} />}
+      {compareData && <CompareResults data={compareData} llmMap={llmMap} />}
     </div>
   );
 }
@@ -302,11 +300,11 @@ function QuickPickChip({ run, onClick }: { run: RunListItem; onClick: () => void
   );
 }
 
-// ---------------------------------------------------------------------------
-// Comparison results rendering
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// Comparison results
+// ===========================================================================
 
-function CompareResults({ data }: { data: CompareResponse }) {
+function CompareResults({ data, llmMap }: { data: CompareResponse; llmMap: LlmMap }) {
   return (
     <div>
       <div className="mb-6 grid grid-cols-2 gap-4">
@@ -322,9 +320,17 @@ function CompareResults({ data }: { data: CompareResponse }) {
           <p className="text-sm text-neutral-500">No steps to compare.</p>
         ) : (
           <div className="space-y-5">
-            {data.steps.map((step) => (
-              <StepDiffCard key={step.sequence_index} step={step} />
-            ))}
+            {data.steps.map((step) => {
+              const pair = llmMap.get(step.sequence_index);
+              return (
+                <StepDiffCard
+                  key={step.sequence_index}
+                  step={step}
+                  llmA={pair?.a ?? null}
+                  llmB={pair?.b ?? null}
+                />
+              );
+            })}
           </div>
         )}
       </section>
@@ -340,9 +346,7 @@ function RunSummaryCard({ label, run }: { label: string; run: CompareRunSummary 
       </div>
       <div className="flex items-center gap-2">
         <span className="font-semibold text-neutral-900">{run.workflow_name}</span>
-        <span
-          className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusClass(run.status)}`}
-        >
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusClass(run.status)}`}>
           {run.status}
         </span>
       </div>
@@ -393,9 +397,22 @@ function RunDiffSection({ diff }: { diff: CompareRunDiff }) {
   );
 }
 
-function StepDiffCard({ step }: { step: CompareStepDiff }) {
+// ===========================================================================
+// Step diff card — switches between generic and LLM-aware rendering
+// ===========================================================================
+
+function StepDiffCard({
+  step,
+  llmA,
+  llmB,
+}: {
+  step: CompareStepDiff;
+  llmA: LLMShape | null;
+  llmB: LLMShape | null;
+}) {
   const hasDiff = step.status_diff || step.output_diff || step.error_diff;
   const missing = !step.exists_in_a || !step.exists_in_b;
+  const isLlm = !!llmA || !!llmB;
 
   const cardStyle = missing
     ? "bg-[var(--tint-diff-strong)] shadow-[0_1px_4px_rgba(0,0,0,0.05)]"
@@ -405,7 +422,6 @@ function StepDiffCard({ step }: { step: CompareStepDiff }) {
 
   const stepName = step.name_a ?? step.name_b ?? "—";
   const stepType = step.step_type_a ?? step.step_type_b ?? "—";
-  const isLlm = stepType === "llm";
 
   return (
     <div className={`rounded-lg p-5 ${cardStyle}`}>
@@ -429,40 +445,310 @@ function StepDiffCard({ step }: { step: CompareStepDiff }) {
       </div>
 
       <div className="space-y-5">
+        {/* LLM metadata diff — only for LLM steps */}
+        {isLlm && <LlmMetaDiff a={llmA} b={llmB} />}
+
+        {/* Status — always shown */}
         <DiffRow label="Status" diff={step.status_diff}>
           <DiffCellText side="A" value={step.status_a} />
           <DiffCellText side="B" value={step.status_b} />
         </DiffRow>
 
-        <DataDiffRow
-          label="Output"
-          diff={step.output_diff}
-          dataA={step.output_summary_a}
-          dataB={step.output_summary_b}
-        />
+        {/* Input — only for LLM steps */}
+        {isLlm && <LlmInputDiff a={llmA} b={llmB} />}
 
+        {/* Output — LLM-aware or generic */}
+        {isLlm ? (
+          <LlmOutputDiff a={llmA} b={llmB} diff={step.output_diff} />
+        ) : (
+          <DataDiffRow
+            label="Output"
+            diff={step.output_diff}
+            dataA={step.output_summary_a}
+            dataB={step.output_summary_b}
+          />
+        )}
+
+        {/* Error — always shown when present */}
         {(step.error_summary_a || step.error_summary_b) && (
           <DiffRow label="Error" diff={step.error_diff} isError>
-            <DiffCellText
-              side="A"
-              value={errorHeadline(step.error_summary_a) || null}
-              isError
-            />
-            <DiffCellText
-              side="B"
-              value={errorHeadline(step.error_summary_b) || null}
-              isError
-            />
+            <DiffCellText side="A" value={errorHeadline(step.error_summary_a) || null} isError />
+            <DiffCellText side="B" value={errorHeadline(step.error_summary_b) || null} isError />
           </DiffRow>
         )}
+
+        {/* Usage — only for LLM steps */}
+        {isLlm && <LlmUsageDiff a={llmA} b={llmB} />}
       </div>
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Shared diff components
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// LLM-aware diff components
+// ===========================================================================
+
+function LlmMetaDiff({ a, b }: { a: LLMShape | null; b: LLMShape | null }) {
+  const provDiff = (a?.provider ?? null) !== (b?.provider ?? null);
+  const modelDiff = (a?.model ?? null) !== (b?.model ?? null);
+  const anyDiff = provDiff || modelDiff;
+
+  const bg = anyDiff ? "bg-[var(--tint-diff-row)]" : "bg-neutral-50/50";
+
+  return (
+    <div className={`rounded-md px-4 py-3 ${bg}`}>
+      <div className="mb-2.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+        Metadata
+        {anyDiff && <ChangedBadge />}
+      </div>
+      <div className="grid grid-cols-2 gap-0">
+        <div className="pr-4">
+          <SideLabel side="A" />
+          <MetaPills llm={a} />
+        </div>
+        <div className="border-l border-neutral-200 pl-4">
+          <SideLabel side="B" />
+          <MetaPills llm={b} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MetaPills({ llm }: { llm: LLMShape | null }) {
+  if (!llm) return <p className="text-xs italic text-neutral-400">—</p>;
+
+  return (
+    <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
+      {llm.provider && (
+        <span className="text-neutral-400">
+          provider <span className="font-medium text-neutral-700">{llm.provider}</span>
+        </span>
+      )}
+      {llm.model && (
+        <span className="text-neutral-400">
+          model <span className="font-medium text-neutral-700">{llm.model}</span>
+        </span>
+      )}
+      {llm.meta.latency_ms != null && (
+        <span className="text-neutral-400">
+          latency <span className="font-medium text-neutral-700">{formatDuration(llm.meta.latency_ms)}</span>
+        </span>
+      )}
+      {llm.meta.finish_reason && (
+        <span className="text-neutral-400">
+          finish <span className="font-medium text-neutral-700">{llm.meta.finish_reason}</span>
+        </span>
+      )}
+    </div>
+  );
+}
+
+function LlmInputDiff({ a, b }: { a: LLMShape | null; b: LLMShape | null }) {
+  const hasA = !!(a && (a.input.system || a.input.messages.length > 0));
+  const hasB = !!(b && (b.input.system || b.input.messages.length > 0));
+  if (!hasA && !hasB) return null;
+
+  const diff = JSON.stringify(a?.input) !== JSON.stringify(b?.input);
+  const bg = diff ? "bg-[var(--tint-diff-row)]" : "bg-[var(--tint-input)]";
+
+  return (
+    <div className={`rounded-md px-4 py-3 ${bg}`}>
+      <div className="mb-2.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+        Input
+        {diff && <ChangedBadge />}
+      </div>
+      <div className="grid grid-cols-2 gap-0">
+        <div className="pr-4">
+          <SideLabel side="A" />
+          <InputMessages llm={a} />
+        </div>
+        <div className="border-l border-neutral-200 pl-4">
+          <SideLabel side="B" />
+          <InputMessages llm={b} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InputMessages({ llm }: { llm: LLMShape | null }) {
+  if (!llm || (!llm.input.system && llm.input.messages.length === 0)) {
+    return <p className="text-xs italic text-neutral-400">No prompt</p>;
+  }
+
+  return (
+    <div className="space-y-2.5">
+      {llm.input.system && (
+        <div>
+          <span className={`text-[10px] font-medium ${ROLE_STYLES.system}`}>system</span>
+          <pre className="mt-0.5 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-neutral-700">
+            {llm.input.system}
+          </pre>
+        </div>
+      )}
+      {llm.input.messages.map((msg, i) => {
+        const role = (msg.role as string) ?? "unknown";
+        const content = extractMessageContent(msg);
+        const color = ROLE_STYLES[role] ?? "text-neutral-400";
+        return (
+          <div key={i}>
+            <span className={`text-[10px] font-medium ${color}`}>{role}</span>
+            <pre className="mt-0.5 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-neutral-700">
+              {content || "(empty)"}
+            </pre>
+          </div>
+        );
+      })}
+      {llm.input.tools.length > 0 && (
+        <div>
+          <span className="text-[10px] font-medium text-neutral-400">tools</span>
+          <div className="mt-0.5 flex flex-wrap gap-1">
+            {llm.input.tools.map((t, i) => (
+              <span key={i} className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[10px] text-neutral-500">
+                {(t.name as string) ?? (t.function as Dict)?.name ?? "tool"}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LlmOutputDiff({ a, b, diff }: { a: LLMShape | null; b: LLMShape | null; diff: boolean }) {
+  const bg = diff ? "bg-[var(--tint-diff-row)]" : "bg-[var(--tint-output)]";
+
+  return (
+    <div className={`rounded-md px-4 py-3 ${bg}`}>
+      <div className="mb-2.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+        Output
+        {diff && <ChangedBadge />}
+      </div>
+      <div className="grid grid-cols-2 gap-0">
+        <div className="pr-4">
+          <SideLabel side="A" />
+          <OutputContent llm={a} />
+        </div>
+        <div className="border-l border-neutral-200 pl-4">
+          <SideLabel side="B" />
+          <OutputContent llm={b} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OutputContent({ llm }: { llm: LLMShape | null }) {
+  if (!llm || (!llm.output.text && llm.output.tool_calls.length === 0)) {
+    return <p className="text-xs italic text-neutral-400">No output</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {llm.output.text && (
+        <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-neutral-700">
+          {llm.output.text}
+        </pre>
+      )}
+      {llm.output.tool_calls.length > 0 && (
+        <div className="space-y-1.5">
+          <span className="text-[10px] font-medium text-neutral-400">Tool calls</span>
+          {llm.output.tool_calls.map((tc, i) => (
+            <div key={i} className="rounded bg-neutral-50 px-2 py-1.5">
+              <span className="font-mono text-[11px] font-medium text-neutral-700">
+                {(tc.name as string) ?? "call"}
+              </span>
+              {tc.arguments != null && (
+                <pre className="mt-0.5 whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-neutral-500">
+                  {typeof tc.arguments === "string"
+                    ? tc.arguments
+                    : JSON.stringify(tc.arguments, null, 2)}
+                </pre>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LlmUsageDiff({ a, b }: { a: LLMShape | null; b: LLMShape | null }) {
+  const uA = a?.usage;
+  const uB = b?.usage;
+  const hasAny =
+    (uA?.prompt_tokens ?? uA?.completion_tokens ?? uA?.total_tokens) != null ||
+    (uB?.prompt_tokens ?? uB?.completion_tokens ?? uB?.total_tokens) != null;
+  if (!hasAny) return null;
+
+  const diff =
+    uA?.prompt_tokens !== uB?.prompt_tokens ||
+    uA?.completion_tokens !== uB?.completion_tokens ||
+    uA?.total_tokens !== uB?.total_tokens;
+  const bg = diff ? "bg-[var(--tint-diff-row)]" : "bg-neutral-50/50";
+
+  return (
+    <div className={`rounded-md px-4 py-3 ${bg}`}>
+      <div className="mb-2.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+        Tokens
+        {diff && <ChangedBadge />}
+      </div>
+      <div className="grid grid-cols-2 gap-0">
+        <div className="pr-4">
+          <SideLabel side="A" />
+          <UsagePills usage={uA} />
+        </div>
+        <div className="border-l border-neutral-200 pl-4">
+          <SideLabel side="B" />
+          <UsagePills usage={uB} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function UsagePills({ usage }: { usage?: LLMShape["usage"] | null }) {
+  if (!usage) return <p className="text-xs italic text-neutral-400">—</p>;
+  const items: { label: string; value: number }[] = [];
+  if (usage.prompt_tokens != null) items.push({ label: "prompt", value: usage.prompt_tokens });
+  if (usage.completion_tokens != null) items.push({ label: "completion", value: usage.completion_tokens });
+  if (usage.total_tokens != null) items.push({ label: "total", value: usage.total_tokens });
+  if (items.length === 0) return <p className="text-xs italic text-neutral-400">—</p>;
+
+  return (
+    <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
+      {items.map((item) => (
+        <span key={item.label} className="text-neutral-400">
+          {item.label}{" "}
+          <span className="font-medium tabular-nums text-neutral-700">
+            {item.value.toLocaleString()}
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ===========================================================================
+// Shared primitives
+// ===========================================================================
+
+function SideLabel({ side }: { side: string }) {
+  return (
+    <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+      {side}
+    </div>
+  );
+}
+
+function ChangedBadge() {
+  return (
+    <span className="rounded bg-[var(--diff-badge-bg)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--diff-badge-text)]">
+      changed
+    </span>
+  );
+}
 
 function DiffRow({
   label,
@@ -485,11 +771,7 @@ function DiffRow({
     <div className={`rounded-md px-4 py-3 ${bg}`}>
       <div className="mb-2.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
         {label}
-        {diff && (
-          <span className="rounded bg-[var(--diff-badge-bg)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--diff-badge-text)]">
-            changed
-          </span>
-        )}
+        {diff && <ChangedBadge />}
       </div>
       <div className="grid grid-cols-2 gap-0">
         <div className="pr-4">{children[0]}</div>
@@ -512,9 +794,7 @@ function DiffCellText({
 
   return (
     <div>
-      <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
-        {side}
-      </div>
+      <SideLabel side={side} />
       {value ? (
         <p className={`whitespace-pre-wrap break-words font-mono text-xs leading-6 ${textColor}`}>
           {value}
@@ -546,11 +826,7 @@ function DataDiffRow({
       <div className="mb-2.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
         <span className="flex items-center gap-2">
           {label}
-          {diff && (
-            <span className="rounded bg-[var(--diff-badge-bg)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--diff-badge-text)]">
-              changed
-            </span>
-          )}
+          {diff && <ChangedBadge />}
         </span>
         {hasAny && (
           <button
@@ -579,9 +855,7 @@ function DataCell({ side, data, raw }: { side: string; data: Dict | null; raw: b
 
   return (
     <div>
-      <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
-        {side}
-      </div>
+      <SideLabel side={side} />
       {resolved == null ? (
         <p className="text-xs italic text-neutral-400">No output</p>
       ) : raw ? (

@@ -44,7 +44,7 @@ function EmptyHint({ text }: { text: string }) {
   return <p className="py-0.5 text-xs italic text-neutral-400">{text}</p>;
 }
 
-const ROLE_STYLES: Record<string, string> = {
+export const ROLE_STYLES: Record<string, string> = {
   system: "text-violet-500/80 dark:text-violet-400/70",
   developer: "text-violet-500/80 dark:text-violet-400/70",
   user: "text-blue-500/80 dark:text-blue-400/70",
@@ -180,7 +180,7 @@ function MessageBlock({ role, content }: { role: string; content: string }) {
   );
 }
 
-function extractMessageContent(msg: Record<string, unknown>): string {
+export function extractMessageContent(msg: Record<string, unknown>): string {
   const c = msg.content;
   if (typeof c === "string") return c;
   if (Array.isArray(c)) {
