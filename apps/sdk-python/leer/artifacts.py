@@ -24,13 +24,19 @@ def create_json_artifact(
     artifact_type: str,
     *,
     role: str | None = None,
-    data: dict[str, Any] | list[Any] | None = None,
+    data: dict[str, Any] | list[Any],
     preview_text: str | None = None,
     metadata: dict[str, Any] | None = None,
     step_id: str | None = None,
 ) -> TraceArtifact:
-    """Create an inline JSON artifact."""
-    inline = data if isinstance(data, dict) else {"data": data} if data is not None else None
+    """Create an inline JSON artifact.
+
+    ``data`` is required — the DB enforces that inline artifacts have non-null
+    ``inline_data``.  Pass a dict for structured payloads or a list for
+    sequence data (lists are wrapped as ``{"data": [...]}``) to keep the
+    JSONB column consistently object-typed.
+    """
+    inline = data if isinstance(data, dict) else {"data": data}
     return TraceArtifact(
         artifact_type=artifact_type,
         storage_kind="inline",

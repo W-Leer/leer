@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.main import app
-from app.models import Event, Project, Run, Step
+from app.models import Artifact, Event, Project, Run, Step
 
 _test_slug = f"test-{uuid.uuid4().hex[:8]}"
 
@@ -109,5 +109,52 @@ def test_ingest_creates_project_and_records():
 
         events = session.query(Event).filter_by(run_id=run.id).all()
         assert len(events) == 2
+    finally:
+        session.close()
+
+
+def test_ingest_with_artifacts():
+    payload = _make_payload()
+    step_id = payload["steps"][0]["id"]
+    artifact_id = str(uuid.uuid4())
+    slug = f"test-{uuid.uuid4().hex[:8]}"
+    payload["project_slug"] = slug
+
+    payload["artifacts"] = [
+        {
+            "id": artifact_id,
+            "step_id": step_id,
+            "artifact_type": "llm_request",
+            "role": "input",
+            "format": "json",
+            "storage_kind": "inline",
+            "sequence_index": 0,
+            "mime_type": "application/json",
+            "inline_data": {
+                "model": "gpt-4.1",
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+            "preview_text": "user: hello",
+            "metadata": {"provider": "openai"},
+        },
+    ]
+
+    resp = client.post("/v1/ingest/runs", json=payload)
+    assert resp.status_code == 201
+
+    session: Session = next(get_session())
+    try:
+        art = session.query(Artifact).filter_by(id=artifact_id).first()
+        assert art is not None
+        assert art.artifact_type == "llm_request"
+        assert art.role == "input"
+        assert art.format_ == "json"
+        assert art.storage_kind == "inline"
+        assert art.sequence_index == 0
+        assert art.mime_type == "application/json"
+        assert art.inline_data["model"] == "gpt-4.1"
+        assert art.preview_text == "user: hello"
+        assert art.metadata_ == {"provider": "openai"}
+        assert str(art.step_id) == step_id
     finally:
         session.close()
