@@ -143,6 +143,7 @@ def _enrich_step(
         role="input",
         data=request_dict,
         preview_text=_request_preview(normalized),
+        step_id=s.id,
     ))
 
     attach_artifact(create_json_artifact(
@@ -150,6 +151,7 @@ def _enrich_step(
         role="output",
         data=response_dict,
         preview_text=_response_preview(normalized),
+        step_id=s.id,
     ))
 
 
@@ -174,6 +176,7 @@ def _safe_enrich_error(
             role="input",
             data=request_dict,
             preview_text=f"model: {request_dict.get('model', '?')} (failed)",
+            step_id=s.id,
         ))
     except Exception:
         pass

@@ -39,6 +39,7 @@ def _serialize_step(s: TraceStep) -> dict[str, Any]:
         "status": s.status,
         "started_at": _serialize_dt(s.started_at),
         "ended_at": _serialize_dt(s.ended_at),
+        "duration_ms": s.duration_ms,
         "input_summary": s.input_summary,
         "output_summary": s.output_summary,
         "error_summary": s.error_summary,

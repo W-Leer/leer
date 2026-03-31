@@ -61,6 +61,7 @@ def step(
     except Exception:
         s.status = "failed"
         s.ended_at = _now()
+        s.duration_ms = _duration_ms(s)
         s.error_summary = {"traceback": traceback.format_exc()}
         _emit_step_event("step.failed", s.id)
         pop_step()
@@ -68,7 +69,14 @@ def step(
     else:
         s.status = "completed"
         s.ended_at = _now()
+        s.duration_ms = _duration_ms(s)
         if s.output_summary is None and s.output is not None:
             s.output_summary = make_json_safe(s.output)
         _emit_step_event("step.completed", s.id)
         pop_step()
+
+
+def _duration_ms(s: Any) -> int | None:
+    if s.started_at is not None and s.ended_at is not None:
+        return int((s.ended_at - s.started_at).total_seconds() * 1000)
+    return None

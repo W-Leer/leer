@@ -58,6 +58,20 @@ class TraceArtifact:
 
 @dataclass
 class TraceStep:
+    """A single execution step within a traced run.
+
+    ``input`` and ``output`` hold the raw payloads set by the caller.
+    They are **not** serialized to the API — only their reduced counterparts
+    ``input_summary`` and ``output_summary`` are sent.  The raw values are
+    used to generate summaries and artifacts on step exit.
+
+    Convention:
+        input  = raw payload (args, request body, etc.)
+        input_summary  = UI-safe reduced version (auto-generated or explicit)
+        output = raw return value
+        output_summary = UI-safe reduced version (auto-generated or explicit)
+    """
+
     name: str
     step_type: str = "code"
     id: str = field(default_factory=_uuid)
@@ -66,11 +80,13 @@ class TraceStep:
     status: str = "pending"
     started_at: datetime | None = None
     ended_at: datetime | None = None
+    duration_ms: int | None = None
     input_summary: dict[str, Any] | None = None
     output_summary: dict[str, Any] | None = None
     error_summary: dict[str, Any] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
-    output: Any = field(default=None, repr=False)
+    input: Any | None = field(default=None, repr=False)
+    output: Any | None = field(default=None, repr=False)
 
 
 @dataclass
