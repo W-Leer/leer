@@ -520,6 +520,9 @@ function StepDiffHeader({
   const toolProvider = isTool ? (step.model_provider_a ?? step.model_provider_b) : null;
   const toolModel = isTool ? (step.model_name_a ?? step.model_name_b) : null;
 
+  const isChild = !!(step.parent_step_id_a || step.parent_step_id_b);
+  const parentDiff = isChild && step.parent_step_id_a !== step.parent_step_id_b;
+
   return (
     <div className="mb-5">
       <div className="flex flex-wrap items-center gap-2">
@@ -554,6 +557,16 @@ function StepDiffHeader({
         >
           {stepType}
         </span>
+
+        {isChild && (
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+            parentDiff
+              ? "bg-[var(--diff-badge-bg)] text-[var(--diff-badge-text)]"
+              : "bg-neutral-100 text-neutral-400"
+          }`}>
+            child{parentDiff ? " · parent changed" : ""}
+          </span>
+        )}
 
         {toolProvider && (
           <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:bg-amber-950/30 dark:text-amber-400">
