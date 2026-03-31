@@ -165,6 +165,9 @@ export interface CompareStepDiff {
   model_name_a: string | null;
   model_name_b: string | null;
 
+  metadata_a: Record<string, unknown> | null;
+  metadata_b: Record<string, unknown> | null;
+
   llm_a: LLMShape | null;
   llm_b: LLMShape | null;
 }

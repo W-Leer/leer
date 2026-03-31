@@ -410,6 +410,7 @@ function StepDiffCard({ step }: { step: CompareStepDiff }) {
   const missing = step.match_kind === "missing";
   const isFallback = step.match_kind === "fallback_type_index";
   const isLlm = !!step.llm_a || !!step.llm_b;
+  const isTool = (step.step_type_a ?? step.step_type_b) === "tool";
 
   const absentA = !step.exists_in_a;
   const absentB = !step.exists_in_b;
@@ -422,11 +423,14 @@ function StepDiffCard({ step }: { step: CompareStepDiff }) {
 
   return (
     <div className={`rounded-lg p-5 ${cardStyle}`}>
-      <StepDiffHeader step={step} isLlm={isLlm} missing={missing} isFallback={isFallback} />
+      <StepDiffHeader step={step} isLlm={isLlm} isTool={isTool} missing={missing} isFallback={isFallback} />
 
       <div className="space-y-5">
         {/* LLM metadata diff */}
         {isLlm && <LlmMetaDiff a={step.llm_a} b={step.llm_b} />}
+
+        {/* Tool linkage diff */}
+        {isTool && <ToolLinkageDiff step={step} absentA={absentA} absentB={absentB} />}
 
         {/* Status — always shown */}
         <DiffRow label="Status" diff={step.status_diff}>
@@ -486,11 +490,13 @@ function StepDiffCard({ step }: { step: CompareStepDiff }) {
 function StepDiffHeader({
   step,
   isLlm,
+  isTool,
   missing,
   isFallback,
 }: {
   step: CompareStepDiff;
   isLlm: boolean;
+  isTool: boolean;
   missing: boolean;
   isFallback: boolean;
 }) {
@@ -511,68 +517,167 @@ function StepDiffHeader({
       : null;
 
   const hasDuration = bothExist && (step.duration_ms_a != null || step.duration_ms_b != null);
-  const isTool = stepType === "tool";
   const toolProvider = isTool ? (step.model_provider_a ?? step.model_provider_b) : null;
   const toolModel = isTool ? (step.model_name_a ?? step.model_name_b) : null;
 
+  const toolCallIdA = isTool ? (step.metadata_a?.tool_call_id as string | undefined) : undefined;
+  const toolCallIdB = isTool ? (step.metadata_b?.tool_call_id as string | undefined) : undefined;
+  const hasToolLinkage = !!(toolCallIdA || toolCallIdB);
+
   return (
-    <div className="mb-5 flex flex-wrap items-center gap-2">
-      {idxLabel && (
-        <span className="font-mono text-xs text-neutral-400">{idxLabel}</span>
-      )}
+    <div className="mb-5">
+      <div className="flex flex-wrap items-center gap-2">
+        {idxLabel && (
+          <span className="font-mono text-xs text-neutral-400">{idxLabel}</span>
+        )}
 
-      {namesMatch ? (
-        <span className="text-[13px] font-semibold tracking-tight text-neutral-900">
-          {nameA}
-        </span>
-      ) : isFallback && nameA && nameB ? (
-        <span className="text-[13px] tracking-tight text-neutral-900">
-          <span className="font-semibold">{nameA}</span>
-          <span className="mx-1 text-[11px] text-neutral-400">↔</span>
-          <span className="font-semibold">{nameB}</span>
-        </span>
-      ) : (
-        <span className="text-[13px] font-semibold tracking-tight text-neutral-900">
-          {nameA ?? nameB ?? "—"}
-        </span>
-      )}
+        {namesMatch ? (
+          <span className="text-[13px] font-semibold tracking-tight text-neutral-900">
+            {nameA}
+          </span>
+        ) : isFallback && nameA && nameB ? (
+          <span className="text-[13px] tracking-tight text-neutral-900">
+            <span className="font-semibold">{nameA}</span>
+            <span className="mx-1 text-[11px] text-neutral-400">↔</span>
+            <span className="font-semibold">{nameB}</span>
+          </span>
+        ) : (
+          <span className="text-[13px] font-semibold tracking-tight text-neutral-900">
+            {nameA ?? nameB ?? "—"}
+          </span>
+        )}
 
-      <span
-        className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${
-          isLlm
-            ? "bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400"
-            : isTool
-              ? "bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400"
-              : "bg-neutral-100 text-neutral-400"
-        }`}
-      >
-        {stepType}
-      </span>
+        <span
+          className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${
+            isLlm
+              ? "bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400"
+              : isTool
+                ? "bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400"
+                : "bg-neutral-100 text-neutral-400"
+          }`}
+        >
+          {stepType}
+        </span>
 
-      {toolProvider && (
-        <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:bg-amber-950/30 dark:text-amber-400">
-          {toolProvider}
-        </span>
-      )}
-      {toolModel && (
-        <span className="font-mono text-[11px] text-neutral-500">{toolModel}</span>
-      )}
+        {toolProvider && (
+          <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:bg-amber-950/30 dark:text-amber-400">
+            {toolProvider}
+          </span>
+        )}
+        {toolModel && (
+          <span className="font-mono text-[11px] text-neutral-500">{toolModel}</span>
+        )}
 
-      {hasDuration && (
-        <span className="text-[11px] text-neutral-400">
-          {formatDuration(step.duration_ms_a)} → {formatDuration(step.duration_ms_b)}
-        </span>
-      )}
+        {hasDuration && (
+          <span className="text-[11px] text-neutral-400">
+            {formatDuration(step.duration_ms_a)} → {formatDuration(step.duration_ms_b)}
+          </span>
+        )}
 
-      {missing && (
-        <span className="rounded-full bg-[var(--diff-badge-bg)] px-2.5 py-0.5 text-[10px] font-medium text-[var(--diff-badge-text)]">
-          {!step.exists_in_a ? "missing in A" : "missing in B"}
+        {missing && (
+          <span className="rounded-full bg-[var(--diff-badge-bg)] px-2.5 py-0.5 text-[10px] font-medium text-[var(--diff-badge-text)]">
+            {!step.exists_in_a ? "missing in A" : "missing in B"}
+          </span>
+        )}
+        {isFallback && (
+          <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-400">
+            approx match
+          </span>
+        )}
+      </div>
+      {isTool && hasToolLinkage && (
+        <div className="mt-1 text-[11px] text-neutral-400">
+          <span className="mr-1 text-amber-400">↳</span>
+          linked to LLM tool call
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===========================================================================
+// Tool linkage diff
+// ===========================================================================
+
+function truncateId(id: string, max = 20): string {
+  return id.length > max ? id.slice(0, max) + "…" : id;
+}
+
+function ToolLinkageDiff({
+  step,
+  absentA,
+  absentB,
+}: {
+  step: CompareStepDiff;
+  absentA: boolean;
+  absentB: boolean;
+}) {
+  const metaA = step.metadata_a;
+  const metaB = step.metadata_b;
+
+  const provA = (metaA?.provider as string) ?? step.model_provider_a ?? null;
+  const provB = (metaB?.provider as string) ?? step.model_provider_b ?? null;
+  const modelA = (metaA?.model as string) ?? step.model_name_a ?? null;
+  const modelB = (metaB?.model as string) ?? step.model_name_b ?? null;
+  const callIdA = (metaA?.tool_call_id as string) ?? null;
+  const callIdB = (metaB?.tool_call_id as string) ?? null;
+
+  const hasAny = provA || provB || modelA || modelB || callIdA || callIdB;
+  if (!hasAny) return null;
+
+  const provDiff = provA !== provB;
+  const modelDiff = modelA !== modelB;
+  const callIdDiff = callIdA !== callIdB;
+  const hasDiff = provDiff || modelDiff || callIdDiff;
+
+  const bg = hasDiff ? "bg-[var(--tint-diff-row)]" : "bg-neutral-50/50";
+
+  return (
+    <div className={`rounded-md px-4 py-3 ${bg}`}>
+      <div className="mb-2.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+        Linkage
+        {hasDiff && <ChangedBadge />}
+      </div>
+      <div className="grid grid-cols-2 gap-0">
+        <div className="pr-4">
+          <SideLabel side="A" />
+          <LinkagePills provider={provA} model={modelA} callId={callIdA} absent={absentA} />
+        </div>
+        <div className="border-l border-neutral-200 pl-4">
+          <SideLabel side="B" />
+          <LinkagePills provider={provB} model={modelB} callId={callIdB} absent={absentB} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LinkagePills({
+  provider,
+  model,
+  callId,
+  absent,
+}: {
+  provider: string | null;
+  model: string | null;
+  callId: string | null;
+  absent?: boolean;
+}) {
+  if (absent) return <p className="text-[11px] italic text-neutral-300">Not present</p>;
+  if (!provider && !model && !callId) return <p className="text-xs italic text-neutral-400">—</p>;
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+      {provider && (
+        <span className="rounded bg-amber-50 px-1.5 py-0.5 font-medium text-amber-600 dark:bg-amber-950/30 dark:text-amber-400">
+          {provider}
         </span>
       )}
-      {isFallback && (
-        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-400">
-          approx match
-        </span>
+      {model && (
+        <span className="font-mono text-neutral-500">{model}</span>
+      )}
+      {callId && (
+        <span className="font-mono text-neutral-400" title={callId}>{truncateId(callId)}</span>
       )}
     </div>
   );

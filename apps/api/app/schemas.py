@@ -282,6 +282,9 @@ class CompareStepDiff(BaseModel):
     model_name_a: str | None = None
     model_name_b: str | None = None
 
+    metadata_a: dict[str, Any] | None = None
+    metadata_b: dict[str, Any] | None = None
+
     llm_a: dict[str, Any] | None = None
     llm_b: dict[str, Any] | None = None
 

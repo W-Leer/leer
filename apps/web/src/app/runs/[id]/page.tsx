@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
@@ -17,6 +17,7 @@ import {
 import type { TimelineResponse, TimelineStep, TimelineEvent } from "@/lib/types";
 import { StructuredValue } from "@/components/structured-value";
 import { LlmStepDetail } from "@/components/llm-step-detail";
+import type { ToolCallLinkInfo } from "@/components/llm-step-detail";
 import { ChevronRight, GitCompareArrows } from "lucide-react";
 
 export default function RunDetailPage() {
@@ -47,6 +48,35 @@ export default function RunDetailPage() {
   if (!data) return null;
 
   const { run, steps, events } = data;
+
+  // Build tool_call_id linkage maps from the timeline data
+  const { toolCallIdToToolStep, toolCallIdToLlmStep } = useMemo(() => {
+    const toTool = new Map<string, TimelineStep>();
+    const toLlm = new Map<string, TimelineStep>();
+
+    for (const s of steps) {
+      if (s.step_type === "tool" && s.metadata?.tool_call_id) {
+        toTool.set(String(s.metadata.tool_call_id), s);
+      }
+      if (s.llm?.output?.tool_calls) {
+        for (const tc of s.llm.output.tool_calls) {
+          const tcId = (tc as Record<string, unknown>).id;
+          if (typeof tcId === "string") {
+            toLlm.set(tcId, s);
+          }
+        }
+      }
+    }
+    return { toolCallIdToToolStep: toTool, toolCallIdToLlmStep: toLlm };
+  }, [steps]);
+
+  const scrollToStep = useCallback((stepId: string) => {
+    const el = document.getElementById(`step-${stepId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setExpandedStepId(stepId);
+    }
+  }, []);
 
   return (
     <div className="max-w-4xl">
@@ -110,6 +140,9 @@ export default function RunDetailPage() {
                 step={s}
                 expanded={expandedStepId === s.id}
                 onToggle={() => setExpandedStepId(expandedStepId === s.id ? null : s.id)}
+                toolCallIdToToolStep={toolCallIdToToolStep}
+                toolCallIdToLlmStep={toolCallIdToLlmStep}
+                onJumpToStep={scrollToStep}
               />
             ))}
           </div>
@@ -292,21 +325,66 @@ function StepCard({
   step,
   expanded,
   onToggle,
+  toolCallIdToToolStep,
+  toolCallIdToLlmStep,
+  onJumpToStep,
 }: {
   step: TimelineStep;
   expanded: boolean;
   onToggle: () => void;
+  toolCallIdToToolStep: Map<string, TimelineStep>;
+  toolCallIdToLlmStep: Map<string, TimelineStep>;
+  onJumpToStep: (stepId: string) => void;
 }) {
+  const isTool = step.step_type === "tool";
+  const toolCallId = isTool ? String(step.metadata?.tool_call_id ?? "") : "";
+  const sourceLlmStep = toolCallId ? toolCallIdToLlmStep.get(toolCallId) : undefined;
+  const isLinkedTool = isTool && !!sourceLlmStep;
+
+  // Build tool call link map for LLM steps
+  const llmToolCallLinks = useMemo(() => {
+    if (!step.llm?.output?.tool_calls?.length) return undefined;
+    const links = new Map<string, ToolCallLinkInfo>();
+    for (const tc of step.llm.output.tool_calls) {
+      const tcId = (tc as Record<string, unknown>).id;
+      if (typeof tcId === "string") {
+        const toolStep = toolCallIdToToolStep.get(tcId);
+        if (toolStep) {
+          links.set(tcId, {
+            toolStepId: toolStep.id,
+            toolStepName: toolStep.name,
+            toolStepIndex: toolStep.sequence_index,
+            toolStepStatus: toolStep.status,
+          });
+        }
+      }
+    }
+    return links.size > 0 ? links : undefined;
+  }, [step.llm, toolCallIdToToolStep]);
+
   const dotColor = expanded
     ? "border-neutral-500 bg-neutral-500"
     : step.status === "failed"
       ? "border-[var(--error-dot)] bg-[var(--error-dot)]"
-      : "border-neutral-300 bg-white";
+      : isLinkedTool
+        ? "border-amber-300 bg-amber-100"
+        : "border-neutral-300 bg-white";
+
+  const sourceLabel = sourceLlmStep
+    ? `Triggered by ${String(step.metadata?.model || step.metadata?.provider || "")} tool call`
+        .replace(/\s+tool call$/, " tool call")
+        .replace(/^Triggered by\s+tool call$/, "Triggered by previous LLM step")
+    : null;
 
   return (
-    <div className="relative mb-7 last:mb-0">
-      {/* Timeline dot — centered on the border-l-2 line */}
+    <div id={`step-${step.id}`} className={`relative mb-7 last:mb-0 ${isLinkedTool ? "ml-5" : ""}`}>
+      {/* Timeline dot */}
       <div className={`absolute -left-[34px] top-[17px] h-2.5 w-2.5 rounded-full border-2 transition-colors duration-150 ${dotColor}`} />
+
+      {/* Linked tool accent */}
+      {isLinkedTool && (
+        <div className="absolute -left-[7px] top-0 bottom-0 w-[2px] rounded-full bg-amber-200 dark:bg-amber-800/40" />
+      )}
 
       <div
         className={`rounded-lg transition-all duration-150 ${
@@ -332,16 +410,26 @@ function StepCard({
               {step.model_name && (
                 <span className="font-mono text-neutral-500">{step.model_name}</span>
               )}
-              {step.step_type === "tool" && !!step.metadata?.tool_call_id && (
-                <span className="font-mono text-neutral-400" title={String(step.metadata.tool_call_id)}>{truncateId(String(step.metadata.tool_call_id))}</span>
+              {isTool && !!step.metadata?.provider && (
+                <span className="font-mono text-neutral-500">{String(step.metadata.provider)}</span>
+              )}
+              {isTool && !!toolCallId && (
+                <span className="font-mono text-neutral-400" title={toolCallId}>{truncateId(toolCallId)}</span>
               )}
               <span>{stepDuration(step)}</span>
               <span className="font-mono">#{step.sequence_index}</span>
             </div>
           </div>
+          {/* Context line for linked tool steps */}
+          {sourceLabel && (
+            <div className="mt-1.5 pl-[22px] text-[11px] text-neutral-400">
+              <span className="mr-1 text-amber-400">↳</span>
+              {sourceLabel}
+            </div>
+          )}
         </button>
 
-        {/* Expand/collapse with CSS grid — handles dynamic content height */}
+        {/* Expand/collapse with CSS grid */}
         <div
           className={`grid transition-[grid-template-rows] duration-200 ease-in-out ${
             expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
@@ -349,9 +437,18 @@ function StepCard({
         >
           <div className="overflow-hidden">
             {step.llm ? (
-              <LlmStepDetail llm={step.llm} errorSummary={step.error_summary} />
+              <LlmStepDetail
+                llm={step.llm}
+                errorSummary={step.error_summary}
+                toolCallLinks={llmToolCallLinks}
+                onJumpToStep={onJumpToStep}
+              />
             ) : (
-              <StepDetailPanel step={step} />
+              <StepDetailPanel
+                step={step}
+                sourceLlmStep={sourceLlmStep}
+                onJumpToStep={onJumpToStep}
+              />
             )}
           </div>
         </div>
@@ -366,7 +463,15 @@ function StepCard({
 
 const TOOL_META_KEYS = new Set(["tool_name", "tool_call_id", "provider", "model"]);
 
-function StepDetailPanel({ step }: { step: TimelineStep }) {
+function StepDetailPanel({
+  step,
+  sourceLlmStep,
+  onJumpToStep,
+}: {
+  step: TimelineStep;
+  sourceLlmStep?: TimelineStep;
+  onJumpToStep?: (stepId: string) => void;
+}) {
   const hasInput = step.input_summary && Object.keys(step.input_summary).length > 0;
   const hasOutput = step.output_summary && Object.keys(step.output_summary).length > 0;
   const hasError = step.error_summary && Object.keys(step.error_summary).length > 0;
@@ -377,9 +482,9 @@ function StepDetailPanel({ step }: { step: TimelineStep }) {
 
   return (
     <div className="space-y-5 border-t border-neutral-100 px-5 pb-5 pt-4">
-      {/* Tool metadata row */}
+      {/* Tool linkage row */}
       {isTool && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px]">
+        <div className="flex flex-wrap items-center gap-x-[14px] gap-y-1.5 text-[11px]">
           {!!meta.provider && (
             <span className="rounded bg-amber-50 px-1.5 py-0.5 font-medium text-amber-600 dark:bg-amber-950/30 dark:text-amber-400">
               {String(meta.provider)}
@@ -394,6 +499,14 @@ function StepDetailPanel({ step }: { step: TimelineStep }) {
               {truncateId(String(meta.tool_call_id))}
             </span>
           )}
+          {sourceLlmStep && onJumpToStep && (
+            <button
+              onClick={() => onJumpToStep(sourceLlmStep.id)}
+              className="text-neutral-400 transition-colors hover:text-neutral-600 hover:underline"
+            >
+              from step #{sourceLlmStep.sequence_index}
+            </button>
+          )}
         </div>
       )}
 
@@ -407,7 +520,7 @@ function StepDetailPanel({ step }: { step: TimelineStep }) {
         </div>
       )}
 
-      {/* Extra metadata (non-tool-specific or for non-tool steps) */}
+      {/* Extra metadata */}
       {extraEntries.length > 0 && (
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-neutral-400">
           {extraEntries.map(([k, v]) => (

@@ -56,18 +56,31 @@ export const ROLE_STYLES: Record<string, string> = {
 /* Main export                                                         */
 /* ------------------------------------------------------------------ */
 
+export interface ToolCallLinkInfo {
+  toolStepId: string;
+  toolStepName: string;
+  toolStepIndex: number;
+  toolStepStatus: string;
+}
+
 export function LlmStepDetail({
   llm,
   errorSummary,
+  toolCallLinks,
+  onJumpToStep,
 }: {
   llm: LLMShape;
   errorSummary?: Dict | null;
+  toolCallLinks?: Map<string, ToolCallLinkInfo>;
+  onJumpToStep?: (stepId: string) => void;
 }) {
   const [raw, setRaw] = useState(false);
   const rawText = JSON.stringify(llm, null, 2);
 
   const hasInput = !!llm.input.system || llm.input.messages.length > 0 || llm.input.tools.length > 0 || Object.keys(llm.input.params).length > 0;
-  const hasOutput = !!llm.output.text || llm.output.tool_calls.length > 0;
+  const hasOutputText = !!llm.output.text;
+  const hasToolCalls = llm.output.tool_calls.length > 0;
+  const hasOutput = hasOutputText || hasToolCalls;
   const hasError = errorSummary && Object.keys(errorSummary).length > 0;
 
   return (
@@ -89,8 +102,15 @@ export function LlmStepDetail({
         <>
           {hasInput && <InputSection llm={llm} />}
           {!hasInput && !hasError && <EmptyHint text="No prompt captured" />}
-          {hasOutput && <OutputSection llm={llm} />}
+          {hasOutput && <OutputSection llm={llm} hideToolCalls={hasToolCalls} />}
           {!hasOutput && !hasError && <EmptyHint text="No response captured" />}
+          {hasToolCalls && (
+            <ToolCallsSection
+              calls={llm.output.tool_calls}
+              toolCallLinks={toolCallLinks}
+              onJumpToStep={onJumpToStep}
+            />
+          )}
           {hasError && <ErrorSection data={errorSummary!} />}
           <UsageRow usage={llm.usage} />
         </>
@@ -239,7 +259,7 @@ function ParamsBlock({ params }: { params: Record<string, unknown> }) {
 /* Output section                                                      */
 /* ------------------------------------------------------------------ */
 
-function OutputSection({ llm }: { llm: LLMShape }) {
+function OutputSection({ llm, hideToolCalls }: { llm: LLMShape; hideToolCalls?: boolean }) {
   const output = llm.output;
 
   return (
@@ -253,7 +273,7 @@ function OutputSection({ llm }: { llm: LLMShape }) {
             {output.text}
           </pre>
         )}
-        {output.tool_calls.length > 0 && <ToolCallsList calls={output.tool_calls} />}
+        {!hideToolCalls && output.tool_calls.length > 0 && <ToolCallsList calls={output.tool_calls} />}
       </div>
     </div>
   );
@@ -277,6 +297,79 @@ function ToolCallsList({ calls }: { calls: Record<string, unknown>[] }) {
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Tool calls section (dedicated, between Output and Tokens)           */
+/* ------------------------------------------------------------------ */
+
+function truncateId(id: string, max = 20): string {
+  return id.length > max ? id.slice(0, max) + "…" : id;
+}
+
+function ToolCallsSection({
+  calls,
+  toolCallLinks,
+  onJumpToStep,
+}: {
+  calls: Dict[];
+  toolCallLinks?: Map<string, ToolCallLinkInfo>;
+  onJumpToStep?: (stepId: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="text-[11px] font-medium text-neutral-400">Tool calls</div>
+      {calls.map((tc, i) => {
+        const callId = (tc.id as string) ?? null;
+        const name = (tc.name as string) ?? "call";
+        const link = callId ? toolCallLinks?.get(callId) : undefined;
+        const argsPreview = tc.arguments != null
+          ? typeof tc.arguments === "string"
+            ? tc.arguments.slice(0, 120)
+            : JSON.stringify(tc.arguments).slice(0, 120)
+          : null;
+
+        return (
+          <div
+            key={i}
+            className="flex items-start justify-between gap-3 rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 dark:border-amber-900/30 dark:bg-amber-950/20"
+          >
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="text-[13px] font-semibold text-neutral-800 dark:text-neutral-200">{name}</span>
+                {callId && (
+                  <span className="font-mono text-[11px] text-neutral-400" title={callId}>
+                    {truncateId(callId)}
+                  </span>
+                )}
+                {link ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400">
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    linked to step #{link.toolStepIndex}
+                  </span>
+                ) : (
+                  <span className="text-[10px] italic text-neutral-400">no traced tool step</span>
+                )}
+              </div>
+              {argsPreview && (
+                <pre className="truncate font-mono text-[11px] leading-5 text-neutral-500 dark:text-neutral-400">
+                  {argsPreview}
+                </pre>
+              )}
+            </div>
+            {link && onJumpToStep && (
+              <button
+                onClick={() => onJumpToStep(link.toolStepId)}
+                className="shrink-0 whitespace-nowrap text-[11px] font-medium text-amber-700 transition-colors hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-300"
+              >
+                Jump to tool step →
+              </button>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

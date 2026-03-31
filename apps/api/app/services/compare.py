@@ -219,6 +219,9 @@ def _build_row(sa: Step | None, sb: Step | None, kind: str) -> CompareStepDiff:
         model_name_a=_attr(sa, "model_name"),
         model_name_b=_attr(sb, "model_name"),
 
+        metadata_a=_attr(sa, "metadata_") if sa else None,
+        metadata_b=_attr(sb, "metadata_") if sb else None,
+
         llm_a=_extract_llm(sa),
         llm_b=_extract_llm(sb),
     )
