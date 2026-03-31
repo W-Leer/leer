@@ -1,10 +1,24 @@
 # NOW
 
 ## Current Goal
-Build MVP foundation (tracing + storage)
+Stabilize LLM observability foundation and expand provider support
 
 ## Tasks
-- [ ] Setup repo + docs
-- [ ] Create Python SDK skeleton
-- [ ] Create FastAPI server
-- [ ] Define DB schema
+
+### Core stability
+- [ ] Validate OpenAI wrapper edge cases
+- [ ] Validate Anthropic wrapper edge cases
+- [ ] Ensure normalized LLM shape consistency
+
+### Next features
+- [ ] Tool calling (first-class support)
+- [ ] Async SDK support
+- [ ] Structured outputs improvements
+
+### UX
+- [ ] Improve run detail readability
+- [ ] Improve compare clarity for LLM steps
+
+### Docs
+- [ ] Provider support matrix
+- [ ] Scope & priorities doc
