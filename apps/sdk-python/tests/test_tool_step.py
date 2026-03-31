@@ -552,3 +552,134 @@ class TestPreviewText:
         req = run.artifacts[0]
         assert '"query"' in req.preview_text
         assert '"city"' in req.preview_text
+
+
+# ---------------------------------------------------------------------------
+# LLM → tool linkage (Phase 4)
+# ---------------------------------------------------------------------------
+
+class TestLLMToolLinkage:
+    """Verify that tool_call_id links an LLM-emitted tool call to its
+    corresponding tool execution step, and that provider/model metadata
+    is preserved on tool steps for future UI/compare/replay use."""
+
+    def test_tool_call_id_links_llm_and_tool_steps(self):
+        from leer.step import step
+
+        tool_call_id = "call_abc123"
+
+        def go(run):
+            with step("gpt-4.1", step_type="llm") as llm_s:
+                llm_s.output_summary = {
+                    "tool_calls": [
+                        {"id": tool_call_id, "name": "get_weather", "arguments": {"city": "Paris"}}
+                    ],
+                }
+
+            with tool_step(
+                "get_weather",
+                tool_call_id=tool_call_id,
+                source_provider="openai",
+                source_model="gpt-4.1",
+            ) as s:
+                s.input = {"city": "Paris"}
+                s.output = {"temperature": 18, "condition": "sunny"}
+
+        run = _traced(go)
+
+        llm_step = run.steps[0]
+        tool_s = run.steps[1]
+
+        emitted_id = llm_step.output_summary["tool_calls"][0]["id"]
+        linked_id = tool_s.metadata["tool_call_id"]
+        assert emitted_id == linked_id == tool_call_id
+
+    def test_provider_and_model_preserved_on_tool_step(self):
+        def go(run):
+            with tool_step(
+                "get_weather",
+                tool_call_id="call_xyz",
+                source_provider="anthropic",
+                source_model="claude-sonnet-4-20250514",
+            ) as s:
+                s.input = {"city": "London"}
+                s.output = {"temp": 12}
+
+        run = _traced(go)
+        meta = run.steps[0].metadata
+
+        assert meta["tool_call_id"] == "call_xyz"
+        assert meta["provider"] == "anthropic"
+        assert meta["model"] == "claude-sonnet-4-20250514"
+        assert meta["tool_name"] == "get_weather"
+
+    def test_multiple_tool_calls_linked_independently(self):
+        from leer.step import step
+
+        def go(run):
+            with step("gpt-4.1", step_type="llm") as llm_s:
+                llm_s.output_summary = {
+                    "tool_calls": [
+                        {"id": "call_1", "name": "get_weather", "arguments": {"city": "Paris"}},
+                        {"id": "call_2", "name": "search_docs", "arguments": {"query": "rain"}},
+                    ],
+                }
+
+            with tool_step("get_weather", tool_call_id="call_1", source_provider="openai", source_model="gpt-4.1") as s:
+                s.input = {"city": "Paris"}
+                s.output = {"temp": 18}
+
+            with tool_step("search_docs", tool_call_id="call_2", source_provider="openai", source_model="gpt-4.1") as s:
+                s.input = {"query": "rain"}
+                s.output = {"count": 3}
+
+        run = _traced(go)
+
+        assert len(run.steps) == 3
+        tool_1 = run.steps[1]
+        tool_2 = run.steps[2]
+
+        assert tool_1.metadata["tool_call_id"] == "call_1"
+        assert tool_1.metadata["tool_name"] == "get_weather"
+        assert tool_2.metadata["tool_call_id"] == "call_2"
+        assert tool_2.metadata["tool_name"] == "search_docs"
+
+    def test_linkage_survives_serialization(self):
+        """Verify tool_call_id and provider/model survive the serialize path."""
+        from leer.client import _serialize_step
+
+        def go(run):
+            with tool_step(
+                "get_weather",
+                tool_call_id="call_ser",
+                source_provider="openai",
+                source_model="gpt-4.1",
+            ) as s:
+                s.input = {"city": "Paris"}
+                s.output = {"temp": 18}
+
+        run = _traced(go)
+        payload = _serialize_step(run.steps[0])
+
+        assert payload["step_type"] == "tool"
+        assert payload["name"] == "get_weather"
+        assert payload["metadata"]["tool_call_id"] == "call_ser"
+        assert payload["metadata"]["provider"] == "openai"
+        assert payload["metadata"]["model"] == "gpt-4.1"
+        assert payload["duration_ms"] is not None
+
+    def test_tool_step_without_linkage_still_works(self):
+        """A tool step with no tool_call_id or provider is still valid."""
+        def go(run):
+            with tool_step("manual_tool") as s:
+                s.input = {"x": 1}
+                s.output = {"y": 2}
+
+        run = _traced(go)
+        meta = run.steps[0].metadata
+
+        assert meta["tool_name"] == "manual_tool"
+        assert "tool_call_id" not in meta
+        assert "provider" not in meta
+        assert "model" not in meta
+        assert run.steps[0].status == "completed"
