@@ -143,7 +143,11 @@ def get_weather(city: str) -> dict[str, Any]:
 # Demo workflow
 # ---------------------------------------------------------------------------
 
-client = wrap_openai_client(_FakeOpenAI())
+def _new_client():
+    return wrap_openai_client(_FakeOpenAI())
+
+
+client = _new_client()
 
 TOOL_CALLS = [
     {"id": "call_paris",  "name": "get_weather", "arguments": {"city": "Paris"}},
@@ -286,8 +290,21 @@ def main() -> None:
     print("Demo: Async-style fan-out (LLM → 3 child tool steps)")
     print("=" * 60)
 
+    # 1. Validate structure locally (mocked submit)
     output = validate(run_fanout_demo)
     print(f"\n  Result: {json.dumps(output, indent=2)}")
+
+    # 2. Submit a real run to the API so it appears in the UI
+    global client
+    client = _new_client()
+    print()
+    print("Submitting run to API...")
+    try:
+        run_fanout_demo()
+        print("  Submitted. Check the Leer UI under 'demo-project'.")
+    except Exception as e:
+        print(f"  Could not submit to API ({e}). Is the API running?")
+
     print()
     print("Expected timeline:")
     print("  #0 [code] prepare_prompt")
