@@ -283,10 +283,14 @@ function QuickPickChip({ run, onClick }: { run: RunListItem; onClick: () => void
 // Comparison results
 // ===========================================================================
 
+function stepDiffKey(s: CompareStepDiff): string {
+  return `${s.match_kind}:${s.sequence_index_a ?? "x"}-${s.sequence_index_b ?? "x"}:${s.name_a ?? ""}:${s.name_b ?? ""}`;
+}
+
 function CompareResults({ data }: { data: CompareResponse }) {
   const matchedCount = data.steps.filter((s) => s.match_kind !== "missing").length;
   const missingCount = data.steps.filter((s) => s.match_kind === "missing").length;
-  const lowOverlap = data.steps.length > 0 && matchedCount === 0;
+  const lowOverlap = data.steps.length >= 3 && missingCount > matchedCount;
 
   return (
     <div>
@@ -320,8 +324,8 @@ function CompareResults({ data }: { data: CompareResponse }) {
           <p className="text-sm text-neutral-500">No steps to compare.</p>
         ) : (
           <div className="space-y-5">
-            {data.steps.map((step, i) => (
-              <StepDiffCard key={i} step={step} />
+            {data.steps.map((step) => (
+              <StepDiffCard key={stepDiffKey(step)} step={step} />
             ))}
           </div>
         )}
@@ -407,6 +411,9 @@ function StepDiffCard({ step }: { step: CompareStepDiff }) {
   const isFallback = step.match_kind === "fallback_type_index";
   const isLlm = !!step.llm_a || !!step.llm_b;
 
+  const absentA = !step.exists_in_a;
+  const absentB = !step.exists_in_b;
+
   const cardStyle = missing
     ? "bg-[var(--tint-diff-strong)] shadow-[0_1px_4px_rgba(0,0,0,0.05)]"
     : hasDiff
@@ -423,8 +430,8 @@ function StepDiffCard({ step }: { step: CompareStepDiff }) {
 
         {/* Status — always shown */}
         <DiffRow label="Status" diff={step.status_diff}>
-          <DiffCellText side="A" value={step.status_a} />
-          <DiffCellText side="B" value={step.status_b} />
+          <DiffCellText side="A" value={step.status_a} absent={absentA} />
+          <DiffCellText side="B" value={step.status_b} absent={absentB} />
         </DiffRow>
 
         {/* Input — LLM-aware or generic */}
@@ -437,6 +444,8 @@ function StepDiffCard({ step }: { step: CompareStepDiff }) {
               diff={step.input_diff}
               dataA={step.input_summary_a}
               dataB={step.input_summary_b}
+              absentA={absentA}
+              absentB={absentB}
             />
           )
         )}
@@ -450,14 +459,16 @@ function StepDiffCard({ step }: { step: CompareStepDiff }) {
             diff={step.output_diff}
             dataA={step.output_summary_a}
             dataB={step.output_summary_b}
+            absentA={absentA}
+            absentB={absentB}
           />
         )}
 
         {/* Error — always shown when present */}
         {(step.error_summary_a || step.error_summary_b) && (
           <DiffRow label="Error" diff={step.error_diff} isError>
-            <DiffCellText side="A" value={errorHeadline(step.error_summary_a) || null} isError />
-            <DiffCellText side="B" value={errorHeadline(step.error_summary_b) || null} isError />
+            <DiffCellText side="A" value={errorHeadline(step.error_summary_a) || null} isError absent={absentA} />
+            <DiffCellText side="B" value={errorHeadline(step.error_summary_b) || null} isError absent={absentB} />
           </DiffRow>
         )}
 
@@ -485,8 +496,8 @@ function StepDiffHeader({
 }) {
   const nameA = step.name_a;
   const nameB = step.name_b;
-  const namesMatch = nameA && nameB && nameA === nameB;
-  const displayName = namesMatch ? nameA : (nameA ?? nameB ?? "—");
+  const bothExist = step.exists_in_a && step.exists_in_b;
+  const namesMatch = bothExist && nameA === nameB;
 
   const stepType = step.step_type_a ?? step.step_type_b ?? "—";
 
@@ -494,28 +505,35 @@ function StepDiffHeader({
   const idxB = step.sequence_index_b;
   const idxLabel =
     idxA != null && idxB != null
-      ? idxA === idxB
-        ? `#${idxA}`
-        : `#${idxA}→#${idxB}`
-      : idxA != null
-        ? `#${idxA}`
-        : idxB != null
-          ? `#${idxB}`
-          : null;
+      ? idxA === idxB ? `#${idxA}` : `#${idxA}→#${idxB}`
+      : idxA != null ? `#${idxA}`
+      : idxB != null ? `#${idxB}`
+      : null;
+
+  const hasDuration = bothExist && (step.duration_ms_a != null || step.duration_ms_b != null);
 
   return (
     <div className="mb-5 flex flex-wrap items-center gap-2">
       {idxLabel && (
         <span className="font-mono text-xs text-neutral-400">{idxLabel}</span>
       )}
-      <span className="text-[13px] font-semibold tracking-tight text-neutral-900">
-        {displayName}
-      </span>
-      {!namesMatch && nameA && nameB && (
-        <span className="text-[11px] text-neutral-400">
-          → {nameB}
+
+      {namesMatch ? (
+        <span className="text-[13px] font-semibold tracking-tight text-neutral-900">
+          {nameA}
+        </span>
+      ) : isFallback && nameA && nameB ? (
+        <span className="text-[13px] tracking-tight text-neutral-900">
+          <span className="font-semibold">{nameA}</span>
+          <span className="mx-1 text-[11px] text-neutral-400">↔</span>
+          <span className="font-semibold">{nameB}</span>
+        </span>
+      ) : (
+        <span className="text-[13px] font-semibold tracking-tight text-neutral-900">
+          {nameA ?? nameB ?? "—"}
         </span>
       )}
+
       <span
         className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${
           isLlm
@@ -526,16 +544,12 @@ function StepDiffHeader({
         {stepType}
       </span>
 
-      {/* Duration A vs B */}
-      {(step.duration_ms_a != null || step.duration_ms_b != null) && (
+      {hasDuration && (
         <span className="text-[11px] text-neutral-400">
-          {step.duration_ms_a != null ? formatDuration(step.duration_ms_a) : "—"}
-          {step.exists_in_a && step.exists_in_b && " → "}
-          {step.exists_in_a && step.exists_in_b && (step.duration_ms_b != null ? formatDuration(step.duration_ms_b) : "—")}
+          {formatDuration(step.duration_ms_a)} → {formatDuration(step.duration_ms_b)}
         </span>
       )}
 
-      {/* Match kind labels */}
       {missing && (
         <span className="rounded-full bg-[var(--diff-badge-bg)] px-2.5 py-0.5 text-[10px] font-medium text-[var(--diff-badge-text)]">
           {!step.exists_in_a ? "missing in A" : "missing in B"}
@@ -856,17 +870,21 @@ function DiffCellText({
   side,
   value,
   isError,
+  absent,
 }: {
   side: string;
   value: string | null;
   isError?: boolean;
+  absent?: boolean;
 }) {
   const textColor = isError ? "text-[var(--error-text)]" : "text-neutral-700";
 
   return (
     <div>
       <SideLabel side={side} />
-      {value ? (
+      {absent ? (
+        <p className="text-[11px] italic text-neutral-300">Not present</p>
+      ) : value ? (
         <p className={`whitespace-pre-wrap break-words font-mono text-xs leading-6 ${textColor}`}>
           {value}
         </p>
@@ -882,11 +900,15 @@ function DataDiffRow({
   diff,
   dataA,
   dataB,
+  absentA,
+  absentB,
 }: {
   label: string;
   diff: boolean;
   dataA: Dict | null;
   dataB: Dict | null;
+  absentA?: boolean;
+  absentB?: boolean;
 }) {
   const [raw, setRaw] = useState(false);
   const hasAny = dataA != null || dataB != null;
@@ -910,24 +932,26 @@ function DataDiffRow({
       </div>
       <div className="grid grid-cols-2 gap-0">
         <div className="pr-4">
-          <DataCell side="A" data={dataA} raw={raw} />
+          <DataCell side="A" data={dataA} raw={raw} absent={absentA} />
         </div>
         <div className="border-l border-neutral-200 pl-4">
-          <DataCell side="B" data={dataB} raw={raw} />
+          <DataCell side="B" data={dataB} raw={raw} absent={absentB} />
         </div>
       </div>
     </div>
   );
 }
 
-function DataCell({ side, data, raw }: { side: string; data: Dict | null; raw: boolean }) {
+function DataCell({ side, data, raw, absent }: { side: string; data: Dict | null; raw: boolean; absent?: boolean }) {
   const resolved = resolveData(data);
   const rawText = rawJson(data);
 
   return (
     <div>
       <SideLabel side={side} />
-      {resolved == null ? (
+      {absent ? (
+        <p className="text-[11px] italic text-neutral-300">Not present</p>
+      ) : resolved == null ? (
         <p className="text-xs italic text-neutral-400">No output</p>
       ) : raw ? (
         <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-neutral-600">
