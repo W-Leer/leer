@@ -272,6 +272,12 @@ function RawToggle({ raw, onToggle }: { raw: boolean; onToggle: () => void }) {
 // Step card (clickable, expandable)
 // ---------------------------------------------------------------------------
 
+function stepTypeBadge(stepType: string): string {
+  if (stepType === "llm") return "bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400";
+  if (stepType === "tool") return "bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400";
+  return "bg-neutral-100 text-neutral-400";
+}
+
 function stepDuration(step: TimelineStep): string {
   if (!step.started_at || !step.ended_at) return "—";
   const ms = new Date(step.ended_at).getTime() - new Date(step.started_at).getTime();
@@ -311,11 +317,7 @@ function StepCard({
             <div className="flex items-center gap-2.5">
               <span className={`text-[10px] transition-transform duration-150 ${expanded ? "rotate-90" : ""} text-neutral-400`}>▶</span>
               <span className="text-[13px] font-semibold tracking-tight text-neutral-900">{step.name}</span>
-              <span className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${
-                step.step_type === "llm"
-                  ? "bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400"
-                  : "bg-neutral-100 text-neutral-400"
-              }`}>
+              <span className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${stepTypeBadge(step.step_type)}`}>
                 {step.step_type}
               </span>
               <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusClass(step.status)}`}>
@@ -325,6 +327,9 @@ function StepCard({
             <div className="flex items-center gap-4 text-[11px] text-neutral-400">
               {step.model_name && (
                 <span className="font-mono text-neutral-500">{step.model_name}</span>
+              )}
+              {step.step_type === "tool" && !!step.metadata?.tool_call_id && (
+                <span className="font-mono text-neutral-400" title="tool_call_id">{String(step.metadata.tool_call_id)}</span>
               )}
               <span>{stepDuration(step)}</span>
               <span className="font-mono">#{step.sequence_index}</span>
@@ -355,24 +360,57 @@ function StepCard({
 // Step detail panel
 // ---------------------------------------------------------------------------
 
+const TOOL_META_KEYS = new Set(["tool_name", "tool_call_id", "provider", "model"]);
+
 function StepDetailPanel({ step }: { step: TimelineStep }) {
   const hasInput = step.input_summary && Object.keys(step.input_summary).length > 0;
   const hasOutput = step.output_summary && Object.keys(step.output_summary).length > 0;
   const hasError = step.error_summary && Object.keys(step.error_summary).length > 0;
-  const metaEntries = step.metadata ? Object.entries(step.metadata) : [];
+
+  const isTool = step.step_type === "tool";
+  const meta = step.metadata ?? {};
+  const extraEntries = Object.entries(meta).filter(([k]) => !isTool || !TOOL_META_KEYS.has(k));
 
   return (
     <div className="space-y-5 border-t border-neutral-100 px-5 pb-5 pt-4">
-      {/* Metadata bar */}
-      <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-neutral-400">
-        <span>type <span className="font-medium text-neutral-600">{step.step_type}</span></span>
-        <span>duration <span className="font-medium text-neutral-600">{stepDuration(step)}</span></span>
-        {step.started_at && <span>started <span className="font-medium text-neutral-600">{formatDate(step.started_at)}</span></span>}
-        {step.ended_at && <span>ended <span className="font-medium text-neutral-600">{formatDate(step.ended_at)}</span></span>}
-        {metaEntries.map(([k, v]) => (
-          <span key={k}>{k} <span className="font-medium text-neutral-600">{String(v)}</span></span>
-        ))}
-      </div>
+      {/* Tool metadata row */}
+      {isTool && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px]">
+          {!!meta.provider && (
+            <span className="rounded bg-amber-50 px-1.5 py-0.5 font-medium text-amber-600 dark:bg-amber-950/30 dark:text-amber-400">
+              {String(meta.provider)}
+            </span>
+          )}
+          {!!meta.model && (
+            <span className="font-mono text-neutral-500">{String(meta.model)}</span>
+          )}
+          <span className="text-neutral-400">{stepDuration(step)}</span>
+          {!!meta.tool_call_id && (
+            <span className="font-mono text-neutral-400" title="tool_call_id">
+              {String(meta.tool_call_id)}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Generic metadata bar */}
+      {!isTool && (
+        <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-neutral-400">
+          <span>type <span className="font-medium text-neutral-600">{step.step_type}</span></span>
+          <span>duration <span className="font-medium text-neutral-600">{stepDuration(step)}</span></span>
+          {step.started_at && <span>started <span className="font-medium text-neutral-600">{formatDate(step.started_at)}</span></span>}
+          {step.ended_at && <span>ended <span className="font-medium text-neutral-600">{formatDate(step.ended_at)}</span></span>}
+        </div>
+      )}
+
+      {/* Extra metadata (non-tool-specific or for non-tool steps) */}
+      {extraEntries.length > 0 && (
+        <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-neutral-400">
+          {extraEntries.map(([k, v]) => (
+            <span key={k}>{k} <span className="font-medium text-neutral-600">{String(v)}</span></span>
+          ))}
+        </div>
+      )}
 
       {/* Input */}
       <StepSection label="Input" variant="input">

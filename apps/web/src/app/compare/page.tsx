@@ -538,7 +538,9 @@ function StepDiffHeader({
         className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${
           isLlm
             ? "bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400"
-            : "bg-neutral-100 text-neutral-400"
+            : stepType === "tool"
+              ? "bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400"
+              : "bg-neutral-100 text-neutral-400"
         }`}
       >
         {stepType}
