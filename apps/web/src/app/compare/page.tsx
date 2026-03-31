@@ -564,7 +564,7 @@ function StepDiffHeader({
               ? "bg-[var(--diff-badge-bg)] text-[var(--diff-badge-text)]"
               : "bg-neutral-100 text-neutral-400"
           }`}>
-            child{parentDiff ? " · parent changed" : ""}
+            {parentDiff ? "parent changed" : "child"}
           </span>
         )}
 

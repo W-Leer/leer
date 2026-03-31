@@ -366,7 +366,9 @@ function StepCard({
   // Parent/child hierarchy
   const isChildStep = !!step.parent_step_id;
   const parentStep = step.parent_step_id ? stepById.get(step.parent_step_id) : undefined;
-  const childCount = childrenByParentId.get(step.id)?.length ?? 0;
+  const children = childrenByParentId.get(step.id);
+  const childCount = children?.length ?? 0;
+  const allChildrenAreTools = childCount > 0 && children!.every((c) => c.step_type === "tool");
 
   // Build tool call link map for LLM steps
   const llmToolCallLinks = useMemo(() => {
@@ -395,9 +397,8 @@ function StepCard({
       ? "border-[var(--error-dot)] bg-[var(--error-dot)]"
       : "border-neutral-300 bg-white";
 
-  // Context line: use parent step name for any child, not just linked tools
   const contextLabel = parentStep
-    ? `Triggered by ${parentStep.name}`
+    ? `← ${parentStep.name} (#${parentStep.sequence_index})`
     : null;
 
   return (
@@ -431,7 +432,7 @@ function StepCard({
               </span>
               {childCount > 0 && (
                 <span className="text-[10px] text-neutral-400">
-                  {childCount} child{childCount !== 1 ? "ren" : ""}
+                  {childCount} {allChildrenAreTools ? `tool call${childCount !== 1 ? "s" : ""}` : `child${childCount !== 1 ? "ren" : ""}`}
                 </span>
               )}
             </div>
@@ -537,7 +538,7 @@ function StepDetailPanel({
               onClick={() => onJumpToStep(linkTarget.id)}
               className="text-neutral-400 transition-colors hover:text-neutral-600 hover:underline"
             >
-              from step #{linkTarget.sequence_index}
+              ← {linkTarget.name} (#{linkTarget.sequence_index})
             </button>
           )}
         </div>

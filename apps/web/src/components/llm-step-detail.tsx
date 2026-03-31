@@ -333,35 +333,35 @@ function ToolCallsSection({
         return (
           <div
             key={i}
-            className="flex items-center justify-between gap-3 rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 dark:border-amber-900/30 dark:bg-amber-950/20"
+            className="flex items-center justify-between gap-3 rounded-md bg-amber-50/40 px-3 py-1.5 dark:bg-amber-950/10"
           >
-            <div className="flex min-w-0 flex-1 items-center gap-x-3 gap-y-1 flex-wrap">
-              <span className="text-[13px] font-semibold text-neutral-800 dark:text-neutral-200">{name}</span>
+            <div className="flex min-w-0 flex-1 items-center gap-x-3 gap-y-1">
+              <span className="text-[12px] font-semibold text-neutral-800 dark:text-neutral-200">{name}</span>
               {callId && (
-                <span className="font-mono text-[11px] text-neutral-400" title={callId}>
+                <span className="font-mono text-[10px] text-neutral-400" title={callId}>
                   {truncateId(callId)}
                 </span>
               )}
               {argsPreview && (
-                <span className="truncate font-mono text-[11px] text-neutral-500 dark:text-neutral-400" title={argsRaw ?? undefined}>
+                <span className="truncate font-mono text-[10px] text-neutral-500 dark:text-neutral-400" title={argsRaw ?? undefined}>
                   {argsPreview}
                 </span>
               )}
               {link ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400">
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
                   <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                  step #{link.toolStepIndex}
+                  #{link.toolStepIndex}
                 </span>
               ) : (
-                <span className="text-[10px] italic text-neutral-400">no traced step</span>
+                <span className="text-[10px] italic text-neutral-400">untraced</span>
               )}
             </div>
             {link && onJumpToStep && (
               <button
                 onClick={() => onJumpToStep(link.toolStepId)}
-                className="shrink-0 whitespace-nowrap text-[11px] font-medium text-amber-700 transition-colors hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-300"
+                className="shrink-0 whitespace-nowrap text-[10px] font-medium text-amber-700 transition-colors hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-300"
               >
-                Jump to tool step →
+                →
               </button>
             )}
           </div>

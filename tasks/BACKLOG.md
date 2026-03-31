@@ -30,5 +30,7 @@
 
 ## Future
 
-- MCP / skills
+- MCP / skills / CLI
+- RAGS
+- Caching info
 - agent orchestration layer

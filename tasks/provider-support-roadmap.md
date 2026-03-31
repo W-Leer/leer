@@ -22,7 +22,7 @@ High debugging value, moderate complexity.
 
 ---
 
-## 2. Async Support [CURRENT]
+~~## 2. Async Support [DONE]~~
 
 ### Goal
 Support async SDK usage.
@@ -37,7 +37,7 @@ Common in production usage.
 
 ---
 
-## 3. Structured Outputs
+## 3. Structured Outputs [CURRENT]
 
 ### Goal
 Improve structured response visibility.
