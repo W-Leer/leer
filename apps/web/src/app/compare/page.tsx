@@ -511,6 +511,9 @@ function StepDiffHeader({
       : null;
 
   const hasDuration = bothExist && (step.duration_ms_a != null || step.duration_ms_b != null);
+  const isTool = stepType === "tool";
+  const toolProvider = isTool ? (step.model_provider_a ?? step.model_provider_b) : null;
+  const toolModel = isTool ? (step.model_name_a ?? step.model_name_b) : null;
 
   return (
     <div className="mb-5 flex flex-wrap items-center gap-2">
@@ -538,13 +541,22 @@ function StepDiffHeader({
         className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${
           isLlm
             ? "bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400"
-            : stepType === "tool"
+            : isTool
               ? "bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400"
               : "bg-neutral-100 text-neutral-400"
         }`}
       >
         {stepType}
       </span>
+
+      {toolProvider && (
+        <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:bg-amber-950/30 dark:text-amber-400">
+          {toolProvider}
+        </span>
+      )}
+      {toolModel && (
+        <span className="font-mono text-[11px] text-neutral-500">{toolModel}</span>
+      )}
 
       {hasDuration && (
         <span className="text-[11px] text-neutral-400">

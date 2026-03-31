@@ -272,6 +272,10 @@ function RawToggle({ raw, onToggle }: { raw: boolean; onToggle: () => void }) {
 // Step card (clickable, expandable)
 // ---------------------------------------------------------------------------
 
+function truncateId(id: string, max = 16): string {
+  return id.length > max ? id.slice(0, max) + "…" : id;
+}
+
 function stepTypeBadge(stepType: string): string {
   if (stepType === "llm") return "bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400";
   if (stepType === "tool") return "bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400";
@@ -329,7 +333,7 @@ function StepCard({
                 <span className="font-mono text-neutral-500">{step.model_name}</span>
               )}
               {step.step_type === "tool" && !!step.metadata?.tool_call_id && (
-                <span className="font-mono text-neutral-400" title="tool_call_id">{String(step.metadata.tool_call_id)}</span>
+                <span className="font-mono text-neutral-400" title={String(step.metadata.tool_call_id)}>{truncateId(String(step.metadata.tool_call_id))}</span>
               )}
               <span>{stepDuration(step)}</span>
               <span className="font-mono">#{step.sequence_index}</span>
@@ -386,8 +390,8 @@ function StepDetailPanel({ step }: { step: TimelineStep }) {
           )}
           <span className="text-neutral-400">{stepDuration(step)}</span>
           {!!meta.tool_call_id && (
-            <span className="font-mono text-neutral-400" title="tool_call_id">
-              {String(meta.tool_call_id)}
+            <span className="font-mono text-neutral-400" title={String(meta.tool_call_id)}>
+              {truncateId(String(meta.tool_call_id))}
             </span>
           )}
         </div>
