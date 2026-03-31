@@ -35,19 +35,7 @@ export default function RunDetailPage() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  if (loading) return <p className="text-neutral-500">Loading…</p>;
-
-  if (error) {
-    return (
-      <div className="rounded-lg bg-[var(--tint-error-block)] p-4 text-sm text-[var(--error-text)]">
-        Failed to load run: {error}
-      </div>
-    );
-  }
-
-  if (!data) return null;
-
-  const { run, steps, events } = data;
+  const steps = useMemo(() => data?.steps ?? [], [data]);
 
   // Build tool_call_id linkage maps from the timeline data
   const { toolCallIdToToolStep, toolCallIdToLlmStep } = useMemo(() => {
@@ -70,6 +58,21 @@ export default function RunDetailPage() {
     return { toolCallIdToToolStep: toTool, toolCallIdToLlmStep: toLlm };
   }, [steps]);
 
+  // Parent/child hierarchy maps — derived client-side, no reordering
+  const { stepById, childrenByParentId } = useMemo(() => {
+    const byId = new Map<string, TimelineStep>();
+    const byParent = new Map<string, TimelineStep[]>();
+    for (const s of steps) {
+      byId.set(s.id, s);
+      if (s.parent_step_id) {
+        const siblings = byParent.get(s.parent_step_id);
+        if (siblings) siblings.push(s);
+        else byParent.set(s.parent_step_id, [s]);
+      }
+    }
+    return { stepById: byId, childrenByParentId: byParent };
+  }, [steps]);
+
   const scrollToStep = useCallback((stepId: string) => {
     const el = document.getElementById(`step-${stepId}`);
     if (el) {
@@ -77,6 +80,20 @@ export default function RunDetailPage() {
       setExpandedStepId(stepId);
     }
   }, []);
+
+  if (loading) return <p className="text-neutral-500">Loading…</p>;
+
+  if (error) {
+    return (
+      <div className="rounded-lg bg-[var(--tint-error-block)] p-4 text-sm text-[var(--error-text)]">
+        Failed to load run: {error}
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const { run, events } = data;
 
   return (
     <div className="max-w-4xl">
@@ -142,6 +159,8 @@ export default function RunDetailPage() {
                 onToggle={() => setExpandedStepId(expandedStepId === s.id ? null : s.id)}
                 toolCallIdToToolStep={toolCallIdToToolStep}
                 toolCallIdToLlmStep={toolCallIdToLlmStep}
+                stepById={stepById}
+                childrenByParentId={childrenByParentId}
                 onJumpToStep={scrollToStep}
               />
             ))}
@@ -327,6 +346,8 @@ function StepCard({
   onToggle,
   toolCallIdToToolStep,
   toolCallIdToLlmStep,
+  stepById,
+  childrenByParentId,
   onJumpToStep,
 }: {
   step: TimelineStep;
@@ -334,12 +355,18 @@ function StepCard({
   onToggle: () => void;
   toolCallIdToToolStep: Map<string, TimelineStep>;
   toolCallIdToLlmStep: Map<string, TimelineStep>;
+  stepById: Map<string, TimelineStep>;
+  childrenByParentId: Map<string, TimelineStep[]>;
   onJumpToStep: (stepId: string) => void;
 }) {
   const isTool = step.step_type === "tool";
   const toolCallId = isTool ? String(step.metadata?.tool_call_id ?? "") : "";
   const sourceLlmStep = toolCallId ? toolCallIdToLlmStep.get(toolCallId) : undefined;
-  const isLinkedTool = isTool && !!sourceLlmStep;
+
+  // Parent/child hierarchy
+  const isChildStep = !!step.parent_step_id;
+  const parentStep = step.parent_step_id ? stepById.get(step.parent_step_id) : undefined;
+  const childCount = childrenByParentId.get(step.id)?.length ?? 0;
 
   // Build tool call link map for LLM steps
   const llmToolCallLinks = useMemo(() => {
@@ -368,19 +395,18 @@ function StepCard({
       ? "border-[var(--error-dot)] bg-[var(--error-dot)]"
       : "border-neutral-300 bg-white";
 
-  const sourceLabel = sourceLlmStep
-    ? `Triggered by ${String(step.metadata?.model || step.metadata?.provider || "")} tool call`
-        .replace(/\s+tool call$/, " tool call")
-        .replace(/^Triggered by\s+tool call$/, "Triggered by previous LLM step")
+  // Context line: use parent step name for any child, not just linked tools
+  const contextLabel = parentStep
+    ? `Triggered by ${parentStep.name}`
     : null;
 
   return (
-    <div id={`step-${step.id}`} className={`relative mb-7 last:mb-0 ${isLinkedTool ? "ml-5" : ""}`}>
+    <div id={`step-${step.id}`} className={`relative mb-7 last:mb-0 ${isChildStep ? "ml-5" : ""}`}>
       {/* Timeline dot */}
       <div className={`absolute -left-[34px] top-[17px] h-2.5 w-2.5 rounded-full border-2 transition-colors duration-150 ${dotColor}`} />
 
-      {/* Linked tool accent */}
-      {isLinkedTool && (
+      {/* Child step accent line */}
+      {isChildStep && (
         <div className="absolute -left-[7px] top-0 bottom-0 w-[2px] rounded-full bg-amber-200 dark:bg-amber-800/40" />
       )}
 
@@ -403,6 +429,11 @@ function StepCard({
               <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusClass(step.status)}`}>
                 {step.status}
               </span>
+              {childCount > 0 && (
+                <span className="text-[10px] text-neutral-400">
+                  {childCount} child{childCount !== 1 ? "ren" : ""}
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-4 text-[11px] text-neutral-400">
               {step.model_name && (
@@ -415,11 +446,11 @@ function StepCard({
               <span className="font-mono">#{step.sequence_index}</span>
             </div>
           </div>
-          {/* Context line for linked tool steps */}
-          {sourceLabel && (
+          {/* Context line for child steps */}
+          {contextLabel && (
             <div className="mt-1.5 pl-[22px] text-[11px] text-neutral-400">
               <span className="mr-1 text-amber-400">↳</span>
-              {sourceLabel}
+              {contextLabel}
             </div>
           )}
         </button>
@@ -441,6 +472,7 @@ function StepCard({
             ) : (
               <StepDetailPanel
                 step={step}
+                parentStep={parentStep}
                 sourceLlmStep={sourceLlmStep}
                 onJumpToStep={onJumpToStep}
               />
@@ -460,10 +492,12 @@ const TOOL_META_KEYS = new Set(["tool_name", "tool_call_id", "provider", "model"
 
 function StepDetailPanel({
   step,
+  parentStep,
   sourceLlmStep,
   onJumpToStep,
 }: {
   step: TimelineStep;
+  parentStep?: TimelineStep;
   sourceLlmStep?: TimelineStep;
   onJumpToStep?: (stepId: string) => void;
 }) {
@@ -474,6 +508,10 @@ function StepDetailPanel({
   const isTool = step.step_type === "tool";
   const meta = step.metadata ?? {};
   const extraEntries = Object.entries(meta).filter(([k]) => !isTool || !TOOL_META_KEYS.has(k));
+
+  // The "from step" link should point to the sourceLlmStep (tool_call_id match)
+  // or fall back to the parentStep (parent_step_id hierarchy)
+  const linkTarget = sourceLlmStep ?? parentStep;
 
   return (
     <div className="space-y-5 border-t border-neutral-100 px-5 pb-5 pt-4">
@@ -494,12 +532,28 @@ function StepDetailPanel({
               {truncateId(String(meta.tool_call_id))}
             </span>
           )}
-          {sourceLlmStep && onJumpToStep && (
+          {linkTarget && onJumpToStep && (
             <button
-              onClick={() => onJumpToStep(sourceLlmStep.id)}
+              onClick={() => onJumpToStep(linkTarget.id)}
               className="text-neutral-400 transition-colors hover:text-neutral-600 hover:underline"
             >
-              from step #{sourceLlmStep.sequence_index}
+              from step #{linkTarget.sequence_index}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Parent linkage row for non-tool child steps */}
+      {!isTool && parentStep && (
+        <div className="flex flex-wrap items-center gap-x-[14px] gap-y-1.5 text-[11px]">
+          <span className="text-neutral-400">child of</span>
+          <span className="font-medium text-neutral-500">{parentStep.name}</span>
+          {onJumpToStep && (
+            <button
+              onClick={() => onJumpToStep(parentStep.id)}
+              className="text-neutral-400 transition-colors hover:text-neutral-600 hover:underline"
+            >
+              step #{parentStep.sequence_index}
             </button>
           )}
         </div>
