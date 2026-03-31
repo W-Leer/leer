@@ -28,8 +28,13 @@ function getCollapseSnapshot() {
   return localStorage.getItem(COLLAPSE_KEY) === "true";
 }
 
+function getServerSnapshot() {
+  return false;
+}
+
 function setCollapsed(value: boolean) {
   localStorage.setItem(COLLAPSE_KEY, String(value));
+  document.documentElement.toggleAttribute("data-sidebar-collapsed", value);
   collapseListeners.forEach((l) => l());
 }
 
@@ -42,13 +47,14 @@ export function Sidebar() {
   const collapsed = useSyncExternalStore(
     subscribeCollapse,
     getCollapseSnapshot,
-    () => false,
+    getServerSnapshot,
   );
 
   const toggleCollapse = useCallback(() => setCollapsed(!collapsed), [collapsed]);
 
   return (
     <aside
+      data-sidebar
       className={`flex h-screen shrink-0 flex-col overflow-hidden border-r border-neutral-100 bg-white transition-[width] duration-200 ease-in-out ${
         collapsed ? "w-[52px]" : "w-52"
       }`}
@@ -56,7 +62,7 @@ export function Sidebar() {
       {/* Header: logo + collapse toggle */}
       <div className="flex h-[53px] shrink-0 items-center border-b border-neutral-100 px-3">
         {!collapsed && (
-          <div className="flex items-center gap-2 overflow-hidden pl-2">
+          <div data-sidebar-expanded className="flex items-center gap-2 overflow-hidden pl-2">
             <Link
               href="/"
               className="whitespace-nowrap text-lg font-semibold tracking-tight text-neutral-900"
@@ -81,6 +87,7 @@ export function Sidebar() {
 
       {/* Project — expanded only */}
       <div
+        data-sidebar-expanded
         className={`shrink-0 overflow-hidden border-b border-neutral-100 transition-[max-height,opacity,padding] duration-200 ease-in-out ${
           collapsed ? "max-h-0 opacity-0 py-0" : "max-h-20 opacity-100 py-3"
         }`}
@@ -130,7 +137,7 @@ export function Sidebar() {
           >
             {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
             {!collapsed && (
-              <span className="whitespace-nowrap text-[11px] font-medium">
+              <span data-sidebar-expanded className="whitespace-nowrap text-[11px] font-medium">
                 Appearance
               </span>
             )}
@@ -169,7 +176,7 @@ function NavItem({
         }`}
       >
         <Icon size={15} className="shrink-0" />
-        {!collapsed && <span className="whitespace-nowrap">{label}</span>}
+        {!collapsed && <span data-sidebar-expanded className="whitespace-nowrap">{label}</span>}
       </Link>
     </Tooltip>
   );
