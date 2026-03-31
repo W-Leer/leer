@@ -21,12 +21,16 @@ def _emit_step_event(event_type: str, step_id: str) -> None:
     )
 
 
+_UNSET = object()
+
+
 @contextmanager
 def step(
     name: str,
     step_type: str = "code",
     metadata: dict[str, Any] | None = None,
     input: dict[str, Any] | None = None,
+    parent_step_id: str | None | object = _UNSET,
 ) -> Generator[TraceStep, None, None]:
     run = get_current_run()
 
@@ -35,13 +39,17 @@ def step(
         yield dummy
         return
 
-    parent = current_step()
+    if parent_step_id is _UNSET:
+        parent = current_step()
+        resolved_parent_id = parent.id if parent else None
+    else:
+        resolved_parent_id = parent_step_id  # type: ignore[assignment]
 
     s = TraceStep(
         name=name,
         step_type=step_type,
         sequence_index=len(run.steps),
-        parent_step_id=parent.id if parent else None,
+        parent_step_id=resolved_parent_id,
         status="running",
         started_at=_now(),
         metadata=metadata or {},

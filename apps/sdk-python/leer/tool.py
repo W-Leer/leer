@@ -29,6 +29,9 @@ from leer.models import TraceEvent, TraceStep, _now, make_json_safe
 # Public API
 # ---------------------------------------------------------------------------
 
+_UNSET = object()
+
+
 @contextmanager
 def tool_step(
     tool_name: str,
@@ -37,12 +40,17 @@ def tool_step(
     source_provider: str | None = None,
     source_model: str | None = None,
     metadata: dict[str, Any] | None = None,
+    parent_step_id: str | None | object = _UNSET,
 ) -> Generator[TraceStep, None, None]:
     """Trace a tool execution as a first-class step.
 
     Creates a step with ``step_type="tool"`` and attaches tool-specific
     metadata.  On exit, request/response artifacts and summaries are
     generated from the step's ``.input`` and ``.output`` attributes.
+
+    If ``parent_step_id`` is provided, the tool step is attached to that
+    parent instead of the current context step.  Pass ``None`` explicitly
+    to create a root-level tool step.
 
     If the tool raises, the exception propagates unchanged. Leer captures
     error metadata and artifacts on a best-effort basis.
@@ -64,13 +72,17 @@ def tool_step(
         yield dummy
         return
 
-    parent = current_step()
+    if parent_step_id is _UNSET:
+        parent = current_step()
+        resolved_parent_id = parent.id if parent else None
+    else:
+        resolved_parent_id = parent_step_id  # type: ignore[assignment]
 
     s = TraceStep(
         name=tool_name,
         step_type="tool",
         sequence_index=len(run.steps),
-        parent_step_id=parent.id if parent else None,
+        parent_step_id=resolved_parent_id,
         status="running",
         started_at=_now(),
         metadata=tool_meta,

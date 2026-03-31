@@ -324,6 +324,78 @@ def test_timeline_llm_step_has_promoted_llm_field():
     assert llm_step["metadata"]["provider"] == "openai"
 
 
+def test_timeline_root_step_has_null_parent_step_id():
+    slug = f"read-{uuid.uuid4().hex[:8]}"
+    payload = _ingest(slug)
+    run_id = payload["run"]["id"]
+
+    resp = client.get(f"/v1/runs/{run_id}/timeline")
+    assert resp.status_code == 200
+
+    s = resp.json()["steps"][0]
+    assert "parent_step_id" in s
+    assert s["parent_step_id"] is None
+
+
+def test_timeline_child_step_has_correct_parent_step_id():
+    slug = f"read-{uuid.uuid4().hex[:8]}"
+    run_id = str(uuid.uuid4())
+    parent_id = str(uuid.uuid4())
+    child_id = str(uuid.uuid4())
+
+    payload = {
+        "project_slug": slug,
+        "run": {
+            "id": run_id,
+            "workflow_name": "parent-child-test",
+            "status": "completed",
+            "trigger_type": "manual",
+            "source": "sdk-python",
+            "started_at": "2026-03-24T12:00:00Z",
+            "ended_at": "2026-03-24T12:00:02Z",
+            "metadata": {},
+        },
+        "steps": [
+            {
+                "id": parent_id,
+                "sequence_index": 0,
+                "name": "llm_call",
+                "step_type": "llm",
+                "status": "completed",
+                "started_at": "2026-03-24T12:00:00Z",
+                "ended_at": "2026-03-24T12:00:01Z",
+                "metadata": {},
+            },
+            {
+                "id": child_id,
+                "parent_step_id": parent_id,
+                "sequence_index": 1,
+                "name": "get_weather",
+                "step_type": "tool",
+                "status": "completed",
+                "started_at": "2026-03-24T12:00:01Z",
+                "ended_at": "2026-03-24T12:00:02Z",
+                "metadata": {"tool_call_id": "call_123"},
+            },
+        ],
+        "events": [],
+        "artifacts": [],
+    }
+    resp = client.post("/v1/ingest/runs", json=payload)
+    assert resp.status_code == 201
+
+    resp = client.get(f"/v1/runs/{run_id}/timeline")
+    assert resp.status_code == 200
+    steps = resp.json()["steps"]
+
+    parent = next(s for s in steps if s["id"] == parent_id)
+    child = next(s for s in steps if s["id"] == child_id)
+
+    assert parent["parent_step_id"] is None
+    assert child["parent_step_id"] == parent_id
+    assert child["sequence_index"] == 1
+
+
 def test_timeline_step_artifacts_are_light():
     slug = f"read-{uuid.uuid4().hex[:8]}"
     payload = _ingest_llm_run(slug)

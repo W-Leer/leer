@@ -252,6 +252,9 @@ class CompareStepDiff(BaseModel):
     sequence_index_a: int | None = None
     sequence_index_b: int | None = None
 
+    parent_step_id_a: UUID | None = None
+    parent_step_id_b: UUID | None = None
+
     name_a: str | None = None
     name_b: str | None = None
     step_type_a: str | None = None

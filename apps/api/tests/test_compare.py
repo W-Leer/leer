@@ -429,6 +429,86 @@ def test_input_diff_detected():
 # Validation
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# parent_step_id in compare responses
+# ---------------------------------------------------------------------------
+
+def test_compare_root_steps_have_null_parent_step_id():
+    slug = f"cmp-{uuid.uuid4().hex[:8]}"
+    a = _ingest(slug, steps=[_step(idx=0, name="root")])
+    b = _ingest(slug, steps=[_step(idx=0, name="root")])
+
+    s = _compare(a, b)["steps"][0]
+    assert "parent_step_id_a" in s
+    assert "parent_step_id_b" in s
+    assert s["parent_step_id_a"] is None
+    assert s["parent_step_id_b"] is None
+
+
+def _step_with_parent(
+    *,
+    idx: int,
+    name: str,
+    parent_step_id: str | None = None,
+    stype: str = "tool",
+    status: str = "completed",
+    meta: dict | None = None,
+) -> dict:
+    return {
+        "id": str(uuid.uuid4()),
+        "parent_step_id": parent_step_id,
+        "sequence_index": idx,
+        "name": name,
+        "step_type": stype,
+        "status": status,
+        "started_at": "2026-03-24T12:00:00Z",
+        "ended_at": "2026-03-24T12:00:01Z",
+        "metadata": meta or {},
+    }
+
+
+def test_compare_child_steps_preserve_parent_step_id():
+    slug = f"cmp-{uuid.uuid4().hex[:8]}"
+
+    parent_a = str(uuid.uuid4())
+    parent_b = str(uuid.uuid4())
+
+    a = _ingest(slug, steps=[
+        {**_step(idx=0, name="llm_call", stype="llm"), "id": parent_a},
+        _step_with_parent(idx=1, name="get_weather", parent_step_id=parent_a),
+    ])
+    b = _ingest(slug, steps=[
+        {**_step(idx=0, name="llm_call", stype="llm"), "id": parent_b},
+        _step_with_parent(idx=1, name="get_weather", parent_step_id=parent_b),
+    ])
+
+    body = _compare(a, b)
+    tool = _find(body["steps"], name_a="get_weather")
+    assert tool is not None
+    assert tool["parent_step_id_a"] == parent_a
+    assert tool["parent_step_id_b"] == parent_b
+
+
+def test_compare_missing_step_has_one_side_parent():
+    slug = f"cmp-{uuid.uuid4().hex[:8]}"
+
+    parent_a = str(uuid.uuid4())
+
+    a = _ingest(slug, steps=[
+        {**_step(idx=0, name="llm_call", stype="llm"), "id": parent_a},
+        _step_with_parent(idx=1, name="get_weather", parent_step_id=parent_a),
+    ])
+    b = _ingest(slug, steps=[
+        _step(idx=0, name="llm_call", stype="llm"),
+    ])
+
+    body = _compare(a, b)
+    missing = _find(body["steps"], match_kind="missing")
+    assert missing is not None
+    assert missing["parent_step_id_a"] == parent_a
+    assert missing["parent_step_id_b"] is None
+
+
 def test_404_when_run_missing():
     fake_id = str(uuid.uuid4())
     resp = client.get(f"/v1/runs/{fake_id}/compare/{fake_id}")

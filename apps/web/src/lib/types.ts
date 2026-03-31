@@ -135,6 +135,9 @@ export interface CompareStepDiff {
   sequence_index_a: number | null;
   sequence_index_b: number | null;
 
+  parent_step_id_a: string | null;
+  parent_step_id_b: string | null;
+
   name_a: string | null;
   name_b: string | null;
   step_type_a: string | null;

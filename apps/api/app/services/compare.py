@@ -189,6 +189,9 @@ def _build_row(sa: Step | None, sb: Step | None, kind: str) -> CompareStepDiff:
         sequence_index_a=_attr(sa, "sequence_index"),
         sequence_index_b=_attr(sb, "sequence_index"),
 
+        parent_step_id_a=_attr(sa, "parent_step_id"),
+        parent_step_id_b=_attr(sb, "parent_step_id"),
+
         name_a=_attr(sa, "name"),
         name_b=_attr(sb, "name"),
         step_type_a=_attr(sa, "step_type"),

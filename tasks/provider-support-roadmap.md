@@ -6,7 +6,7 @@ This document defines what to build next for provider support.
 
 # NOW (Next Iterations)
 
-## 1. Tool Calling (First-Class)
+~~## 1. Tool Calling (First-Class) [DONE]~~
 
 ### Goal
 Make tool calls debuggable end-to-end.
@@ -22,7 +22,7 @@ High debugging value, moderate complexity.
 
 ---
 
-## 2. Async Support
+## 2. Async Support [CURRENT]
 
 ### Goal
 Support async SDK usage.

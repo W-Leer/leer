@@ -6,6 +6,7 @@ import pytest
 
 from leer.context import get_current_run, set_current_run
 from leer.models import TraceRun
+from leer.step import step
 from leer.tool import tool_step
 
 
@@ -683,3 +684,143 @@ class TestLLMToolLinkage:
         assert "provider" not in meta
         assert "model" not in meta
         assert run.steps[0].status == "completed"
+
+
+# ---------------------------------------------------------------------------
+# Parent / child step relationships
+# ---------------------------------------------------------------------------
+
+class TestParentChildSteps:
+    """Verify parent_step_id is correctly resolved for tool and generic steps."""
+
+    def test_tool_step_inside_llm_step_gets_llm_as_parent(self):
+        def go(run):
+            with step("gpt-call", step_type="llm") as llm:
+                with tool_step("get_weather") as ts:
+                    ts.output = {"temp": 20}
+
+        run = _traced(go)
+
+        llm_step = run.steps[0]
+        tool = run.steps[1]
+        assert llm_step.step_type == "llm"
+        assert tool.step_type == "tool"
+        assert tool.parent_step_id == llm_step.id
+
+    def test_root_tool_step_has_null_parent(self):
+        def go(run):
+            with tool_step("standalone") as ts:
+                ts.output = "ok"
+
+        run = _traced(go)
+        assert run.steps[0].parent_step_id is None
+
+    def test_root_generic_step_has_null_parent(self):
+        def go(run):
+            with step("root-step") as s:
+                s.output = "ok"
+
+        run = _traced(go)
+        assert run.steps[0].parent_step_id is None
+
+    def test_explicit_parent_step_id_override_on_tool_step(self):
+        def go(run):
+            with step("orchestrator", step_type="llm") as llm:
+                pass
+            with tool_step("detached_tool", parent_step_id=llm.id) as ts:
+                ts.output = "done"
+
+        run = _traced(go)
+
+        llm_step = run.steps[0]
+        tool = run.steps[1]
+        assert tool.parent_step_id == llm_step.id
+
+    def test_explicit_parent_step_id_override_on_generic_step(self):
+        def go(run):
+            with step("parent-step") as parent:
+                pass
+            with step("child-step", parent_step_id=parent.id) as child:
+                child.output = "done"
+
+        run = _traced(go)
+
+        assert run.steps[1].parent_step_id == run.steps[0].id
+
+    def test_explicit_null_parent_overrides_context(self):
+        """Passing parent_step_id=None inside a parent step creates a root step."""
+        def go(run):
+            with step("outer", step_type="llm"):
+                with tool_step("forced_root", parent_step_id=None) as ts:
+                    ts.output = "root"
+
+        run = _traced(go)
+
+        tool = run.steps[1]
+        assert tool.parent_step_id is None
+
+    def test_multiple_sibling_children_share_parent(self):
+        def go(run):
+            with step("parent-llm", step_type="llm") as llm:
+                with tool_step("tool_a") as a:
+                    a.output = "a"
+                with tool_step("tool_b") as b:
+                    b.output = "b"
+                with tool_step("tool_c") as c:
+                    c.output = "c"
+
+        run = _traced(go)
+
+        parent_id = run.steps[0].id
+        assert run.steps[1].parent_step_id == parent_id
+        assert run.steps[2].parent_step_id == parent_id
+        assert run.steps[3].parent_step_id == parent_id
+
+    def test_sibling_children_via_explicit_override(self):
+        """Fan-out: multiple tool steps after parent exits, linked via explicit ID."""
+        def go(run):
+            with step("orchestrator", step_type="llm") as llm:
+                pass
+
+            for name in ["fetch_a", "fetch_b", "fetch_c"]:
+                with tool_step(name, parent_step_id=llm.id) as ts:
+                    ts.output = f"result_{name}"
+
+        run = _traced(go)
+
+        orch_id = run.steps[0].id
+        assert len(run.steps) == 4
+        for child in run.steps[1:]:
+            assert child.parent_step_id == orch_id
+
+    def test_children_keep_global_sequence_index(self):
+        def go(run):
+            with step("root-1"):
+                pass
+            with step("parent", step_type="llm") as parent:
+                with tool_step("child_a") as a:
+                    a.output = "a"
+                with tool_step("child_b") as b:
+                    b.output = "b"
+            with step("root-2"):
+                pass
+
+        run = _traced(go)
+
+        indices = [s.sequence_index for s in run.steps]
+        assert indices == [0, 1, 2, 3, 4]
+
+    def test_serialized_payload_preserves_parent_step_id(self):
+        from leer.client import _build_payload, _serialize_step
+
+        def go(run):
+            with step("parent", step_type="llm") as llm:
+                with tool_step("child_tool") as ts:
+                    ts.output = "ok"
+
+        run = _traced(go)
+
+        payload = _build_payload(run)
+        step_payloads = payload["steps"]
+        assert step_payloads[0]["parent_step_id"] is None
+        assert step_payloads[1]["parent_step_id"] == run.steps[0].id
