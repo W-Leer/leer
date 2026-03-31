@@ -17,7 +17,7 @@ import {
 import type { TimelineResponse, TimelineStep, TimelineEvent } from "@/lib/types";
 import { StructuredValue } from "@/components/structured-value";
 import { LlmStepDetail } from "@/components/llm-step-detail";
-import { GitCompareArrows } from "lucide-react";
+import { ChevronRight, GitCompareArrows } from "lucide-react";
 
 export default function RunDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -50,6 +50,15 @@ export default function RunDetailPage() {
 
   return (
     <div className="max-w-4xl">
+      {/* Breadcrumb */}
+      <nav className="mb-4 flex items-center gap-1 text-[12px]">
+        <Link href="/" className="text-neutral-400 transition-colors hover:text-neutral-700">
+          Runs
+        </Link>
+        <ChevronRight size={12} className="text-neutral-300" />
+        <span className="truncate font-medium text-neutral-600">{run.workflow_name}</span>
+      </nav>
+
       {/* Run header */}
       <div className="mb-10 rounded-lg bg-white p-6 shadow-[0_1px_4px_rgba(0,0,0,0.05)]">
         <div className="flex items-start justify-between gap-4">
