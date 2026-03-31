@@ -366,9 +366,7 @@ function StepCard({
     ? "border-neutral-500 bg-neutral-500"
     : step.status === "failed"
       ? "border-[var(--error-dot)] bg-[var(--error-dot)]"
-      : isLinkedTool
-        ? "border-amber-300 bg-amber-100"
-        : "border-neutral-300 bg-white";
+      : "border-neutral-300 bg-white";
 
   const sourceLabel = sourceLlmStep
     ? `Triggered by ${String(step.metadata?.model || step.metadata?.provider || "")} tool call`
@@ -410,11 +408,8 @@ function StepCard({
               {step.model_name && (
                 <span className="font-mono text-neutral-500">{step.model_name}</span>
               )}
-              {isTool && !!step.metadata?.provider && (
-                <span className="font-mono text-neutral-500">{String(step.metadata.provider)}</span>
-              )}
               {isTool && !!toolCallId && (
-                <span className="font-mono text-neutral-400" title={toolCallId}>{truncateId(toolCallId)}</span>
+                <span className="font-mono text-neutral-400" title={toolCallId}>{truncateId(toolCallId, 12)}</span>
               )}
               <span>{stepDuration(step)}</span>
               <span className="font-mono">#{step.sequence_index}</span>

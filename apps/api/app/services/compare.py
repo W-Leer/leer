@@ -219,6 +219,8 @@ def _build_row(sa: Step | None, sb: Step | None, kind: str) -> CompareStepDiff:
         model_name_a=_attr(sa, "model_name"),
         model_name_b=_attr(sb, "model_name"),
 
+        # Temporary: full metadata blob. Frontend reads only tool_call_id,
+        # provider, model. Extract explicit compare fields when this grows.
         metadata_a=_attr(sa, "metadata_") if sa else None,
         metadata_b=_attr(sb, "metadata_") if sb else None,
 

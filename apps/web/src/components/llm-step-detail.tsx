@@ -325,38 +325,35 @@ function ToolCallsSection({
         const callId = (tc.id as string) ?? null;
         const name = (tc.name as string) ?? "call";
         const link = callId ? toolCallLinks?.get(callId) : undefined;
-        const argsPreview = tc.arguments != null
-          ? typeof tc.arguments === "string"
-            ? tc.arguments.slice(0, 120)
-            : JSON.stringify(tc.arguments).slice(0, 120)
+        const argsRaw = tc.arguments != null
+          ? typeof tc.arguments === "string" ? tc.arguments : JSON.stringify(tc.arguments)
           : null;
+        const argsPreview = argsRaw && argsRaw.length > 80 ? argsRaw.slice(0, 80) + "…" : argsRaw;
 
         return (
           <div
             key={i}
-            className="flex items-start justify-between gap-3 rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 dark:border-amber-900/30 dark:bg-amber-950/20"
+            className="flex items-center justify-between gap-3 rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 dark:border-amber-900/30 dark:bg-amber-950/20"
           >
-            <div className="min-w-0 flex-1 space-y-1">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span className="text-[13px] font-semibold text-neutral-800 dark:text-neutral-200">{name}</span>
-                {callId && (
-                  <span className="font-mono text-[11px] text-neutral-400" title={callId}>
-                    {truncateId(callId)}
-                  </span>
-                )}
-                {link ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400">
-                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                    linked to step #{link.toolStepIndex}
-                  </span>
-                ) : (
-                  <span className="text-[10px] italic text-neutral-400">no traced tool step</span>
-                )}
-              </div>
+            <div className="flex min-w-0 flex-1 items-center gap-x-3 gap-y-1 flex-wrap">
+              <span className="text-[13px] font-semibold text-neutral-800 dark:text-neutral-200">{name}</span>
+              {callId && (
+                <span className="font-mono text-[11px] text-neutral-400" title={callId}>
+                  {truncateId(callId)}
+                </span>
+              )}
               {argsPreview && (
-                <pre className="truncate font-mono text-[11px] leading-5 text-neutral-500 dark:text-neutral-400">
+                <span className="truncate font-mono text-[11px] text-neutral-500 dark:text-neutral-400" title={argsRaw ?? undefined}>
                   {argsPreview}
-                </pre>
+                </span>
+              )}
+              {link ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400">
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  step #{link.toolStepIndex}
+                </span>
+              ) : (
+                <span className="text-[10px] italic text-neutral-400">no traced step</span>
               )}
             </div>
             {link && onJumpToStep && (

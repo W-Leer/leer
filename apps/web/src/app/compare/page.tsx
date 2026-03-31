@@ -520,10 +520,6 @@ function StepDiffHeader({
   const toolProvider = isTool ? (step.model_provider_a ?? step.model_provider_b) : null;
   const toolModel = isTool ? (step.model_name_a ?? step.model_name_b) : null;
 
-  const toolCallIdA = isTool ? (step.metadata_a?.tool_call_id as string | undefined) : undefined;
-  const toolCallIdB = isTool ? (step.metadata_b?.tool_call_id as string | undefined) : undefined;
-  const hasToolLinkage = !!(toolCallIdA || toolCallIdB);
-
   return (
     <div className="mb-5">
       <div className="flex flex-wrap items-center gap-2">
@@ -585,12 +581,6 @@ function StepDiffHeader({
           </span>
         )}
       </div>
-      {isTool && hasToolLinkage && (
-        <div className="mt-1 text-[11px] text-neutral-400">
-          <span className="mr-1 text-amber-400">↳</span>
-          linked to LLM tool call
-        </div>
-      )}
     </div>
   );
 }
