@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Shell } from "@/components/shell";
@@ -20,6 +19,8 @@ export const metadata: Metadata = {
   description: "Debugging and reliability layer for AI agents",
 };
 
+const INIT_SCRIPT = `(function(){try{var d=document.documentElement;var t=localStorage.getItem("leer-theme");if(t==="dark"||(!t&&matchMedia("(prefers-color-scheme:dark)").matches))d.classList.add("dark");if(localStorage.getItem("leer-sidebar-collapsed")==="true")d.setAttribute("data-sidebar-collapsed","");}catch(e){}})()`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -28,7 +29,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`} suppressHydrationWarning>
       <head>
-        <Script id="theme-init" strategy="beforeInteractive" src="/theme-init.js" />
+        <script dangerouslySetInnerHTML={{ __html: INIT_SCRIPT }} />
       </head>
       <body className="min-h-screen bg-background text-foreground font-sans antialiased">
         <ThemeProvider>
