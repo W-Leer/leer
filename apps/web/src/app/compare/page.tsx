@@ -6,7 +6,7 @@ import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatDuration, rawJson, resolveData, statusClass, timeAgo } from "@/lib/format";
 import { StructuredValue } from "@/components/structured-value";
-import { ROLE_STYLES, extractMessageContent } from "@/components/llm-step-detail";
+import { ROLE_STYLES, extractMessageContent, tryParseJson, resolveArgs } from "@/components/llm-step-detail";
 import { RunSelector, type SelectedRun } from "@/components/run-selector";
 import { GitCompareArrows, Lightbulb } from "lucide-react";
 import type {
@@ -859,30 +859,36 @@ function OutputContent({ llm }: { llm: LLMShape | null }) {
     return <p className="text-xs italic text-neutral-400">No output</p>;
   }
 
+  const structuredText = llm.output.text ? tryParseJson(llm.output.text) : null;
+
   return (
     <div className="space-y-2">
-      {llm.output.text && (
-        <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-neutral-700">
-          {llm.output.text}
-        </pre>
-      )}
+      {llm.output.text &&
+        (structuredText != null ? (
+          <StructuredValue value={structuredText} />
+        ) : (
+          <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-neutral-700">
+            {llm.output.text}
+          </pre>
+        ))}
       {llm.output.tool_calls.length > 0 && (
         <div className="space-y-1.5">
           <span className="text-[10px] font-medium text-neutral-400">Tool calls</span>
-          {llm.output.tool_calls.map((tc, i) => (
-            <div key={i} className="rounded bg-neutral-50 px-2 py-1.5">
-              <span className="font-mono text-[11px] font-medium text-neutral-700">
-                {(tc.name as string) ?? "call"}
-              </span>
-              {tc.arguments != null && (
-                <pre className="mt-0.5 whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-neutral-500">
-                  {typeof tc.arguments === "string"
-                    ? tc.arguments
-                    : JSON.stringify(tc.arguments, null, 2)}
-                </pre>
-              )}
-            </div>
-          ))}
+          {llm.output.tool_calls.map((tc, i) => {
+            const args = resolveArgs(tc.arguments);
+            return (
+              <div key={i} className="rounded bg-neutral-50 px-2 py-1.5">
+                <span className="font-mono text-[11px] font-medium text-neutral-700">
+                  {(tc.name as string) ?? "call"}
+                </span>
+                {args != null && (
+                  <div className="mt-1">
+                    <StructuredValue value={args} defaultExpanded={false} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

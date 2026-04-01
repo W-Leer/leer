@@ -58,7 +58,7 @@ export const ROLE_STYLES: Record<string, string> = {
 /* ------------------------------------------------------------------ */
 
 /** Safely parse a string as JSON, returning the value only for objects/arrays. */
-function tryParseJson(text: string): unknown | null {
+export function tryParseJson(text: string): unknown | null {
   const trimmed = text.trim();
   if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null;
   try {
@@ -71,7 +71,7 @@ function tryParseJson(text: string): unknown | null {
 }
 
 /** Resolve tool-call arguments into a structured value for rendering. */
-function resolveArgs(args: unknown): unknown {
+export function resolveArgs(args: unknown): unknown {
   if (args == null) return null;
   if (typeof args === "string") {
     if (!args) return null;
