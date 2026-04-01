@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { LLMShape } from "@/lib/types";
 import { formatDuration, errorHeadline, errorDetail, rawJson } from "@/lib/format";
 import { StructuredValue } from "@/components/structured-value";
@@ -459,26 +459,166 @@ function StreamStatsRow({ meta }: { meta: Dict }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Stream section (collapsible event viewer)                           */
+/* Stream display item types + grouping                                */
+/* ------------------------------------------------------------------ */
+
+type DisplayItem =
+  | { kind: "event"; event: Dict; idx: number; offset: number | null }
+  | { kind: "text_group"; text: string; startIdx: number; count: number; firstOffset: number | null; lastOffset: number | null }
+  | { kind: "tool_call_group"; toolIndex: number; name: string; args: string; startIdx: number; count: number; firstOffset: number | null; lastOffset: number | null };
+
+function getOffset(ev: Dict): number | null {
+  return typeof ev.timestamp_offset_ms === "number" ? ev.timestamp_offset_ms : null;
+}
+
+function groupStreamEvents(events: Dict[]): DisplayItem[] {
+  const items: DisplayItem[] = [];
+  let i = 0;
+
+  while (i < events.length) {
+    const ev = events[i];
+    const type = String(ev.type ?? "");
+
+    if (type === "text_delta") {
+      const start = i;
+      let text = "";
+      const firstOff = getOffset(ev);
+      let lastOff = firstOff;
+      while (i < events.length && String(events[i].type) === "text_delta") {
+        const t = events[i];
+        text += typeof t.text === "string" ? t.text : "";
+        const o = getOffset(t);
+        if (o != null) lastOff = o;
+        i++;
+      }
+      if (i - start > 1) {
+        items.push({ kind: "text_group", text, startIdx: start, count: i - start, firstOffset: firstOff, lastOffset: lastOff });
+      } else {
+        items.push({ kind: "event", event: ev, idx: start, offset: firstOff });
+      }
+    } else if (type === "tool_call_delta") {
+      const start = i;
+      const tIdx = typeof ev.tool_index === "number" ? ev.tool_index : 0;
+      let name = "";
+      let args = "";
+      const firstOff = getOffset(ev);
+      let lastOff = firstOff;
+      while (i < events.length && String(events[i].type) === "tool_call_delta") {
+        const t = events[i];
+        const ti = typeof t.tool_index === "number" ? t.tool_index : 0;
+        if (ti !== tIdx && i > start) break;
+        if (typeof t.name === "string") name += t.name;
+        if (typeof t.arguments === "string") args += t.arguments;
+        const o = getOffset(t);
+        if (o != null) lastOff = o;
+        i++;
+      }
+      if (i - start > 1) {
+        items.push({ kind: "tool_call_group", toolIndex: tIdx, name, args, startIdx: start, count: i - start, firstOffset: firstOff, lastOffset: lastOff });
+      } else {
+        items.push({ kind: "event", event: ev, idx: start, offset: firstOff });
+      }
+    } else {
+      items.push({ kind: "event", event: ev, idx: i, offset: getOffset(ev) });
+      i++;
+    }
+  }
+  return items;
+}
+
+/* ------------------------------------------------------------------ */
+/* Stream section (collapsible event viewer with playback + grouping)  */
 /* ------------------------------------------------------------------ */
 
 const STREAM_HEAD = 200;
 const STREAM_TAIL = 200;
+const PLAYBACK_MAX = 1000;
+const SPEEDS = [1, 2, 4] as const;
 
 function StreamSection({ meta, events }: { meta: Dict; events?: Dict[] }) {
   const [expanded, setExpanded] = useState(false);
   const [raw, setRaw] = useState(false);
 
-  const totalEvents = events?.length ?? (typeof meta.chunk_count === "number" ? meta.chunk_count : 0);
-  const hasEvents = events && events.length > 0;
-  const isTruncatedList = hasEvents && events.length > STREAM_HEAD + STREAM_TAIL;
-  const skipped = isTruncatedList ? events.length - STREAM_HEAD - STREAM_TAIL : 0;
+  // Playback state
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [visibleCount, setVisibleCount] = useState<number | null>(null);
+  const [speedIdx, setSpeedIdx] = useState(0);
+  const speed = SPEEDS[speedIdx];
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  const rawPayload = hasEvents ? { provider: meta.provider, model: meta.model, events } : meta;
+  const effectiveEvents = useMemo(() => events ?? [], [events]);
+  const hasEvents = effectiveEvents.length > 0;
+  const totalEvents = hasEvents ? effectiveEvents.length : (typeof meta.chunk_count === "number" ? meta.chunk_count : 0);
+  const tooLargeForPlayback = effectiveEvents.length > PLAYBACK_MAX;
+  const inPlaybackMode = visibleCount !== null;
+
+  const rawPayload = hasEvents ? { provider: meta.provider, model: meta.model, events: effectiveEvents } : meta;
   const rawText = JSON.stringify(rawPayload, null, 2);
+
+  // Cleanup timers on unmount
+  useEffect(() => () => { if (timerRef.current) clearInterval(timerRef.current); }, []);
+
+  // Playback interval
+  useEffect(() => {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    if (!isPlaying || !hasEvents) return;
+
+    const interval = Math.max(10, Math.round(40 / speed));
+    timerRef.current = setInterval(() => {
+      setVisibleCount((prev) => {
+        const next = (prev ?? 0) + 1;
+        if (next >= effectiveEvents.length) {
+          setIsPlaying(false);
+          return effectiveEvents.length;
+        }
+        return next;
+      });
+    }, interval);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [isPlaying, speed, hasEvents, effectiveEvents.length]);
+
+  // Auto-scroll during playback
+  useEffect(() => {
+    if (isPlaying && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [visibleCount, isPlaying]);
+
+  const handlePlay = useCallback(() => {
+    if (visibleCount === null || visibleCount >= effectiveEvents.length) setVisibleCount(0);
+    setIsPlaying(true);
+  }, [visibleCount, effectiveEvents.length]);
+
+  const handlePause = useCallback(() => setIsPlaying(false), []);
+  const handleReset = useCallback(() => { setIsPlaying(false); setVisibleCount(null); }, []);
+  const handleSpeed = useCallback(() => setSpeedIdx((i) => (i + 1) % SPEEDS.length), []);
+
+  // Compute visible events and grouped display items
+  const showCount = inPlaybackMode ? (visibleCount ?? 0) : effectiveEvents.length;
+  const visibleEvents = effectiveEvents.slice(0, showCount);
+
+  const displayItems = useMemo(() => groupStreamEvents(visibleEvents), [visibleEvents]);
+
+  // Truncation (normal mode only — not during playback)
+  const useTruncation = !inPlaybackMode && effectiveEvents.length > STREAM_HEAD + STREAM_TAIL;
+  const skipped = useTruncation ? effectiveEvents.length - STREAM_HEAD - STREAM_TAIL : 0;
+
+  const headItems = useMemo(
+    () => useTruncation ? groupStreamEvents(effectiveEvents.slice(0, STREAM_HEAD)) : null,
+    [useTruncation, effectiveEvents],
+  );
+  const tailItems = useMemo(
+    () => useTruncation ? groupStreamEvents(effectiveEvents.slice(-STREAM_TAIL)) : null,
+    [useTruncation, effectiveEvents],
+  );
+  const tailBaseIdx = useTruncation ? effectiveEvents.length - STREAM_TAIL : 0;
+
+  const playbackDone = inPlaybackMode && !isPlaying && visibleCount !== null && visibleCount >= effectiveEvents.length;
 
   return (
     <div className="rounded-md border border-neutral-100 dark:border-neutral-800">
+      {/* Header */}
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex w-full items-center justify-between px-4 py-2 text-left"
@@ -494,29 +634,81 @@ function StreamSection({ meta, events }: { meta: Dict; events?: Dict[] }) {
           )}
         </div>
       </button>
+
       {expanded && (
         <div className="border-t border-neutral-100 dark:border-neutral-800">
-          <div className="flex justify-end gap-1 px-4 pt-2 pb-1">
-            <CopyBtn text={rawText} />
-            <RawToggle raw={raw} onToggle={() => setRaw(!raw)} />
+          {/* Toolbar */}
+          <div className="flex items-center justify-between gap-2 px-4 pt-2 pb-1">
+            <div className="flex items-center gap-1">
+              {hasEvents && !tooLargeForPlayback && (
+                <>
+                  {isPlaying ? (
+                    <CtrlBtn label="⏸" title="Pause" onClick={handlePause} />
+                  ) : (
+                    <CtrlBtn label="▶" title="Play" onClick={handlePlay} active />
+                  )}
+                  {inPlaybackMode && (
+                    <CtrlBtn label="⟲" title="Reset" onClick={handleReset} />
+                  )}
+                  <CtrlBtn label={`${speed}x`} title="Speed" onClick={handleSpeed} />
+                </>
+              )}
+              {tooLargeForPlayback && (
+                <span className="text-[10px] italic text-neutral-400">Playback disabled for large streams</span>
+              )}
+            </div>
+            <div className="flex items-center gap-1">
+              <CopyBtn text={rawText} />
+              <RawToggle raw={raw} onToggle={() => setRaw(!raw)} />
+            </div>
           </div>
+
+          {/* Playback progress */}
+          {inPlaybackMode && hasEvents && (
+            <div className="mx-4 mb-1 h-[2px] rounded-full bg-neutral-100 dark:bg-neutral-800">
+              <div
+                className="h-full rounded-full bg-violet-400 transition-[width] duration-75"
+                style={{ width: `${Math.min(100, (showCount / effectiveEvents.length) * 100)}%` }}
+              />
+            </div>
+          )}
+
+          {/* Content */}
           {raw ? (
             <pre className="mx-4 mb-3 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded bg-neutral-50 px-3 py-2 font-mono text-xs leading-6 text-neutral-600 dark:bg-neutral-900">
               {rawText}
             </pre>
           ) : hasEvents ? (
-            <div className="max-h-80 overflow-auto pb-2">
-              {events.slice(0, STREAM_HEAD).map((ev, i) => (
-                <StreamEventRow key={i} event={ev} idx={i} />
-              ))}
-              {isTruncatedList && (
-                <div className="px-4 py-1.5 text-center text-[10px] italic text-neutral-400">
-                  … {skipped} events omitted …
-                </div>
+            <div ref={scrollRef} className="max-h-80 overflow-auto pb-2">
+              {inPlaybackMode ? (
+                <>
+                  {displayItems.map((item, i) => (
+                    <DisplayItemRow key={i} item={item} isLast={i === displayItems.length - 1} isPlaying={isPlaying} />
+                  ))}
+                  {isPlaying && <BlinkingCursor />}
+                  {playbackDone && (
+                    <div className="px-4 py-1.5 text-center text-[10px] text-neutral-400">
+                      Playback complete
+                    </div>
+                  )}
+                </>
+              ) : useTruncation && headItems && tailItems ? (
+                <>
+                  {headItems.map((item, i) => (
+                    <DisplayItemRow key={`h-${i}`} item={item} />
+                  ))}
+                  <div className="px-4 py-1.5 text-center text-[10px] italic text-neutral-400">
+                    … {skipped} events omitted …
+                  </div>
+                  {tailItems.map((item, i) => (
+                    <DisplayItemRow key={`t-${i}`} item={item} baseIdx={tailBaseIdx} />
+                  ))}
+                </>
+              ) : (
+                displayItems.map((item, i) => (
+                  <DisplayItemRow key={i} item={item} />
+                ))
               )}
-              {isTruncatedList && events.slice(-STREAM_TAIL).map((ev, i) => (
-                <StreamEventRow key={`tail-${i}`} event={ev} idx={events.length - STREAM_TAIL + i} />
-              ))}
             </div>
           ) : (
             <p className="px-4 pb-3 text-xs italic text-neutral-400">
@@ -530,7 +722,128 @@ function StreamSection({ meta, events }: { meta: Dict; events?: Dict[] }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Stream event row                                                    */
+/* Playback control button                                             */
+/* ------------------------------------------------------------------ */
+
+function CtrlBtn({ label, title, onClick, active }: { label: string; title: string; onClick: () => void; active?: boolean }) {
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      title={title}
+      className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+        active
+          ? "bg-violet-100 text-violet-600 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400"
+          : "text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Blinking cursor (during playback)                                   */
+/* ------------------------------------------------------------------ */
+
+function BlinkingCursor() {
+  return (
+    <div className="flex items-center px-4 py-[3px]">
+      <span className="inline-block h-3.5 w-[2px] animate-pulse bg-violet-400 dark:bg-violet-500" />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Display item dispatcher                                             */
+/* ------------------------------------------------------------------ */
+
+function DisplayItemRow({ item, isLast, isPlaying, baseIdx = 0 }: { item: DisplayItem; isLast?: boolean; isPlaying?: boolean; baseIdx?: number }) {
+  const highlight = isLast && isPlaying;
+
+  switch (item.kind) {
+    case "text_group":
+      return <TextGroupRow item={item} highlight={highlight} baseIdx={baseIdx} />;
+    case "tool_call_group":
+      return <ToolCallGroupRow item={item} highlight={highlight} baseIdx={baseIdx} />;
+    case "event":
+      return <StreamEventRow event={item.event} idx={item.idx + baseIdx} offset={item.offset} highlight={highlight} />;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Text group row (merged consecutive text_deltas)                     */
+/* ------------------------------------------------------------------ */
+
+function TextGroupRow({ item, highlight, baseIdx = 0 }: { item: Extract<DisplayItem, { kind: "text_group" }>; highlight?: boolean; baseIdx?: number }) {
+  const timeLabel = item.firstOffset != null && item.lastOffset != null
+    ? `+${item.firstOffset}–${item.lastOffset}ms`
+    : item.firstOffset != null ? `+${item.firstOffset}ms` : null;
+
+  return (
+    <div className={`mx-3 my-1 rounded-md px-3 py-2 transition-colors ${highlight ? "bg-emerald-50/80 dark:bg-emerald-950/20" : "bg-emerald-50/40 dark:bg-emerald-950/10"}`}>
+      <div className="mb-1 flex items-center gap-2">
+        <span className="rounded bg-emerald-100 px-1 py-px text-[9px] font-medium text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400">
+          text
+        </span>
+        <span className="text-[10px] tabular-nums text-neutral-400">
+          #{item.startIdx + baseIdx}–{item.startIdx + baseIdx + item.count - 1}
+        </span>
+        <span className="text-[10px] text-neutral-400">{item.count} chunks</span>
+        {timeLabel && <span className="text-[10px] tabular-nums text-neutral-300">{timeLabel}</span>}
+      </div>
+      <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-neutral-700 dark:text-neutral-300">
+        {item.text || '""'}
+      </pre>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Tool call group row (merged consecutive tool_call_deltas)           */
+/* ------------------------------------------------------------------ */
+
+function ToolCallGroupRow({ item, highlight, baseIdx = 0 }: { item: Extract<DisplayItem, { kind: "tool_call_group" }>; highlight?: boolean; baseIdx?: number }) {
+  const [open, setOpen] = useState(false);
+  const timeLabel = item.firstOffset != null && item.lastOffset != null
+    ? `+${item.firstOffset}–${item.lastOffset}ms`
+    : item.firstOffset != null ? `+${item.firstOffset}ms` : null;
+
+  let prettyArgs: string | null = null;
+  if (item.args) {
+    try {
+      prettyArgs = JSON.stringify(JSON.parse(item.args), null, 2);
+    } catch {
+      prettyArgs = item.args;
+    }
+  }
+
+  return (
+    <div className={`mx-3 my-1 rounded-md px-3 py-2 transition-colors ${highlight ? "bg-amber-50/80 dark:bg-amber-950/20" : "bg-amber-50/40 dark:bg-amber-950/10"}`}>
+      <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 text-left">
+        <span className={`text-[9px] transition-transform duration-100 ${open ? "rotate-90" : ""} text-neutral-400`}>▶</span>
+        <span className="rounded bg-amber-100 px-1 py-px text-[9px] font-medium text-amber-600 dark:bg-amber-900/40 dark:text-amber-400">
+          tool call
+        </span>
+        {item.name && (
+          <span className="text-[11px] font-semibold text-neutral-800 dark:text-neutral-200">{item.name}</span>
+        )}
+        <span className="text-[10px] tabular-nums text-neutral-400">
+          #{item.startIdx + baseIdx}–{item.startIdx + baseIdx + item.count - 1}
+        </span>
+        <span className="text-[10px] text-neutral-400">{item.count} chunks</span>
+        {timeLabel && <span className="text-[10px] tabular-nums text-neutral-300">{timeLabel}</span>}
+      </button>
+      {open && prettyArgs && (
+        <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-white/60 px-2 py-1.5 font-mono text-[11px] leading-5 text-neutral-600 dark:bg-neutral-900/40 dark:text-neutral-400">
+          {prettyArgs}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Stream event row (single ungrouped event)                           */
 /* ------------------------------------------------------------------ */
 
 const EVENT_TYPE_STYLES: Record<string, string> = {
@@ -542,19 +855,19 @@ const EVENT_TYPE_STYLES: Record<string, string> = {
   unknown: "bg-neutral-100 text-neutral-400",
 };
 
-function StreamEventRow({ event, idx }: { event: Dict; idx: number }) {
+function StreamEventRow({ event, idx, offset, highlight }: { event: Dict; idx: number; offset?: number | null; highlight?: boolean }) {
   const type = String(event.type ?? "");
-  const offset = typeof event.timestamp_offset_ms === "number" ? event.timestamp_offset_ms : null;
+  const off = offset ?? (typeof event.timestamp_offset_ms === "number" ? event.timestamp_offset_ms : null);
   const badgeStyle = EVENT_TYPE_STYLES[type] ?? EVENT_TYPE_STYLES.unknown;
 
   return (
-    <div className="flex items-baseline gap-2 px-4 py-[3px] font-mono text-[11px] transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/30">
+    <div className={`flex items-baseline gap-2 px-4 py-[3px] font-mono text-[11px] transition-colors ${highlight ? "bg-violet-50/60 dark:bg-violet-950/10" : "hover:bg-neutral-50 dark:hover:bg-neutral-800/30"}`}>
       <span className="w-5 shrink-0 text-right tabular-nums text-neutral-300">{idx}</span>
       <span className={`shrink-0 rounded px-1 py-px text-[9px] font-medium ${badgeStyle}`}>
         {type.replace(/_/g, " ")}
       </span>
-      {offset != null && (
-        <span className="shrink-0 tabular-nums text-neutral-300">+{offset}ms</span>
+      {off != null && (
+        <span className="shrink-0 tabular-nums text-neutral-300">+{off}ms</span>
       )}
       <span className="min-w-0 flex-1 truncate text-neutral-600 dark:text-neutral-400">
         {eventPreview(type, event)}
@@ -563,12 +876,16 @@ function StreamEventRow({ event, idx }: { event: Dict; idx: number }) {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Event preview helpers                                               */
+/* ------------------------------------------------------------------ */
+
 function compactJsonFragment(fragment: string, max: number): string {
   try {
     const parsed = JSON.parse(fragment);
     const compact = JSON.stringify(parsed)
       .replace(/"(\w+)":/g, "$1: ")
-      .replace(/"/g, '"');
+      .replace(/"/g, '\u201c');
     return compact.length > max ? compact.slice(0, max) + "…" : compact;
   } catch {
     return fragment.length > max ? fragment.slice(0, max) + "…" : fragment;
