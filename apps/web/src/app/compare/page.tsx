@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
-import { errorHeadline, formatDate, formatDuration, rawJson, resolveData, statusClass, timeAgo } from "@/lib/format";
+import { formatDate, formatDuration, rawJson, resolveData, statusClass, timeAgo } from "@/lib/format";
 import { StructuredValue } from "@/components/structured-value";
 import { ROLE_STYLES, extractMessageContent } from "@/components/llm-step-detail";
 import { RunSelector, type SelectedRun } from "@/components/run-selector";
@@ -391,10 +391,13 @@ function RunDiffSection({ diff }: { diff: CompareRunDiff }) {
         />
 
         {(diff.error_summary_a || diff.error_summary_b) && (
-          <DiffRow label="Error" diff={diff.error_diff} isError>
-            <DiffCellText side="A" value={errorHeadline(diff.error_summary_a) || null} isError />
-            <DiffCellText side="B" value={errorHeadline(diff.error_summary_b) || null} isError />
-          </DiffRow>
+          <DataDiffRow
+            label="Error"
+            diff={diff.error_diff}
+            dataA={diff.error_summary_a}
+            dataB={diff.error_summary_b}
+            isError
+          />
         )}
       </div>
     </section>
@@ -470,10 +473,15 @@ function StepDiffCard({ step }: { step: CompareStepDiff }) {
 
         {/* Error — always shown when present */}
         {(step.error_summary_a || step.error_summary_b) && (
-          <DiffRow label="Error" diff={step.error_diff} isError>
-            <DiffCellText side="A" value={errorHeadline(step.error_summary_a) || null} isError absent={absentA} />
-            <DiffCellText side="B" value={errorHeadline(step.error_summary_b) || null} isError absent={absentB} />
-          </DiffRow>
+          <DataDiffRow
+            label="Error"
+            diff={step.error_diff}
+            dataA={step.error_summary_a}
+            dataB={step.error_summary_b}
+            absentA={absentA}
+            absentB={absentB}
+            isError
+          />
         )}
 
         {/* Usage — only for LLM steps */}
@@ -960,19 +968,13 @@ function ChangedBadge() {
 function DiffRow({
   label,
   diff,
-  isError,
   children,
 }: {
   label: string;
   diff: boolean;
-  isError?: boolean;
   children: [React.ReactNode, React.ReactNode];
 }) {
-  const bg = diff
-    ? isError
-      ? "bg-[var(--tint-diff-error-row)]"
-      : "bg-[var(--tint-diff-row)]"
-    : "bg-neutral-50/50";
+  const bg = diff ? "bg-[var(--tint-diff-row)]" : "bg-neutral-50/50";
 
   return (
     <div className={`rounded-md px-4 py-3 ${bg}`}>
@@ -1024,6 +1026,7 @@ function DataDiffRow({
   dataB,
   absentA,
   absentB,
+  isError,
 }: {
   label: string;
   diff: boolean;
@@ -1031,10 +1034,15 @@ function DataDiffRow({
   dataB: Dict | null;
   absentA?: boolean;
   absentB?: boolean;
+  isError?: boolean;
 }) {
   const [raw, setRaw] = useState(false);
   const hasAny = dataA != null || dataB != null;
-  const bg = diff ? "bg-[var(--tint-diff-row)]" : "bg-neutral-50/50";
+  const bg = diff
+    ? isError
+      ? "bg-[var(--tint-diff-error-row)]"
+      : "bg-[var(--tint-diff-row)]"
+    : "bg-neutral-50/50";
 
   return (
     <div className={`rounded-md px-4 py-3 ${bg}`}>
@@ -1074,7 +1082,7 @@ function DataCell({ side, data, raw, absent }: { side: string; data: Dict | null
       {absent ? (
         <p className="text-[11px] italic text-neutral-300">Not present</p>
       ) : resolved == null ? (
-        <p className="text-xs italic text-neutral-400">No output</p>
+        <p className="text-xs italic text-neutral-400">—</p>
       ) : raw ? (
         <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-neutral-600">
           {rawText}

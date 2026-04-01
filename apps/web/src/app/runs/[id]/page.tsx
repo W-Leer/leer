@@ -278,12 +278,12 @@ function ErrorBlock({ data }: { data: Record<string, unknown> }) {
           <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-[var(--error-text)]">
             {rawText}
           </pre>
-        ) : (
+        ) : detail ? (
           <>
             <p className="font-mono text-[13px] font-medium leading-snug text-[var(--error-text-emphasis)]">
               {headline}
             </p>
-            {detail && detail !== headline && (
+            {detail !== headline && (
               <>
                 <button
                   onClick={() => setExpanded(!expanded)}
@@ -299,6 +299,8 @@ function ErrorBlock({ data }: { data: Record<string, unknown> }) {
               </>
             )}
           </>
+        ) : (
+          <StructuredValue value={resolveData(data)} />
         )}
       </div>
     </div>
@@ -687,10 +689,10 @@ function InlineError({ data }: { data: Record<string, unknown> }) {
         <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-[var(--error-text)]">
           {rawText}
         </pre>
-      ) : (
+      ) : detail ? (
         <>
           <p className="font-mono text-[13px] font-medium leading-snug text-[var(--error-text-emphasis)]">{headline}</p>
-          {detail && detail !== headline && (
+          {detail !== headline && (
             <>
               <button
                 onClick={() => setExpanded(!expanded)}
@@ -706,6 +708,8 @@ function InlineError({ data }: { data: Record<string, unknown> }) {
             </>
           )}
         </>
+      ) : (
+        <StructuredValue value={resolveData(data)} />
       )}
     </div>
   );
