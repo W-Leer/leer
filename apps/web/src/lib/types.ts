@@ -52,6 +52,7 @@ export interface StepArtifactRef {
   format: string | null;
   preview_text: string | null;
   sequence_index: number | null;
+  inline_data?: Record<string, unknown> | null;
 }
 
 export interface LLMShape {

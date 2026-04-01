@@ -105,6 +105,9 @@ def get_run_timeline(
     )
 
 
+_INLINE_DATA_ARTIFACT_TYPES = {"llm_stream"}
+
+
 def _artifact_ref(a: Artifact) -> StepArtifactRef:
     return StepArtifactRef(
         id=a.id,
@@ -113,6 +116,7 @@ def _artifact_ref(a: Artifact) -> StepArtifactRef:
         format=a.format_,
         preview_text=a.preview_text,
         sequence_index=a.sequence_index,
+        inline_data=a.inline_data if a.artifact_type in _INLINE_DATA_ARTIFACT_TYPES else None,
     )
 
 

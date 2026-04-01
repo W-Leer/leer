@@ -104,11 +104,15 @@ export function LlmStepDetail({
   errorSummary,
   toolCallLinks,
   onJumpToStep,
+  streamMeta,
+  streamEvents,
 }: {
   llm: LLMShape;
   errorSummary?: Dict | null;
   toolCallLinks?: Map<string, ToolCallLinkInfo>;
   onJumpToStep?: (stepId: string) => void;
+  streamMeta?: Dict | null;
+  streamEvents?: Dict[];
 }) {
   const [raw, setRaw] = useState(false);
   const rawText = JSON.stringify(llm, null, 2);
@@ -118,6 +122,7 @@ export function LlmStepDetail({
   const hasToolCalls = llm.output.tool_calls.length > 0;
   const hasOutput = hasOutputText || hasToolCalls;
   const hasError = errorSummary && Object.keys(errorSummary).length > 0;
+  const isStream = streamMeta?.is_stream === true;
 
   return (
     <div className="space-y-3 border-t border-neutral-100 px-5 pb-5 pt-4">
@@ -147,6 +152,8 @@ export function LlmStepDetail({
               onJumpToStep={onJumpToStep}
             />
           )}
+          {isStream && <StreamStatsRow meta={streamMeta!} />}
+          {isStream && <StreamSection meta={streamMeta!} events={streamEvents} />}
           {hasError && <ErrorSection data={errorSummary!} />}
           <UsageRow usage={llm.usage} />
         </>
@@ -408,6 +415,206 @@ function ToolCallsSection({
       })}
     </div>
   );
+}
+
+/* ------------------------------------------------------------------ */
+/* Stream stats row (compact inline metrics)                           */
+/* ------------------------------------------------------------------ */
+
+function StreamStatsRow({ meta }: { meta: Dict }) {
+  const items: { label: string; value: string; mono?: boolean }[] = [];
+
+  const chunks = meta.chunk_count;
+  if (typeof chunks === "number") items.push({ label: "chunks", value: String(chunks), mono: true });
+
+  const ttfc = meta.time_to_first_chunk_ms;
+  if (typeof ttfc === "number") items.push({ label: "TTFC", value: formatDuration(ttfc) });
+
+  const dur = meta.stream_duration_ms;
+  if (typeof dur === "number") items.push({ label: "duration", value: formatDuration(dur) });
+
+  const term = meta.termination;
+  if (typeof term === "string") items.push({ label: "termination", value: term });
+
+  if (meta.truncated_chunks === true) items.push({ label: "truncated", value: "yes" });
+
+  if (items.length === 0) return null;
+
+  return (
+    <div className="flex items-center gap-3 rounded-md bg-violet-50/50 px-4 py-2 text-[11px] dark:bg-violet-950/10">
+      <span className="text-[10px] font-medium uppercase tracking-wider text-violet-400 dark:text-violet-500">
+        Stream
+      </span>
+      <span className="text-violet-200 dark:text-violet-800">·</span>
+      {items.map((item) => (
+        <span key={item.label} className="text-neutral-400">
+          {item.label}{" "}
+          <span className={`font-medium text-neutral-700 ${item.mono ? "tabular-nums" : ""}`}>
+            {item.value}
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Stream section (collapsible event viewer)                           */
+/* ------------------------------------------------------------------ */
+
+const STREAM_HEAD = 200;
+const STREAM_TAIL = 200;
+
+function StreamSection({ meta, events }: { meta: Dict; events?: Dict[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const [raw, setRaw] = useState(false);
+
+  const totalEvents = events?.length ?? (typeof meta.chunk_count === "number" ? meta.chunk_count : 0);
+  const hasEvents = events && events.length > 0;
+  const isTruncatedList = hasEvents && events.length > STREAM_HEAD + STREAM_TAIL;
+  const skipped = isTruncatedList ? events.length - STREAM_HEAD - STREAM_TAIL : 0;
+
+  const rawPayload = hasEvents ? { provider: meta.provider, model: meta.model, events } : meta;
+  const rawText = JSON.stringify(rawPayload, null, 2);
+
+  return (
+    <div className="rounded-md border border-neutral-100 dark:border-neutral-800">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center justify-between px-4 py-2 text-left"
+      >
+        <div className="flex items-center gap-2">
+          <span className={`text-[10px] transition-transform duration-150 ${expanded ? "rotate-90" : ""} text-neutral-400`}>▶</span>
+          <span className="text-[11px] font-medium text-neutral-500">Stream</span>
+          <span className="text-[10px] tabular-nums text-neutral-400">{totalEvents} events</span>
+          {typeof meta.termination === "string" && (
+            <span className={`text-[10px] ${meta.termination === "failed" ? "text-red-400" : "text-neutral-400"}`}>
+              {meta.termination as string}
+            </span>
+          )}
+        </div>
+      </button>
+      {expanded && (
+        <div className="border-t border-neutral-100 dark:border-neutral-800">
+          <div className="flex justify-end gap-1 px-4 pt-2 pb-1">
+            <CopyBtn text={rawText} />
+            <RawToggle raw={raw} onToggle={() => setRaw(!raw)} />
+          </div>
+          {raw ? (
+            <pre className="mx-4 mb-3 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded bg-neutral-50 px-3 py-2 font-mono text-xs leading-6 text-neutral-600 dark:bg-neutral-900">
+              {rawText}
+            </pre>
+          ) : hasEvents ? (
+            <div className="max-h-80 overflow-auto pb-2">
+              {events.slice(0, STREAM_HEAD).map((ev, i) => (
+                <StreamEventRow key={i} event={ev} idx={i} />
+              ))}
+              {isTruncatedList && (
+                <div className="px-4 py-1.5 text-center text-[10px] italic text-neutral-400">
+                  … {skipped} events omitted …
+                </div>
+              )}
+              {isTruncatedList && events.slice(-STREAM_TAIL).map((ev, i) => (
+                <StreamEventRow key={`tail-${i}`} event={ev} idx={events.length - STREAM_TAIL + i} />
+              ))}
+            </div>
+          ) : (
+            <p className="px-4 pb-3 text-xs italic text-neutral-400">
+              Stream recorded but no events captured
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Stream event row                                                    */
+/* ------------------------------------------------------------------ */
+
+const EVENT_TYPE_STYLES: Record<string, string> = {
+  text_delta: "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400",
+  tool_call_delta: "bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400",
+  message_start: "bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400",
+  message_stop: "bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400",
+  usage: "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400",
+  unknown: "bg-neutral-100 text-neutral-400",
+};
+
+function StreamEventRow({ event, idx }: { event: Dict; idx: number }) {
+  const type = String(event.type ?? "");
+  const offset = typeof event.timestamp_offset_ms === "number" ? event.timestamp_offset_ms : null;
+  const badgeStyle = EVENT_TYPE_STYLES[type] ?? EVENT_TYPE_STYLES.unknown;
+
+  return (
+    <div className="flex items-baseline gap-2 px-4 py-[3px] font-mono text-[11px] transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/30">
+      <span className="w-5 shrink-0 text-right tabular-nums text-neutral-300">{idx}</span>
+      <span className={`shrink-0 rounded px-1 py-px text-[9px] font-medium ${badgeStyle}`}>
+        {type.replace(/_/g, " ")}
+      </span>
+      {offset != null && (
+        <span className="shrink-0 tabular-nums text-neutral-300">+{offset}ms</span>
+      )}
+      <span className="min-w-0 flex-1 truncate text-neutral-600 dark:text-neutral-400">
+        {eventPreview(type, event)}
+      </span>
+    </div>
+  );
+}
+
+function compactJsonFragment(fragment: string, max: number): string {
+  try {
+    const parsed = JSON.parse(fragment);
+    const compact = JSON.stringify(parsed)
+      .replace(/"(\w+)":/g, "$1: ")
+      .replace(/"/g, '"');
+    return compact.length > max ? compact.slice(0, max) + "…" : compact;
+  } catch {
+    return fragment.length > max ? fragment.slice(0, max) + "…" : fragment;
+  }
+}
+
+function eventPreview(type: string, ev: Dict): string {
+  switch (type) {
+    case "text_delta": {
+      const text = typeof ev.text === "string" ? ev.text : "";
+      return text.length > 120 ? text.slice(0, 120) + "…" : text || '""';
+    }
+    case "tool_call_delta": {
+      const parts: string[] = [];
+      if (typeof ev.tool_index === "number") parts.push(`tool[${ev.tool_index}]`);
+      if (typeof ev.name === "string" && ev.name) parts.push(`name=${ev.name}`);
+      if (typeof ev.arguments === "string" && ev.arguments) {
+        parts.push(`args=${compactJsonFragment(ev.arguments, 80)}`);
+      }
+      return parts.join(" ") || "delta";
+    }
+    case "message_start": {
+      const parts: string[] = ["start"];
+      if (typeof ev.request_id === "string") parts.push(`id=${ev.request_id}`);
+      return parts.join(" ");
+    }
+    case "message_stop": {
+      const parts: string[] = ["stop"];
+      if (typeof ev.finish_reason === "string") parts.push(`(${ev.finish_reason})`);
+      return parts.join(" ");
+    }
+    case "usage": {
+      const parts: string[] = [];
+      if (typeof ev.prompt_tokens === "number") parts.push(`in=${ev.prompt_tokens}`);
+      if (typeof ev.completion_tokens === "number") parts.push(`out=${ev.completion_tokens}`);
+      if (typeof ev.total_tokens === "number") parts.push(`total=${ev.total_tokens}`);
+      return parts.length > 0 ? parts.join(" ") : "usage";
+    }
+    default: {
+      const { index: _i, type: _t, timestamp_offset_ms: _ts, ...rest } = ev;
+      const keys = Object.keys(rest);
+      if (keys.length === 0) return type || "event";
+      const preview = JSON.stringify(rest);
+      return preview.length > 120 ? preview.slice(0, 120) + "…" : preview;
+    }
+  }
 }
 
 /* ------------------------------------------------------------------ */

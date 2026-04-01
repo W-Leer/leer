@@ -372,6 +372,15 @@ function StepCard({
   const childCount = children?.length ?? 0;
   const allChildrenAreTools = childCount > 0 && children!.every((c) => c.step_type === "tool");
 
+  // Extract stream events from llm_stream artifact
+  const streamEvents = useMemo(() => {
+    if (step.step_type !== "llm") return undefined;
+    const art = step.artifacts.find((a) => a.kind === "llm_stream");
+    if (!art?.inline_data) return undefined;
+    const evts = art.inline_data.events;
+    return Array.isArray(evts) ? (evts as Record<string, unknown>[]) : undefined;
+  }, [step.step_type, step.artifacts]);
+
   // Build tool call link map for LLM steps
   const llmToolCallLinks = useMemo(() => {
     if (!step.llm?.output?.tool_calls?.length) return undefined;
@@ -432,6 +441,11 @@ function StepCard({
               <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusClass(step.status)}`}>
                 {step.status}
               </span>
+              {step.step_type === "llm" && (step.metadata?.stream as Record<string, unknown>)?.is_stream === true && (
+                <span className="rounded px-1.5 py-0.5 font-mono text-[10px] bg-violet-50 text-violet-500 dark:bg-violet-950/30 dark:text-violet-400">
+                  stream
+                </span>
+              )}
               {childCount > 0 && (
                 <span className="text-[10px] text-neutral-400">
                   {childCount} {allChildrenAreTools ? `tool call${childCount !== 1 ? "s" : ""}` : `child${childCount !== 1 ? "ren" : ""}`}
@@ -471,6 +485,8 @@ function StepCard({
                 errorSummary={step.error_summary}
                 toolCallLinks={llmToolCallLinks}
                 onJumpToStep={onJumpToStep}
+                streamMeta={step.metadata?.stream as Record<string, unknown> | undefined}
+                streamEvents={streamEvents}
               />
             ) : (
               <StepDetailPanel

@@ -182,13 +182,14 @@ class TimelineRun(BaseModel):
 
 
 class StepArtifactRef(BaseModel):
-    """Lightweight artifact reference — no inline_data or blob_path."""
+    """Lightweight artifact reference — inline_data included only for select types (e.g. llm_stream)."""
     id: UUID
     kind: str
     role: str | None = None
     format: str | None = None
     preview_text: str | None = None
     sequence_index: int | None = None
+    inline_data: dict[str, Any] | None = None
 
 
 class TimelineStep(BaseModel):
