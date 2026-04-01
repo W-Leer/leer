@@ -91,7 +91,7 @@ Very High
 
 # LATER
 
-## 7. MCP / Skills
+## 7. MCP / Skills / RAG
 ### Goal
 Trace external agent protocols and tool servers cleanly.
 
