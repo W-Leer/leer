@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import type { LLMShape } from "@/lib/types";
 import { formatDuration, errorHeadline, errorDetail, rawJson } from "@/lib/format";
+import { StructuredValue } from "@/components/structured-value";
 
 type Dict = Record<string, unknown>;
 
@@ -51,6 +52,41 @@ export const ROLE_STYLES: Record<string, string> = {
   assistant: "text-emerald-500/80 dark:text-emerald-400/70",
   tool: "text-amber-500/80 dark:text-amber-400/70",
 };
+
+/* ------------------------------------------------------------------ */
+/* Structured-output helpers                                           */
+/* ------------------------------------------------------------------ */
+
+/** Safely parse a string as JSON, returning the value only for objects/arrays. */
+function tryParseJson(text: string): unknown | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (typeof parsed === "object" && parsed !== null) return parsed;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Resolve tool-call arguments into a structured value for rendering. */
+function resolveArgs(args: unknown): unknown {
+  if (args == null) return null;
+  if (typeof args === "string") {
+    if (!args) return null;
+    try {
+      return resolveArgs(JSON.parse(args));
+    } catch {
+      return args;
+    }
+  }
+  if (Array.isArray(args)) return args.length > 0 ? args : null;
+  if (typeof args === "object") {
+    return Object.keys(args as Record<string, unknown>).length > 0 ? args : null;
+  }
+  return null;
+}
 
 /* ------------------------------------------------------------------ */
 /* Main export                                                         */
@@ -261,6 +297,7 @@ function ParamsBlock({ params }: { params: Record<string, unknown> }) {
 
 function OutputSection({ llm, hideToolCalls }: { llm: LLMShape; hideToolCalls?: boolean }) {
   const output = llm.output;
+  const structuredText = output.text ? tryParseJson(output.text) : null;
 
   return (
     <div className="rounded-md bg-[var(--tint-output)] px-4 py-3">
@@ -268,11 +305,14 @@ function OutputSection({ llm, hideToolCalls }: { llm: LLMShape; hideToolCalls?: 
         Output
       </div>
       <div className="space-y-3">
-        {output.text && (
-          <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-neutral-700">
-            {output.text}
-          </pre>
-        )}
+        {output.text &&
+          (structuredText != null ? (
+            <StructuredValue value={structuredText} />
+          ) : (
+            <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-neutral-700">
+              {output.text}
+            </pre>
+          ))}
         {!hideToolCalls && output.tool_calls.length > 0 && <ToolCallsList calls={output.tool_calls} />}
       </div>
     </div>
@@ -325,44 +365,43 @@ function ToolCallsSection({
         const callId = (tc.id as string) ?? null;
         const name = (tc.name as string) ?? "call";
         const link = callId ? toolCallLinks?.get(callId) : undefined;
-        const argsRaw = tc.arguments != null
-          ? typeof tc.arguments === "string" ? tc.arguments : JSON.stringify(tc.arguments)
-          : null;
-        const argsPreview = argsRaw && argsRaw.length > 80 ? argsRaw.slice(0, 80) + "…" : argsRaw;
+        const args = resolveArgs(tc.arguments);
 
         return (
           <div
             key={i}
-            className="flex items-center justify-between gap-3 rounded-md bg-amber-50/40 px-3 py-1.5 dark:bg-amber-950/10"
+            className="rounded-md bg-amber-50/40 px-3 py-1.5 dark:bg-amber-950/10"
           >
-            <div className="flex min-w-0 flex-1 items-center gap-x-3 gap-y-1">
-              <span className="text-[12px] font-semibold text-neutral-800 dark:text-neutral-200">{name}</span>
-              {callId && (
-                <span className="font-mono text-[10px] text-neutral-400" title={callId}>
-                  {truncateId(callId)}
-                </span>
-              )}
-              {argsPreview && (
-                <span className="truncate font-mono text-[10px] text-neutral-500 dark:text-neutral-400" title={argsRaw ?? undefined}>
-                  {argsPreview}
-                </span>
-              )}
-              {link ? (
-                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
-                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                  #{link.toolStepIndex}
-                </span>
-              ) : (
-                <span className="text-[10px] italic text-neutral-400">untraced</span>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 flex-1 items-center gap-x-3 gap-y-1">
+                <span className="text-[12px] font-semibold text-neutral-800 dark:text-neutral-200">{name}</span>
+                {callId && (
+                  <span className="font-mono text-[10px] text-neutral-400" title={callId}>
+                    {truncateId(callId)}
+                  </span>
+                )}
+                {link ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    #{link.toolStepIndex}
+                  </span>
+                ) : (
+                  <span className="text-[10px] italic text-neutral-400">untraced</span>
+                )}
+              </div>
+              {link && onJumpToStep && (
+                <button
+                  onClick={() => onJumpToStep(link.toolStepId)}
+                  className="shrink-0 whitespace-nowrap text-[10px] font-medium text-amber-700 transition-colors hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-300"
+                >
+                  →
+                </button>
               )}
             </div>
-            {link && onJumpToStep && (
-              <button
-                onClick={() => onJumpToStep(link.toolStepId)}
-                className="shrink-0 whitespace-nowrap text-[10px] font-medium text-amber-700 transition-colors hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-300"
-              >
-                →
-              </button>
+            {args != null && (
+              <div className="mt-1.5">
+                <StructuredValue value={args} defaultExpanded={false} />
+              </div>
             )}
           </div>
         );
