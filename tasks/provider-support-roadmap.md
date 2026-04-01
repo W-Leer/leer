@@ -1,118 +1,104 @@
 # Provider Support Roadmap
 
-This document defines what to build next for provider support.
+This document defines the execution order for provider support expansion.
 
 ---
 
-# NOW (Next Iterations)
+# COMPLETED
 
-~~## 1. Tool Calling (First-Class) [DONE]~~
-
+## 1. Tool Calling [DONE]
 ### Goal
 Make tool calls debuggable end-to-end.
 
-### Tasks
-- represent tool call + result lifecycle
-- link tool call → execution → result
-- improve UI display
-- support compare for tool flows
-
-### Why
-High debugging value, moderate complexity.
+### Delivered
+- tool call → execution → result linkage
+- first-class tool steps
+- timeline linkage UX
+- compare support for tool flows
 
 ---
 
-~~## 2. Async Support [DONE]~~
-
+## 2. Async Support [DONE]
 ### Goal
-Support async SDK usage.
+Support async SDK usage with clean parent/child semantics.
 
-### Tasks
-- async wrappers (OpenAI + Anthropic)
-- tests
-- ensure parity with sync behavior
-
-### Why
-Common in production usage.
+### Delivered
+- async-friendly parent/child step modeling
+- timeline support
+- compare support for parent_step_id
+- demo validation
 
 ---
 
-## 3. Structured Outputs [CURRENT]
-
+## 3. Structured Outputs [DONE]
 ### Goal
-Improve structured response visibility.
+Make structured responses readable across run detail and compare.
 
-### Tasks
-- detect structured outputs
-- improve summary rendering
-- optional schema display
-- better compare behavior
-
-### Why
-Common use case, contained complexity.
+### Delivered
+- canonical structured renderer
+- generic structured rendering
+- LLM structured rendering
+- compare structured rendering
+- showcase demo
 
 ---
 
-# NEXT (After NOW)
+# NOW
 
 ## 4. Streaming
-
 ### Goal
-Capture and display token streams.
+Capture token streams and render them meaningfully.
 
 ### Tasks
 - stream event capture
-- aggregation into final output
+- final aggregation behavior
 - artifact strategy
-- UI rendering
+- timeline / UI rendering
+- compare behavior rules
 
 ### Complexity
 High
 
 ---
 
-## 5. Blob Storage
+# NEXT
 
+## 5. Blob Storage
 ### Goal
-Handle large payloads correctly.
+Handle large payloads safely and scalably.
 
 ### Tasks
 - inline vs blob threshold
-- storage layer
+- storage abstraction
 - retrieval endpoints
 - UI integration
 
-### Why
-Foundational for scaling
-
 ---
 
-# LATER
-
 ## 6. Multimodal
-
 ### Goal
-Support images, audio, documents.
+Support image, audio, and document payloads.
 
 ### Tasks
 - normalized multimodal format
 - artifact handling
-- UI rendering
+- rendering strategy
 
 ### Complexity
 Very High
 
 ---
 
-## 7. MCP / Skills
+# LATER
 
+## 7. MCP / Skills
 ### Goal
-Support external agent protocols.
+Trace external agent protocols and tool servers cleanly.
 
 ### Tasks
 - protocol tracing
-- tool server modeling
-- UI
+- skill / server modeling
+- UI representation
 
 ### Complexity
 High
@@ -122,22 +108,8 @@ High
 # DO NOT DO (FOR NOW)
 
 - full provider SDK parity
-- obscure API features
-- provider-specific UI branching
-
----
-
-# Execution Order
-
-## Recommended order:
-
-1. tool calling
-2. async support
-3. structured outputs
-4. streaming
-5. blob storage
-6. multimodal
-7. MCP
+- obscure provider-specific features
+- provider-specific UI branches unless unavoidable
 
 ---
 
