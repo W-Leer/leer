@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     # --- Database ---
     database_url: str
 
+    # --- Blob storage ---
+    blob_backend: str = "local"
+    blob_local_root: str = ".leer/blobs"
+    blob_inline_threshold_bytes: int = 256 * 1024  # 256 KB
+
     # --- Optional ---
     log_level: str = "info"
 
