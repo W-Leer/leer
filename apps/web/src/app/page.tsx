@@ -195,8 +195,7 @@ export default function HomePage() {
     }
 
     return () => clearTimeout(debounceRef.current);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, statusFilter, sort]);
+  }, [query, statusFilter, sort, fetchRuns]);
 
   // Popstate: sync URL → state
   useEffect(() => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { formatDuration, statusClass, timeAgo } from "@/lib/format";
 import type { ProjectRunsResponse, RunListItem } from "@/lib/types";
@@ -49,17 +49,23 @@ export function RunSelector({ label, value, onChange, excludeId, autoFocus }: Ru
     [excludeId],
   );
 
+  const debouncedFetch = useEffectEvent(() => {
+    fetchRuns(query);
+  });
+
   useEffect(() => {
     if (!open) return;
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => fetchRuns(query), 180);
+    debounceRef.current = setTimeout(debouncedFetch, 180);
     return () => clearTimeout(debounceRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, open]);
 
+  const fetchIfEmpty = useEffectEvent(() => {
+    if (runs.length === 0 && !loading) fetchRuns(query);
+  });
+
   useEffect(() => {
-    if (open && runs.length === 0 && !loading) fetchRuns(query);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (open) fetchIfEmpty();
   }, [open]);
 
   useEffect(() => {

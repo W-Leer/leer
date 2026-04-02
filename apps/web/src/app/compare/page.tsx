@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
@@ -57,34 +57,6 @@ function ComparePage() {
 
   const didAutoLoad = useRef(false);
 
-  useEffect(() => {
-    if (paramA && (!runA || runA.id !== paramA)) {
-      apiFetch<{ run: TimelineRun }>(`/v1/runs/${paramA}/timeline`)
-        .then((d) => setRunA(toSelected(d.run)))
-        .catch(() => {});
-    }
-    if (paramB && (!runB || runB.id !== paramB)) {
-      apiFetch<{ run: TimelineRun }>(`/v1/runs/${paramB}/timeline`)
-        .then((d) => setRunB(toSelected(d.run)))
-        .catch(() => {});
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paramA, paramB]);
-
-  useEffect(() => {
-    if (paramA && paramB && !didAutoLoad.current) {
-      didAutoLoad.current = true;
-      fetchComparison(paramA, paramB);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paramA, paramB]);
-
-  useEffect(() => {
-    apiFetch<ProjectRunsResponse>("/v1/projects/demo-project/runs?limit=6&sort=newest")
-      .then((d) => setQuickPicks(d.runs))
-      .catch(() => {});
-  }, []);
-
   const fetchComparison = useCallback(async (a: string, b: string) => {
     setLoading(true);
     setError(null);
@@ -99,6 +71,36 @@ function ComparePage() {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  const syncRunsFromParams = useEffectEvent(() => {
+    if (paramA && (!runA || runA.id !== paramA)) {
+      apiFetch<{ run: TimelineRun }>(`/v1/runs/${paramA}/timeline`)
+        .then((d) => setRunA(toSelected(d.run)))
+        .catch(() => {});
+    }
+    if (paramB && (!runB || runB.id !== paramB)) {
+      apiFetch<{ run: TimelineRun }>(`/v1/runs/${paramB}/timeline`)
+        .then((d) => setRunB(toSelected(d.run)))
+        .catch(() => {});
+    }
+  });
+
+  useEffect(() => {
+    syncRunsFromParams();
+  }, [paramA, paramB]);
+
+  useEffect(() => {
+    if (paramA && paramB && !didAutoLoad.current) {
+      didAutoLoad.current = true;
+      fetchComparison(paramA, paramB);
+    }
+  }, [paramA, paramB, fetchComparison]);
+
+  useEffect(() => {
+    apiFetch<ProjectRunsResponse>("/v1/projects/demo-project/runs?limit=6&sort=newest")
+      .then((d) => setQuickPicks(d.runs))
+      .catch(() => {});
   }, []);
 
   function handleCompare() {
@@ -1058,10 +1060,6 @@ function LlmStreamDiff({
   stepNameA: string | null;
   stepNameB: string | null;
 }) {
-  const sA = streamVal(metaA);
-  const sB = streamVal(metaB);
-  if (!sA && !sB) return null;
-
   const [playbackSide, setPlaybackSide] = useState<"a" | "b" | null>(null);
   const [eventsA, setEventsA] = useState<Dict[] | undefined>(undefined);
   const [eventsB, setEventsB] = useState<Dict[] | undefined>(undefined);
@@ -1097,6 +1095,10 @@ function LlmStreamDiff({
     },
     [fetchEvents],
   );
+
+  const sA = streamVal(metaA);
+  const sB = streamVal(metaB);
+  if (!sA && !sB) return null;
 
   const chunkA = typeof sA?.chunk_count === "number" ? sA.chunk_count as number : null;
   const chunkB = typeof sB?.chunk_count === "number" ? sB.chunk_count as number : null;
