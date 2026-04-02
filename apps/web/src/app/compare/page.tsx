@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, fetchArtifactContent } from "@/lib/api";
 import { formatDate, formatDuration, rawJson, resolveData, statusClass, timeAgo } from "@/lib/format";
 import { computeLatencyBreakdown, type LatencyBreakdown } from "@/lib/latency";
 import { StructuredValue } from "@/components/structured-value";
@@ -1218,17 +1218,34 @@ function StreamStatLine({ label, a, b, format, threshold = 0.2 }: {
   );
 }
 
-function extractStreamEvents(steps: TimelineStep[], seqIdx: number | null, stepName: string | null): Dict[] | undefined {
+interface StreamExtract {
+  events: Dict[] | undefined;
+  blobArtifactId: string | undefined;
+}
+
+function extractStreamEvents(steps: TimelineStep[], seqIdx: number | null, stepName: string | null): StreamExtract {
   const match = steps.find((s) => {
     if (seqIdx != null && s.sequence_index === seqIdx) return true;
     if (stepName && s.name === stepName && s.step_type === "llm") return true;
     return false;
   });
-  if (!match) return undefined;
+  if (!match) return { events: undefined, blobArtifactId: undefined };
   const art = match.artifacts.find((a) => a.kind === "llm_stream");
-  if (!art?.inline_data) return undefined;
-  const evts = art.inline_data.events;
-  return Array.isArray(evts) ? (evts as Dict[]) : undefined;
+  if (!art) return { events: undefined, blobArtifactId: undefined };
+
+  if (art.inline_data) {
+    const evts = art.inline_data.events;
+    return {
+      events: Array.isArray(evts) ? (evts as Dict[]) : undefined,
+      blobArtifactId: undefined,
+    };
+  }
+
+  if (art.storage_kind === "blob") {
+    return { events: undefined, blobArtifactId: art.id };
+  }
+
+  return { events: undefined, blobArtifactId: undefined };
 }
 
 function LlmStreamDiff({
@@ -1253,26 +1270,42 @@ function LlmStreamDiff({
   const [playbackSide, setPlaybackSide] = useState<"a" | "b" | null>(null);
   const [eventsA, setEventsA] = useState<Dict[] | undefined>(undefined);
   const [eventsB, setEventsB] = useState<Dict[] | undefined>(undefined);
-  const [loadingEvents, setLoadingEvents] = useState(false);
+  const [loadingA, setLoadingA] = useState(false);
+  const [loadingB, setLoadingB] = useState(false);
+  const [fetchErrorA, setFetchErrorA] = useState<string | null>(null);
+  const [fetchErrorB, setFetchErrorB] = useState<string | null>(null);
   const fetchedRef = useRef<{ a?: boolean; b?: boolean }>({});
 
   const fetchEvents = useCallback(
     async (side: "a" | "b") => {
       if (fetchedRef.current[side]) return;
       fetchedRef.current[side] = true;
-      setLoadingEvents(true);
+      const setLoading = side === "a" ? setLoadingA : setLoadingB;
+      const setError = side === "a" ? setFetchErrorA : setFetchErrorB;
+      setLoading(true);
+      setError(null);
       try {
         const runId = side === "a" ? runIdA : runIdB;
         const data = await apiFetch<TimelineResponse>(`/v1/runs/${runId}/timeline`);
         const seqIdx = side === "a" ? seqIdxA : seqIdxB;
         const name = side === "a" ? stepNameA : stepNameB;
-        const evts = extractStreamEvents(data.steps, seqIdx, name);
+        const extract = extractStreamEvents(data.steps, seqIdx, name);
+
+        let evts = extract.events;
+
+        if (!evts && extract.blobArtifactId) {
+          const artResp = await fetchArtifactContent(extract.blobArtifactId);
+          const blobEvts = artResp.data?.events;
+          evts = Array.isArray(blobEvts) ? (blobEvts as Dict[]) : [];
+        }
+
         if (side === "a") setEventsA(evts);
         else setEventsB(evts);
-      } catch {
-        // fetch failed — events stay undefined
+      } catch (err) {
+        fetchedRef.current[side] = false;
+        setError(err instanceof Error ? err.message : "Failed to load stream events");
       } finally {
-        setLoadingEvents(false);
+        setLoading(false);
       }
     },
     [runIdA, runIdB, seqIdxA, seqIdxB, stepNameA, stepNameB],
@@ -1314,6 +1347,8 @@ function LlmStreamDiff({
 
   const activeEvents = playbackSide === "a" ? eventsA : playbackSide === "b" ? eventsB : undefined;
   const activeMeta = (playbackSide === "a" ? sA : sB) ?? {};
+  const activeLoading = playbackSide === "a" ? loadingA : loadingB;
+  const activeError = playbackSide === "a" ? fetchErrorA : fetchErrorB;
 
   // Compact delta summary (only when both sides stream)
   const deltaHints: string[] = [];
@@ -1415,14 +1450,30 @@ function LlmStreamDiff({
             >
               Run B
             </button>
-            {loadingEvents && (
+            {activeLoading && (
               <span className="text-[10px] italic text-neutral-400">Loading events…</span>
             )}
           </div>
-          <StreamSection
-            meta={activeMeta}
-            events={activeEvents}
-          />
+          {activeError ? (
+            <div className="space-y-2 px-1 py-2">
+              <p className="text-xs text-red-500">{activeError}</p>
+              <button
+                onClick={() => {
+                  if (!playbackSide) return;
+                  fetchedRef.current[playbackSide] = false;
+                  fetchEvents(playbackSide);
+                }}
+                className="rounded-md border border-neutral-200 px-3 py-1.5 text-[11px] font-medium text-neutral-500 transition-colors hover:border-neutral-300 hover:bg-neutral-50 hover:text-neutral-700"
+              >
+                Retry
+              </button>
+            </div>
+          ) : (
+            <StreamSection
+              meta={activeMeta}
+              events={activeEvents}
+            />
+          )}
         </div>
       )}
     </div>
