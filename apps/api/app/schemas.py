@@ -189,6 +189,9 @@ class StepArtifactRef(BaseModel):
     format: str | None = None
     preview_text: str | None = None
     sequence_index: int | None = None
+    storage_kind: str = "inline"
+    size_bytes: int | None = None
+    sha256: str | None = None
     inline_data: dict[str, Any] | None = None
 
 
@@ -310,3 +313,18 @@ class CompareResponse(BaseModel):
     run_b: CompareRunSummary
     run_diff: CompareRunDiff
     steps: list[CompareStepDiff]
+
+
+# --- Artifact Content ---
+
+class ArtifactContentResponse(BaseModel):
+    """Full artifact content returned by the dedicated fetch endpoint."""
+    id: UUID
+    artifact_type: str
+    role: str | None = None
+    format: str | None = None
+    storage_kind: str
+    size_bytes: int | None = None
+    sha256: str | None = None
+    preview_text: str | None = None
+    data: dict[str, Any] | None = None

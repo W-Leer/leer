@@ -116,6 +116,9 @@ def _artifact_ref(a: Artifact) -> StepArtifactRef:
         format=a.format_,
         preview_text=a.preview_text,
         sequence_index=a.sequence_index,
+        storage_kind=a.storage_kind,
+        size_bytes=a.size_bytes,
+        sha256=a.sha256,
         inline_data=a.inline_data if a.artifact_type in _INLINE_DATA_ARTIFACT_TYPES else None,
     )
 

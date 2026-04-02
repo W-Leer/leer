@@ -83,3 +83,8 @@ def get_artifacts_for_run(session: Session, run_id: uuid.UUID) -> list[Artifact]
         .order_by(Artifact.sequence_index.asc())
     )
     return list(session.execute(stmt).scalars().all())
+
+
+def get_artifact_by_id(session: Session, artifact_id: uuid.UUID) -> Artifact | None:
+    stmt = select(Artifact).where(Artifact.id == artifact_id)
+    return session.execute(stmt).scalar_one_or_none()

@@ -413,8 +413,8 @@ def test_timeline_step_artifacts_are_light():
     assert req_ref["format"] == "json"
     assert req_ref["preview_text"] == "model: gpt-4.1 | user: Explain AI"
     assert req_ref["sequence_index"] == 0
-    assert "inline_data" not in req_ref
-    assert "storage_kind" not in req_ref
+    assert req_ref["storage_kind"] == "inline"
+    assert req_ref["inline_data"] is None  # not inlined for non-stream types
     assert "artifact_type" not in req_ref
 
     resp_ref = llm_step["artifacts"][1]
@@ -422,9 +422,10 @@ def test_timeline_step_artifacts_are_light():
     assert resp_ref["role"] == "output"
     assert resp_ref["preview_text"] == "Hello from the LLM"
     assert resp_ref["sequence_index"] == 1
+    assert resp_ref["storage_kind"] == "inline"
 
     assert len(body["artifacts"]) == 2
     for art in body["artifacts"]:
         assert "kind" in art
-        assert "inline_data" not in art
-        assert "storage_kind" not in art
+        assert art["storage_kind"] == "inline"
+        assert art["inline_data"] is None  # non-stream artifacts don't carry inline_data

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routes import health, ingest, runs
+from app.routes import artifacts, health, ingest, runs
 
 app = FastAPI(title="Leer API", version="0.1.0")
 
@@ -15,3 +15,4 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(ingest.router)
 app.include_router(runs.router)
+app.include_router(artifacts.router)
