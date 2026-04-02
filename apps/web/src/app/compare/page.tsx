@@ -1,12 +1,12 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatDuration, rawJson, resolveData, statusClass, timeAgo } from "@/lib/format";
 import { StructuredValue } from "@/components/structured-value";
-import { ROLE_STYLES, extractMessageContent, tryParseJson, resolveArgs } from "@/components/llm-step-detail";
+import { ROLE_STYLES, extractMessageContent, tryParseJson, resolveArgs, StreamSection } from "@/components/llm-step-detail";
 import { RunSelector, type SelectedRun } from "@/components/run-selector";
 import { GitCompareArrows, Lightbulb } from "lucide-react";
 import type {
@@ -17,7 +17,9 @@ import type {
   LLMShape,
   ProjectRunsResponse,
   RunListItem,
+  TimelineResponse,
   TimelineRun,
+  TimelineStep,
 } from "@/lib/types";
 
 type Dict = Record<string, unknown>;
@@ -299,6 +301,8 @@ function CompareResults({ data }: { data: CompareResponse }) {
         <RunSummaryCard label="Run B" run={data.run_b} />
       </div>
 
+      <InsightBlock data={data} />
+
       <RunDiffSection diff={data.run_diff} />
 
       <section>
@@ -325,7 +329,7 @@ function CompareResults({ data }: { data: CompareResponse }) {
         ) : (
           <div className="space-y-5">
             {data.steps.map((step) => (
-              <StepDiffCard key={stepDiffKey(step)} step={step} />
+              <StepDiffCard key={stepDiffKey(step)} step={step} runIdA={data.run_a.id} runIdB={data.run_b.id} />
             ))}
           </div>
         )}
@@ -408,7 +412,7 @@ function RunDiffSection({ diff }: { diff: CompareRunDiff }) {
 // Step diff card — switches between generic and LLM-aware rendering
 // ===========================================================================
 
-function StepDiffCard({ step }: { step: CompareStepDiff }) {
+function StepDiffCard({ step, runIdA, runIdB }: { step: CompareStepDiff; runIdA: string; runIdB: string }) {
   const hasDiff = step.status_diff || step.output_diff || step.error_diff || step.input_diff;
   const missing = step.match_kind === "missing";
   const isFallback = step.match_kind === "fallback_type_index";
@@ -426,7 +430,15 @@ function StepDiffCard({ step }: { step: CompareStepDiff }) {
 
   return (
     <div className={`rounded-lg p-5 ${cardStyle}`}>
-      <StepDiffHeader step={step} isLlm={isLlm} isTool={isTool} missing={missing} isFallback={isFallback} />
+      <StepDiffHeader
+        step={step}
+        isLlm={isLlm}
+        isTool={isTool}
+        missing={missing}
+        isFallback={isFallback}
+        isStreamA={!!streamVal(step.metadata_a)}
+        isStreamB={!!streamVal(step.metadata_b)}
+      />
 
       <div className="space-y-5">
         {/* LLM metadata diff */}
@@ -486,6 +498,20 @@ function StepDiffCard({ step }: { step: CompareStepDiff }) {
 
         {/* Usage — only for LLM steps */}
         {isLlm && <LlmUsageDiff a={step.llm_a} b={step.llm_b} />}
+
+        {/* Stream diff — only for LLM steps with stream metadata */}
+        {isLlm && (
+          <LlmStreamDiff
+            metaA={step.metadata_a}
+            metaB={step.metadata_b}
+            runIdA={runIdA}
+            runIdB={runIdB}
+            seqIdxA={step.sequence_index_a}
+            seqIdxB={step.sequence_index_b}
+            stepNameA={step.name_a}
+            stepNameB={step.name_b}
+          />
+        )}
       </div>
     </div>
   );
@@ -501,12 +527,16 @@ function StepDiffHeader({
   isTool,
   missing,
   isFallback,
+  isStreamA,
+  isStreamB,
 }: {
   step: CompareStepDiff;
   isLlm: boolean;
   isTool: boolean;
   missing: boolean;
   isFallback: boolean;
+  isStreamA: boolean;
+  isStreamB: boolean;
 }) {
   const nameA = step.name_a;
   const nameB = step.name_b;
@@ -565,6 +595,12 @@ function StepDiffHeader({
         >
           {stepType}
         </span>
+
+        {(isStreamA || isStreamB) && (
+          <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-500 dark:bg-violet-950/30 dark:text-violet-400">
+            {isStreamA && isStreamB ? "stream" : isStreamA ? "stream A only" : "stream B only"}
+          </span>
+        )}
 
         {isChild && (
           <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
@@ -947,6 +983,317 @@ function UsagePills({ usage }: { usage?: LLMShape["usage"] | null }) {
           </span>
         </span>
       ))}
+    </div>
+  );
+}
+
+// ===========================================================================
+// Stream diff
+// ===========================================================================
+
+function streamVal(meta: Dict | null | undefined): Dict | null {
+  if (!meta) return null;
+  const s = meta.stream;
+  if (typeof s === "object" && s != null && (s as Dict).is_stream === true) return s as Dict;
+  return null;
+}
+
+function pctDiff(a: number, b: number): number {
+  const avg = (a + b) / 2;
+  return avg === 0 ? 0 : Math.abs(a - b) / avg;
+}
+
+function StreamStatLine({ label, a, b, format, threshold = 0.2 }: {
+  label: string;
+  a: number | null;
+  b: number | null;
+  format: (v: number) => string;
+  threshold?: number;
+}) {
+  const bothPresent = a != null && b != null;
+  const diff = bothPresent && pctDiff(a, b) > threshold;
+
+  return (
+    <div className="grid grid-cols-[80px_1fr_1fr] items-baseline gap-0 text-[11px]">
+      <span className="text-neutral-400">{label}</span>
+      <span className={`tabular-nums ${diff ? "font-medium text-[var(--diff-badge-text)]" : "text-neutral-700"}`}>
+        {a != null ? format(a) : "—"}
+      </span>
+      <span className={`tabular-nums ${diff ? "font-medium text-[var(--diff-badge-text)]" : "text-neutral-700"}`}>
+        {b != null ? format(b) : "—"}
+      </span>
+    </div>
+  );
+}
+
+function extractStreamEvents(steps: TimelineStep[], seqIdx: number | null, stepName: string | null): Dict[] | undefined {
+  const match = steps.find((s) => {
+    if (seqIdx != null && s.sequence_index === seqIdx) return true;
+    if (stepName && s.name === stepName && s.step_type === "llm") return true;
+    return false;
+  });
+  if (!match) return undefined;
+  const art = match.artifacts.find((a) => a.kind === "llm_stream");
+  if (!art?.inline_data) return undefined;
+  const evts = art.inline_data.events;
+  return Array.isArray(evts) ? (evts as Dict[]) : undefined;
+}
+
+function LlmStreamDiff({
+  metaA,
+  metaB,
+  runIdA,
+  runIdB,
+  seqIdxA,
+  seqIdxB,
+  stepNameA,
+  stepNameB,
+}: {
+  metaA: Dict | null;
+  metaB: Dict | null;
+  runIdA: string;
+  runIdB: string;
+  seqIdxA: number | null;
+  seqIdxB: number | null;
+  stepNameA: string | null;
+  stepNameB: string | null;
+}) {
+  const sA = streamVal(metaA);
+  const sB = streamVal(metaB);
+  if (!sA && !sB) return null;
+
+  const [playbackSide, setPlaybackSide] = useState<"a" | "b" | null>(null);
+  const [eventsA, setEventsA] = useState<Dict[] | undefined>(undefined);
+  const [eventsB, setEventsB] = useState<Dict[] | undefined>(undefined);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+  const fetchedRef = useRef<{ a?: boolean; b?: boolean }>({});
+
+  const fetchEvents = useCallback(
+    async (side: "a" | "b") => {
+      if (fetchedRef.current[side]) return;
+      fetchedRef.current[side] = true;
+      setLoadingEvents(true);
+      try {
+        const runId = side === "a" ? runIdA : runIdB;
+        const data = await apiFetch<TimelineResponse>(`/v1/runs/${runId}/timeline`);
+        const seqIdx = side === "a" ? seqIdxA : seqIdxB;
+        const name = side === "a" ? stepNameA : stepNameB;
+        const evts = extractStreamEvents(data.steps, seqIdx, name);
+        if (side === "a") setEventsA(evts);
+        else setEventsB(evts);
+      } catch {
+        // fetch failed — events stay undefined
+      } finally {
+        setLoadingEvents(false);
+      }
+    },
+    [runIdA, runIdB, seqIdxA, seqIdxB, stepNameA, stepNameB],
+  );
+
+  const handlePlayback = useCallback(
+    (side: "a" | "b") => {
+      setPlaybackSide(side);
+      fetchEvents(side);
+    },
+    [fetchEvents],
+  );
+
+  const chunkA = typeof sA?.chunk_count === "number" ? sA.chunk_count as number : null;
+  const chunkB = typeof sB?.chunk_count === "number" ? sB.chunk_count as number : null;
+  const durA = typeof sA?.stream_duration_ms === "number" ? sA.stream_duration_ms as number : null;
+  const durB = typeof sB?.stream_duration_ms === "number" ? sB.stream_duration_ms as number : null;
+  const ttfcA = typeof sA?.time_to_first_chunk_ms === "number" ? sA.time_to_first_chunk_ms as number : null;
+  const ttfcB = typeof sB?.time_to_first_chunk_ms === "number" ? sB.time_to_first_chunk_ms as number : null;
+  const termA = typeof sA?.termination === "string" ? sA.termination as string : null;
+  const termB = typeof sB?.termination === "string" ? sB.termination as string : null;
+
+  const anyDiff =
+    (chunkA != null && chunkB != null && pctDiff(chunkA, chunkB) > 0.2) ||
+    (durA != null && durB != null && pctDiff(durA, durB) > 0.2) ||
+    (ttfcA != null && ttfcB != null && pctDiff(ttfcA, ttfcB) > 0.2) ||
+    termA !== termB;
+
+  const bg = anyDiff ? "bg-[var(--tint-diff-row)]" : "bg-violet-50/30";
+  const bothStream = !!sA && !!sB;
+  const oneSided = (!!sA) !== (!!sB);
+
+  const fmtN = (v: number) => String(v);
+  const fmtMs = (v: number) => formatDuration(v);
+
+  const activeEvents = playbackSide === "a" ? eventsA : playbackSide === "b" ? eventsB : undefined;
+  const activeMeta = (playbackSide === "a" ? sA : sB) ?? {};
+
+  // Compact delta summary (only when both sides stream)
+  const deltaHints: string[] = [];
+  if (bothStream) {
+    if (ttfcA != null && ttfcB != null) {
+      const d = ttfcB - ttfcA;
+      deltaHints.push(d === 0 ? "same TTFC" : `TTFC ${d > 0 ? "+" : ""}${d}ms`);
+    }
+    if (durA != null && durB != null) {
+      const d = durB - durA;
+      deltaHints.push(d === 0 ? "same duration" : `duration ${d > 0 ? "+" : ""}${d}ms`);
+    }
+    if (chunkA != null && chunkB != null) {
+      deltaHints.push(chunkA === chunkB ? "same chunks" : `chunks ${chunkB - chunkA > 0 ? "+" : ""}${chunkB - chunkA}`);
+    }
+  }
+
+  return (
+    <div className={`rounded-md px-4 py-3 ${bg}`}>
+      <div className="mb-2.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+        <span className="flex items-center gap-2">
+          Stream
+          {anyDiff && <ChangedBadge />}
+        </span>
+        {bothStream && (
+          <button
+            onClick={() => {
+              if (playbackSide) {
+                setPlaybackSide(null);
+              } else {
+                handlePlayback("a");
+              }
+            }}
+            className="ml-auto rounded px-1.5 py-0.5 text-[10px] font-medium text-violet-500 transition-colors hover:bg-violet-100"
+          >
+            {playbackSide ? "Hide playback" : "Compare playback"}
+          </button>
+        )}
+      </div>
+
+      {/* One-sided streaming callout */}
+      {oneSided && (
+        <div className="mb-2.5 flex items-center gap-2 rounded bg-violet-50 px-3 py-1.5 text-[11px] text-violet-600 dark:bg-violet-950/20 dark:text-violet-400">
+          <span className="font-medium">{sA ? "A streams" : "B streams"}</span>
+          <span className="text-violet-400">·</span>
+          <span>{sA ? "B is non-streaming" : "A is non-streaming"}</span>
+        </div>
+      )}
+
+      {/* Stats comparison */}
+      {bothStream && (
+        <div className="space-y-1">
+          <div className="grid grid-cols-[80px_1fr_1fr] text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+            <span />
+            <span>A</span>
+            <span>B</span>
+          </div>
+          <StreamStatLine label="chunks" a={chunkA} b={chunkB} format={fmtN} />
+          <StreamStatLine label="duration" a={durA} b={durB} format={fmtMs} />
+          <StreamStatLine label="TTFC" a={ttfcA} b={ttfcB} format={fmtMs} />
+          {(termA || termB) && (
+            <div className="grid grid-cols-[80px_1fr_1fr] items-baseline gap-0 text-[11px]">
+              <span className="text-neutral-400">termination</span>
+              <span className={`${termA !== termB ? "font-medium text-[var(--diff-badge-text)]" : "text-neutral-700"}`}>
+                {termA ?? "—"}
+              </span>
+              <span className={`${termA !== termB ? "font-medium text-[var(--diff-badge-text)]" : "text-neutral-700"}`}>
+                {termB ?? "—"}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Compact delta summary */}
+      {deltaHints.length > 0 && (
+        <div className="mt-1.5 text-[10px] text-neutral-400">
+          {deltaHints.join(" · ")}
+        </div>
+      )}
+
+      {/* Playback toggle */}
+      {playbackSide && (
+        <div className="mt-3 border-t border-neutral-100 pt-3">
+          <div className="mb-2 flex items-center gap-2">
+            <button
+              onClick={() => handlePlayback("a")}
+              className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                playbackSide === "a" ? "bg-neutral-900 text-white" : "text-neutral-500 hover:bg-neutral-100"
+              }`}
+            >
+              Run A
+            </button>
+            <button
+              onClick={() => handlePlayback("b")}
+              className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                playbackSide === "b" ? "bg-neutral-900 text-white" : "text-neutral-500 hover:bg-neutral-100"
+              }`}
+            >
+              Run B
+            </button>
+            {loadingEvents && (
+              <span className="text-[10px] italic text-neutral-400">Loading events…</span>
+            )}
+          </div>
+          <StreamSection
+            meta={activeMeta}
+            events={activeEvents}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===========================================================================
+// Insight block
+// ===========================================================================
+
+function computeInsight(data: CompareResponse): string | null {
+  const { run_diff, steps } = data;
+
+  const outputSame = !run_diff.output_diff;
+  const durA = data.run_a.total_duration_ms;
+  const durB = data.run_b.total_duration_ms;
+  const hasDurationDiff = durA != null && durB != null && pctDiff(durA, durB) > 0.2;
+
+  if (outputSame && hasDurationDiff) {
+    return "Same output but different latency — the runs produced identical results at different speeds.";
+  }
+
+  let streamDiffFound = false;
+  let tokenDiffFound = false;
+
+  for (const step of steps) {
+    const sA = streamVal(step.metadata_a);
+    const sB = streamVal(step.metadata_b);
+    if (sA && sB) {
+      const cA = typeof sA.chunk_count === "number" ? sA.chunk_count : 0;
+      const cB = typeof sB.chunk_count === "number" ? sB.chunk_count : 0;
+      if (pctDiff(cA, cB) > 0.2) streamDiffFound = true;
+    }
+
+    const uA = step.llm_a?.usage;
+    const uB = step.llm_b?.usage;
+    if (uA?.total_tokens != null && uB?.total_tokens != null && uA.total_tokens !== uB.total_tokens) {
+      tokenDiffFound = true;
+    }
+  }
+
+  if (streamDiffFound) {
+    return "Different streaming behavior — chunk counts diverge significantly between the runs.";
+  }
+
+  if (tokenDiffFound) {
+    return "Different token usage — the runs consumed different amounts of tokens.";
+  }
+
+  return null;
+}
+
+function InsightBlock({ data }: { data: CompareResponse }) {
+  const insight = useMemo(() => computeInsight(data), [data]);
+  if (!insight) return null;
+
+  return (
+    <div className="mb-6 flex items-start gap-2.5 rounded-lg bg-violet-50/60 px-4 py-3">
+      <Lightbulb size={13} className="mt-0.5 shrink-0 text-violet-400" />
+      <div>
+        <span className="text-[10px] font-medium uppercase tracking-wider text-violet-400">Insight</span>
+        <p className="mt-0.5 text-[11px] leading-relaxed text-neutral-600">{insight}</p>
+      </div>
     </div>
   );
 }

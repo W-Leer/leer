@@ -421,7 +421,7 @@ function ToolCallsSection({
 /* Stream stats row (compact inline metrics)                           */
 /* ------------------------------------------------------------------ */
 
-function StreamStatsRow({ meta }: { meta: Dict }) {
+export function StreamStatsRow({ meta }: { meta: Dict }) {
   const items: { label: string; value: string; mono?: boolean }[] = [];
 
   const chunks = meta.chunk_count;
@@ -535,7 +535,7 @@ const STREAM_TAIL = 200;
 const PLAYBACK_MAX = 1000;
 const SPEEDS = [1, 2, 4] as const;
 
-function StreamSection({ meta, events }: { meta: Dict; events?: Dict[] }) {
+export function StreamSection({ meta, events }: { meta: Dict; events?: Dict[] }) {
   const [expanded, setExpanded] = useState(false);
   const [raw, setRaw] = useState(false);
 

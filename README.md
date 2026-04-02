@@ -52,6 +52,18 @@ Capture runs and steps with minimal instrumentation.
 
 ---
 
+## ⚡ Streaming Debugging
+
+Watch your LLM think in real time:
+
+- token-by-token generation
+- tool calls as they are built
+- timing and latency breakdown
+
+![stream demo gif]
+
+---
+
 ## 🚀 Quick demo (60 seconds)
 
 ```bash

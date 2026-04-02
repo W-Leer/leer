@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import {
   formatDuration,
@@ -77,6 +78,7 @@ function restoreScrollPosition() {
 // ---------------------------------------------------------------------------
 
 export default function HomePage() {
+  const router = useRouter();
   const [runs, setRuns] = useState<RunListItem[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -84,6 +86,16 @@ export default function HomePage() {
   const [initialLoad, setInitialLoad] = useState(true);
   const [searching, setSearching] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [compareTray, setCompareTray] = useState<RunListItem[]>([]);
+
+  const toggleCompare = useCallback((run: RunListItem) => {
+    setCompareTray((prev) => {
+      const already = prev.find((r) => r.id === run.id);
+      if (already) return prev.filter((r) => r.id !== run.id);
+      if (prev.length >= 2) return [prev[1], run];
+      return [...prev, run];
+    });
+  }, []);
 
   const initParams = useRef(parseUrlParams());
   const [query, setQuery] = useState(initParams.current.q);
@@ -340,7 +352,12 @@ export default function HomePage() {
           <>
             <div className="space-y-1">
               {runs.map((run) => (
-                <RunCard key={run.id} run={run} />
+                <RunCard
+                  key={run.id}
+                  run={run}
+                  inTray={compareTray.some((r) => r.id === run.id)}
+                  onToggleCompare={toggleCompare}
+                />
               ))}
             </div>
 
@@ -358,6 +375,36 @@ export default function HomePage() {
           </>
         )}
       </div>
+
+      {/* ── Sticky compare tray ── */}
+      {compareTray.length > 0 && (
+        <div className="sticky bottom-0 z-20 border-t border-neutral-200 bg-white/95 backdrop-blur-sm">
+          <div className="mx-auto flex max-w-6xl items-center gap-3 px-10 py-3">
+            <span className="text-[11px] font-medium text-neutral-500">Comparing:</span>
+            {compareTray.map((r) => (
+              <button
+                key={r.id}
+                onClick={() => toggleCompare(r)}
+                className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-[11px] font-medium text-neutral-700 transition-colors hover:bg-neutral-100"
+              >
+                <span className="max-w-[140px] truncate">{r.workflow_name}</span>
+                <span className="text-neutral-400">&times;</span>
+              </button>
+            ))}
+            <button
+              onClick={() => {
+                if (compareTray.length === 2) {
+                  router.push(`/compare?a=${compareTray[0].id}&b=${compareTray[1].id}`);
+                }
+              }}
+              disabled={compareTray.length < 2}
+              className="ml-auto rounded-lg bg-neutral-900 px-4 py-1.5 text-[11px] font-medium text-white transition-opacity hover:opacity-80 disabled:opacity-30"
+            >
+              Compare
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -383,7 +430,15 @@ function SkeletonCard() {
   );
 }
 
-function RunCard({ run }: { run: RunListItem }) {
+function RunCard({
+  run,
+  inTray,
+  onToggleCompare,
+}: {
+  run: RunListItem;
+  inTray: boolean;
+  onToggleCompare: (run: RunListItem) => void;
+}) {
   const failed = run.status === "failed";
   const preview = formatSummary(run.output_summary, 160);
   const accent = failed
@@ -391,47 +446,61 @@ function RunCard({ run }: { run: RunListItem }) {
     : "bg-transparent group-hover:bg-neutral-800";
 
   return (
-    <Link
-      href={`/runs/${run.id}`}
-      onClick={saveScrollPosition}
-      className="group flex items-stretch rounded-lg transition-all duration-100 hover:bg-neutral-50 hover:shadow-[0_1px_3px_rgba(0,0,0,0.04)]"
-    >
-      <div className={`w-[2px] shrink-0 rounded-l-lg transition-colors duration-150 ${accent}`} />
+    <div className="group relative flex items-stretch rounded-lg transition-all duration-100 hover:bg-neutral-50 hover:shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+      <Link
+        href={`/runs/${run.id}`}
+        onClick={saveScrollPosition}
+        className="flex flex-1 items-stretch"
+      >
+        <div className={`w-[2px] shrink-0 rounded-l-lg transition-colors duration-150 ${accent}`} />
 
-      <div className="flex-1 px-4 py-3.5">
-        {/* Title row */}
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5 overflow-hidden">
-            <span className="truncate text-[13px] font-semibold leading-5 text-neutral-900">
-              {run.workflow_name}
-            </span>
-            <span
-              className={`shrink-0 rounded-full px-2 py-[2px] text-[10px] font-medium leading-3 ${statusClass(run.status)}`}
-            >
-              {run.status}
+        <div className="flex-1 px-4 py-3.5">
+          {/* Title row */}
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2.5 overflow-hidden">
+              <span className="truncate text-[13px] font-semibold leading-5 text-neutral-900">
+                {run.workflow_name}
+              </span>
+              <span
+                className={`shrink-0 rounded-full px-2 py-[2px] text-[10px] font-medium leading-3 ${statusClass(run.status)}`}
+              >
+                {run.status}
+              </span>
+            </div>
+            <span className="shrink-0 text-[11px] tabular-nums text-neutral-400">
+              {timeAgo(run.created_at)}
             </span>
           </div>
-          <span className="shrink-0 text-[11px] tabular-nums text-neutral-400">
-            {timeAgo(run.created_at)}
-          </span>
-        </div>
 
-        {/* Metadata row */}
-        <div className="mt-1.5 flex items-center gap-1.5 text-[11px] leading-4 text-neutral-400">
-          <span>{run.total_steps} steps</span>
-          <span className="text-neutral-300">·</span>
-          <span>{formatDuration(run.total_duration_ms)}</span>
-          <span className="text-neutral-300">·</span>
-          <span className="font-mono text-[10px]">{run.id.slice(0, 8)}</span>
-        </div>
+          {/* Metadata row */}
+          <div className="mt-1.5 flex items-center gap-1.5 text-[11px] leading-4 text-neutral-400">
+            <span>{run.total_steps} steps</span>
+            <span className="text-neutral-300">·</span>
+            <span>{formatDuration(run.total_duration_ms)}</span>
+            <span className="text-neutral-300">·</span>
+            <span className="font-mono text-[10px]">{run.id.slice(0, 8)}</span>
+          </div>
 
-        {/* Preview row */}
-        {preview && (
-          <p className="mt-2 line-clamp-2 text-[11px] leading-[17px] text-neutral-400">
-            {preview}
-          </p>
-        )}
-      </div>
-    </Link>
+          {/* Preview row */}
+          {preview && (
+            <p className="mt-2 line-clamp-2 text-[11px] leading-[17px] text-neutral-400">
+              {preview}
+            </p>
+          )}
+        </div>
+      </Link>
+
+      {/* Compare toggle — visible on hover or when active */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onToggleCompare(run); }}
+        className={`absolute right-3 top-1/2 -translate-y-1/2 rounded-md border px-2.5 py-1 text-[10px] font-medium transition-all ${
+          inTray
+            ? "border-neutral-300 bg-neutral-900 text-white opacity-100"
+            : "border-neutral-200 bg-white text-neutral-500 opacity-0 hover:border-neutral-300 hover:bg-neutral-50 group-hover:opacity-100"
+        }`}
+      >
+        {inTray ? "Selected" : "Compare"}
+      </button>
+    </div>
   );
 }
