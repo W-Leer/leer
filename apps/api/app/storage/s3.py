@@ -77,8 +77,12 @@ class S3BlobStore:
                 Bucket=self._bucket,
                 Key=self._full_key(key),
             )
-        except self._client.exceptions.NoSuchKey:
-            raise FileNotFoundError(f"Blob not found in S3: {key}")
+        except Exception as exc:
+            if hasattr(exc, "response"):
+                code = exc.response.get("Error", {}).get("Code", "")
+                if code in ("404", "NoSuchKey"):
+                    raise FileNotFoundError(f"Blob not found in S3: {key}") from exc
+            raise
         return resp["Body"].read()
 
     # -- delete ---------------------------------------------------------------

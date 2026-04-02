@@ -371,14 +371,28 @@ class TestS3BlobStoreBasic:
         )
         assert result == b'{"ok": true}'
 
-    def test_get_missing_raises_file_not_found(
+    def test_get_missing_no_such_key(
         self, s3_store: S3BlobStore, mock_s3_client: MagicMock
     ) -> None:
-        mock_s3_client.get_object.side_effect = (
-            mock_s3_client.exceptions.NoSuchKey("not found")
-        )
+        mock_s3_client.get_object.side_effect = _FakeClientError("NoSuchKey")
         with pytest.raises(FileNotFoundError, match="runs/abc/art.json"):
             s3_store.get("runs/abc/art.json")
+
+    def test_get_missing_404(
+        self, s3_store: S3BlobStore, mock_s3_client: MagicMock
+    ) -> None:
+        mock_s3_client.get_object.side_effect = _FakeClientError("404")
+        with pytest.raises(FileNotFoundError, match="runs/abc/art.json"):
+            s3_store.get("runs/abc/art.json")
+
+    def test_get_access_denied_propagates(
+        self, s3_store: S3BlobStore, mock_s3_client: MagicMock
+    ) -> None:
+        err = _FakeClientError("AccessDenied")
+        mock_s3_client.get_object.side_effect = err
+        with pytest.raises(_FakeClientError) as exc_info:
+            s3_store.get("runs/abc/art.json")
+        assert exc_info.value is err
 
     def test_exists_true(self, s3_store: S3BlobStore, mock_s3_client: MagicMock) -> None:
         mock_s3_client.head_object.return_value = {}
