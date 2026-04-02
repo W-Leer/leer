@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { LLMShape } from "@/lib/types";
 import { formatDuration, errorHeadline, errorDetail, rawJson } from "@/lib/format";
 import { StructuredValue } from "@/components/structured-value";
+import { computeLatencyBreakdown, type LatencyBreakdown } from "@/lib/latency";
 
 type Dict = Record<string, unknown>;
 
@@ -104,6 +105,7 @@ export function LlmStepDetail({
   errorSummary,
   toolCallLinks,
   onJumpToStep,
+  durationMs,
   streamMeta,
   streamEvents,
 }: {
@@ -111,6 +113,7 @@ export function LlmStepDetail({
   errorSummary?: Dict | null;
   toolCallLinks?: Map<string, ToolCallLinkInfo>;
   onJumpToStep?: (stepId: string) => void;
+  durationMs?: number | null;
   streamMeta?: Dict | null;
   streamEvents?: Dict[];
 }) {
@@ -123,6 +126,15 @@ export function LlmStepDetail({
   const hasOutput = hasOutputText || hasToolCalls;
   const hasError = errorSummary && Object.keys(errorSummary).length > 0;
   const isStream = streamMeta?.is_stream === true;
+
+  const breakdown = useMemo(
+    () => computeLatencyBreakdown({
+      durationMs: durationMs ?? llm.meta.latency_ms,
+      streamMeta,
+      usage: llm.usage,
+    }),
+    [durationMs, llm.meta.latency_ms, streamMeta, llm.usage],
+  );
 
   return (
     <div className="space-y-3 border-t border-neutral-100 px-5 pb-5 pt-4">
@@ -152,8 +164,8 @@ export function LlmStepDetail({
               onJumpToStep={onJumpToStep}
             />
           )}
-          {isStream && <StreamStatsRow meta={streamMeta!} />}
-          {isStream && <StreamSection meta={streamMeta!} events={streamEvents} />}
+          {breakdown.is_available && <LatencyBreakdownRow breakdown={breakdown} />}
+          {isStream && <StreamSection meta={streamMeta!} events={streamEvents} breakdown={breakdown} />}
           {hasError && <ErrorSection data={errorSummary!} />}
           <UsageRow usage={llm.usage} />
         </>
@@ -418,41 +430,92 @@ function ToolCallsSection({
 }
 
 /* ------------------------------------------------------------------ */
-/* Stream stats row (compact inline metrics)                           */
+/* Local formatting helpers                                            */
 /* ------------------------------------------------------------------ */
 
-export function StreamStatsRow({ meta }: { meta: Dict }) {
-  const items: { label: string; value: string; mono?: boolean }[] = [];
+function fmtRate(v: number | null, unit: string): string | null {
+  if (v === null) return null;
+  return v >= 100 ? `${Math.round(v)} ${unit}` : `${v.toFixed(1)} ${unit}`;
+}
 
-  const chunks = meta.chunk_count;
-  if (typeof chunks === "number") items.push({ label: "chunks", value: String(chunks), mono: true });
+function fmtPct(v: number | null): string | null {
+  if (v === null) return null;
+  return `${Math.round(v * 100)}%`;
+}
 
-  const ttfc = meta.time_to_first_chunk_ms;
-  if (typeof ttfc === "number") items.push({ label: "TTFC", value: formatDuration(ttfc) });
+/* ------------------------------------------------------------------ */
+/* Latency breakdown row (compact, replaces old StreamStatsRow)        */
+/* ------------------------------------------------------------------ */
 
-  const dur = meta.stream_duration_ms;
-  if (typeof dur === "number") items.push({ label: "duration", value: formatDuration(dur) });
+function LatencyBreakdownRow({ breakdown }: { breakdown: LatencyBreakdown }) {
+  const items: { label: string; value: string }[] = [];
 
-  const term = meta.termination;
-  if (typeof term === "string") items.push({ label: "termination", value: term });
+  if (breakdown.total_ms !== null)
+    items.push({ label: "Total", value: formatDuration(breakdown.total_ms) });
+  if (breakdown.ttfc_ms !== null)
+    items.push({ label: "TTFC", value: formatDuration(breakdown.ttfc_ms) });
+  if (breakdown.generation_ms !== null)
+    items.push({ label: "Generation", value: formatDuration(breakdown.generation_ms) });
 
-  if (meta.truncated_chunks === true) items.push({ label: "truncated", value: "yes" });
+  const cps = fmtRate(breakdown.chars_per_sec, "chars/s");
+  if (cps) items.push({ label: "", value: cps });
+
+  const tps = fmtRate(breakdown.tokens_per_sec, "tok/s");
+  if (tps) items.push({ label: "", value: tps });
+
+  if (breakdown.termination && breakdown.termination !== "completed")
+    items.push({ label: "", value: breakdown.termination });
+  if (breakdown.truncated_chunks)
+    items.push({ label: "", value: "truncated" });
 
   if (items.length === 0) return null;
 
   return (
-    <div className="flex items-center gap-3 rounded-md bg-violet-50/50 px-4 py-2 text-[11px] dark:bg-violet-950/30">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-violet-50/50 px-4 py-2 text-[11px] dark:bg-violet-950/30">
       <span className="text-[10px] font-medium uppercase tracking-wider text-violet-400 dark:text-violet-500">
-        Stream
+        Latency
       </span>
       <span className="text-violet-200 dark:text-violet-700">·</span>
-      {items.map((item) => (
-        <span key={item.label} className="text-neutral-400">
-          {item.label}{" "}
-          <span className={`font-medium text-neutral-700 ${item.mono ? "tabular-nums" : ""}`}>
-            {item.value}
-          </span>
+      {items.map((item, i) => (
+        <span key={i} className="text-neutral-400">
+          {item.label && <>{item.label}{" "}</>}
+          <span className="font-medium tabular-nums text-neutral-700">{item.value}</span>
         </span>
+      ))}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Stream latency summary (inside expanded stream section)             */
+/* ------------------------------------------------------------------ */
+
+function StreamLatencySummary({ breakdown }: { breakdown: LatencyBreakdown }) {
+  if (!breakdown.is_available) return null;
+
+  const rows: { id: string; label: string; value: string | null }[] = [
+    { id: "total_ms", label: "Total latency", value: breakdown.total_ms !== null ? formatDuration(breakdown.total_ms) : null },
+    { id: "ttfc_ms", label: "TTFC", value: breakdown.ttfc_ms !== null ? formatDuration(breakdown.ttfc_ms) : null },
+    { id: "generation_ms", label: "Generation time", value: breakdown.generation_ms !== null ? formatDuration(breakdown.generation_ms) : null },
+    { id: "overhead_ms", label: "Overhead", value: breakdown.overhead_ms != null && breakdown.overhead_ms > 0 ? formatDuration(breakdown.overhead_ms) : null },
+    { id: "chunk_count", label: "Chunks", value: breakdown.chunk_count !== null ? String(breakdown.chunk_count) : null },
+    { id: "text_chars", label: "Output chars", value: breakdown.text_chars !== null ? String(breakdown.text_chars) : null },
+    { id: "chars_per_sec", label: "Chars/s", value: fmtRate(breakdown.chars_per_sec, "") },
+    { id: "tokens_per_sec", label: "Tok/s", value: fmtRate(breakdown.tokens_per_sec, "") },
+    { id: "startup_pct", label: "Startup share", value: fmtPct(breakdown.startup_pct) },
+    { id: "generation_pct", label: "Generation share", value: fmtPct(breakdown.generation_pct) },
+  ];
+
+  const visible = rows.filter((r) => r.value !== null);
+  if (visible.length === 0) return null;
+
+  return (
+    <div className="mx-4 mb-2 grid grid-cols-2 gap-x-6 gap-y-0.5 rounded-md bg-violet-50/40 px-3 py-2 text-[11px] dark:bg-violet-950/20 sm:grid-cols-3">
+      {visible.map((r) => (
+        <div key={r.id} className="flex items-baseline gap-1.5">
+          <span className="text-neutral-400">{r.label}</span>
+          <span className="font-medium tabular-nums text-neutral-700">{r.value}</span>
+        </div>
       ))}
     </div>
   );
@@ -535,7 +598,7 @@ const STREAM_TAIL = 200;
 const PLAYBACK_MAX = 1000;
 const SPEEDS = [1, 2, 4] as const;
 
-export function StreamSection({ meta, events }: { meta: Dict; events?: Dict[] }) {
+export function StreamSection({ meta, events, breakdown }: { meta: Dict; events?: Dict[]; breakdown?: LatencyBreakdown }) {
   const [expanded, setExpanded] = useState(false);
   const [raw, setRaw] = useState(false);
 
@@ -662,6 +725,9 @@ export function StreamSection({ meta, events }: { meta: Dict; events?: Dict[] })
               <RawToggle raw={raw} onToggle={() => setRaw(!raw)} />
             </div>
           </div>
+
+          {/* Latency summary */}
+          {breakdown?.is_available && <StreamLatencySummary breakdown={breakdown} />}
 
           {/* Playback progress */}
           {inPlaybackMode && hasEvents && (

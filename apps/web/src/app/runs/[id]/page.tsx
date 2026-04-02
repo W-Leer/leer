@@ -483,6 +483,7 @@ function StepCard({
                 errorSummary={step.error_summary}
                 toolCallLinks={llmToolCallLinks}
                 onJumpToStep={onJumpToStep}
+                durationMs={step.duration_ms}
                 streamMeta={step.metadata?.stream as Record<string, unknown> | undefined}
                 streamEvents={streamEvents}
               />
