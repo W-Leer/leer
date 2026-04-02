@@ -13,7 +13,7 @@ Leer uses a hybrid storage model:
 - **Small payloads** stay inline in PostgreSQL.
 - **Large payloads** are offloaded to blob storage, with PostgreSQL storing only a reference, preview text, and metadata.
 
-The backend is selected through a single environment variable. All artifact semantics — API shape, UI behavior, replay support — remain identical regardless of backend.
+The backend is selected through a single environment variable. All artifact semantics — API shape and UI behavior — remain identical regardless of backend.
 
 ---
 
@@ -22,7 +22,7 @@ The backend is selected through a single environment variable. All artifact sema
 | Backend | When to use |
 |---------|-------------|
 | `local` | Local development, single-node testing, CI |
-| `s3` | Production on AWS or S3-compatible infrastructure |
+| `s3` | Production on AWS |
 | `azure` | Production on Azure |
 
 The `local` backend is the default. It requires no additional dependencies or cloud accounts.

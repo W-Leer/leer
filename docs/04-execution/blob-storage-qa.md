@@ -137,15 +137,41 @@ Expected result:
 
 ---
 
-## Compare Page
+## Compare Page — General
 
-- [ ] Compare page still opens successfully for runs containing blob-backed artifacts
-- [ ] Existing compare output does not crash
-- [ ] Stream latency compare still renders when applicable
+- [ ] Compare page opens successfully for runs containing blob-backed artifacts
+- [ ] Step summary, status, and metadata compare render normally
+- [ ] Stream latency / chunk count compare still renders from inline metadata
 - [ ] No assumption of inline artifact payloads causes a UI error
 
 Note:
-Artifact-body inspection inside compare is not required for this phase.
+The compare page does not have a generic artifact inspector. Only `llm_stream` playback supports blob lazy loading in compare.
+
+---
+
+## Compare Page — Blob-backed Stream Playback
+
+Prerequisite: compare two runs where at least one side has a blob-backed `llm_stream` artifact. Use existing streaming demo runs or ingest targeted test data with a low threshold.
+
+### Loading behavior
+- [ ] Open stream playback section in compare
+- [ ] Click **Run A** to load side A's stream events
+- [ ] If side A's `llm_stream` is blob-backed, events are fetched via `GET /v1/artifacts/{id}`
+- [ ] If side A's `llm_stream` is inline, events load immediately from the timeline response
+- [ ] Click **Run B** to load side B's stream events
+- [ ] Same inline vs blob behavior applies per side
+- [ ] After loading, stream playback, grouping, and raw view work normally
+
+### Per-side state isolation
+- [ ] Loading indicator appears only for the active side being fetched
+- [ ] An error on side A does not affect side B's state
+- [ ] An error on side B does not affect side A's state
+
+### Retry behavior
+- [ ] If a blob fetch fails, an error message is shown
+- [ ] A **Retry** button appears
+- [ ] Clicking retry re-fetches only the currently active side
+- [ ] Successful retry clears the error and renders stream events
 
 ---
 
@@ -189,5 +215,6 @@ Blob storage is considered validated when:
 - [ ] small artifacts remain inline
 - [ ] run detail supports lazy artifact loading
 - [ ] LLM and non-LLM artifacts are both inspectable
-- [ ] blob-backed stream playback works
-- [ ] compare does not regress
+- [ ] blob-backed stream playback works in run detail
+- [ ] blob-backed stream playback works in compare (per-side lazy load)
+- [ ] compare does not regress for non-blob runs

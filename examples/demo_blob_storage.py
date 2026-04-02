@@ -184,7 +184,7 @@ def main() -> None:
 
     print()
     print("=" * 60)
-    print("What to inspect in the UI:")
+    print("What to inspect in the UI (run detail):")
     print("=" * 60)
     print()
     print("  Open http://localhost:3000 → demo-project → blob-storage-demo")
@@ -207,6 +207,12 @@ def main() -> None:
     print("    → Timeline refs show storage_kind / size_bytes for each artifact")
     print("    → Raw toggle works for loaded blob artifacts")
     print("    → Copy button works after loading")
+    print()
+    print("  Note:")
+    print("    This demo validates run-detail artifact loading only.")
+    print("    For compare-page blob-backed stream playback validation,")
+    print("    use existing streaming LLM runs with blob-backed llm_stream")
+    print("    artifacts. See docs/04-execution/blob-storage-qa.md.")
 
 
 if __name__ == "__main__":

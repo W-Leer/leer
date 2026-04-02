@@ -506,7 +506,7 @@ Not suitable for multi-instance production deployments.
 
 ### AWS S3
 
-Use for production deployments on AWS or S3-compatible infrastructure.
+Use for production deployments on AWS.
 
 | Setting | Default | Required | Description |
 |---------|---------|----------|-------------|

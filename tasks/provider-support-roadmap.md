@@ -59,9 +59,7 @@ High debugging value, now completed across SDK + UI + compare.
 
 ---
 
-# NOW
-
-## 5. Blob Storage
+## 5. Blob Storage [DONE]
 ### Goal
 Handle large payloads safely and scalably.
 
@@ -80,6 +78,8 @@ Foundational for scale. Required before serious multimodal, large tool outputs, 
 High
 
 ---
+
+NOW
 
 ## 6. Multimodal
 ### Goal
