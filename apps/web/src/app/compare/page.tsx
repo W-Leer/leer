@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { formatDate, formatDuration, rawJson, resolveData, statusClass, timeAgo } from "@/lib/format";
+import { computeLatencyBreakdown, type LatencyBreakdown } from "@/lib/latency";
 import { StructuredValue } from "@/components/structured-value";
 import { ROLE_STYLES, extractMessageContent, tryParseJson, resolveArgs, StreamSection } from "@/components/llm-step-detail";
 import { RunSelector, type SelectedRun } from "@/components/run-selector";
@@ -445,6 +446,18 @@ function StepDiffCard({ step, runIdA, runIdB }: { step: CompareStepDiff; runIdA:
       <div className="space-y-5">
         {/* LLM metadata diff */}
         {isLlm && <LlmMetaDiff a={step.llm_a} b={step.llm_b} />}
+
+        {/* LLM latency breakdown diff */}
+        {isLlm && (
+          <LlmLatencyDiff
+            llmA={step.llm_a}
+            llmB={step.llm_b}
+            durationMsA={step.duration_ms_a}
+            durationMsB={step.duration_ms_b}
+            metaA={step.metadata_a}
+            metaB={step.metadata_b}
+          />
+        )}
 
         {/* Tool linkage diff */}
         {isTool && <ToolLinkageDiff step={step} absentA={absentA} absentB={absentB} />}
@@ -985,6 +998,183 @@ function UsagePills({ usage }: { usage?: LLMShape["usage"] | null }) {
           </span>
         </span>
       ))}
+    </div>
+  );
+}
+
+// ===========================================================================
+// Latency breakdown diff
+// ===========================================================================
+
+function latencyFmtRate(v: number | null, unit: string): string | null {
+  if (v === null) return null;
+  return v >= 100 ? `${Math.round(v)} ${unit}` : `${v.toFixed(1)} ${unit}`;
+}
+
+type LatencyMetricRow = {
+  id: string;
+  label: string;
+  valueA: string | null;
+  valueB: string | null;
+  diff: boolean;
+};
+
+function latencyMetricDiff(a: number | null, b: number | null): boolean {
+  if (a === null && b === null) return false;
+  if (a === null || b === null) return true;
+  return Math.round(a) !== Math.round(b);
+}
+
+function buildLatencyRows(a: LatencyBreakdown, b: LatencyBreakdown): LatencyMetricRow[] {
+  const rows: LatencyMetricRow[] = [];
+
+  const pushMs = (id: string, label: string, vA: number | null, vB: number | null) => {
+    if (vA === null && vB === null) return;
+    rows.push({
+      id,
+      label,
+      valueA: vA !== null ? formatDuration(vA) : null,
+      valueB: vB !== null ? formatDuration(vB) : null,
+      diff: latencyMetricDiff(vA, vB),
+    });
+  };
+
+  pushMs("total", "Total", a.total_ms, b.total_ms);
+  pushMs("ttfc", "TTFC", a.ttfc_ms, b.ttfc_ms);
+  pushMs("gen", "Generation", a.generation_ms, b.generation_ms);
+
+  const cpsA = latencyFmtRate(a.chars_per_sec, "chars/s");
+  const cpsB = latencyFmtRate(b.chars_per_sec, "chars/s");
+  if (cpsA || cpsB) {
+    rows.push({
+      id: "cps",
+      label: "Chars/s",
+      valueA: cpsA,
+      valueB: cpsB,
+      diff: cpsA !== cpsB,
+    });
+  }
+
+  const tpsA = latencyFmtRate(a.tokens_per_sec, "tok/s");
+  const tpsB = latencyFmtRate(b.tokens_per_sec, "tok/s");
+  if (tpsA || tpsB) {
+    rows.push({
+      id: "tps",
+      label: "Tok/s",
+      valueA: tpsA,
+      valueB: tpsB,
+      diff: tpsA !== tpsB,
+    });
+  }
+
+  if ((a.overhead_ms != null && a.overhead_ms > 0) || (b.overhead_ms != null && b.overhead_ms > 0)) {
+    pushMs("overhead", "Overhead", a.overhead_ms, b.overhead_ms);
+  }
+
+  if (a.termination || b.termination) {
+    const termDiff = a.termination !== b.termination;
+    rows.push({
+      id: "term",
+      label: "Termination",
+      valueA: a.termination,
+      valueB: b.termination,
+      diff: termDiff,
+    });
+  }
+
+  if (a.truncated_chunks || b.truncated_chunks) {
+    const truncDiff = a.truncated_chunks !== b.truncated_chunks;
+    rows.push({
+      id: "trunc",
+      label: "Truncated",
+      valueA: a.truncated_chunks ? "yes" : "no",
+      valueB: b.truncated_chunks ? "yes" : "no",
+      diff: truncDiff,
+    });
+  }
+
+  return rows;
+}
+
+function LlmLatencyDiff({
+  llmA,
+  llmB,
+  durationMsA,
+  durationMsB,
+  metaA,
+  metaB,
+}: {
+  llmA: LLMShape | null;
+  llmB: LLMShape | null;
+  durationMsA: number | null;
+  durationMsB: number | null;
+  metaA: Dict | null;
+  metaB: Dict | null;
+}) {
+  const streamMetaA = streamVal(metaA);
+  const streamMetaB = streamVal(metaB);
+
+  const breakdownA = useMemo(
+    () => computeLatencyBreakdown({
+      durationMs: durationMsA ?? llmA?.meta.latency_ms,
+      streamMeta: streamMetaA,
+      usage: llmA?.usage,
+    }),
+    [durationMsA, llmA, streamMetaA],
+  );
+
+  const breakdownB = useMemo(
+    () => computeLatencyBreakdown({
+      durationMs: durationMsB ?? llmB?.meta.latency_ms,
+      streamMeta: streamMetaB,
+      usage: llmB?.usage,
+    }),
+    [durationMsB, llmB, streamMetaB],
+  );
+
+  if (!breakdownA.is_available && !breakdownB.is_available) return null;
+
+  const rows = buildLatencyRows(breakdownA, breakdownB);
+  const anyDiff = breakdownA.is_available !== breakdownB.is_available || rows.some((r) => r.diff);
+  const bg = anyDiff ? "bg-[var(--tint-diff-row)]" : "bg-violet-50/30 dark:bg-violet-950/25";
+
+  const oneSided = breakdownA.is_available !== breakdownB.is_available;
+
+  return (
+    <div className={`rounded-md px-4 py-3 ${bg}`}>
+      <div className="mb-2.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+        Latency
+        {anyDiff && <ChangedBadge />}
+      </div>
+
+      {oneSided && (
+        <div className="mb-2.5 flex items-center gap-2 rounded bg-violet-50 px-3 py-1.5 text-[11px] text-violet-600 dark:bg-violet-950/20 dark:text-violet-400">
+          <span className="font-medium">{breakdownA.is_available ? "A only" : "B only"}</span>
+          <span className="text-violet-400">·</span>
+          <span>{breakdownA.is_available ? "B is non-streaming" : "A is non-streaming"}</span>
+        </div>
+      )}
+
+      {rows.length > 0 && (
+        <div className="space-y-0.5">
+          <div className="grid grid-cols-[90px_1fr_1fr] text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+            <span />
+            <span>A</span>
+            <span>B</span>
+          </div>
+          {rows.map((r) => (
+            <div key={r.id} className="grid grid-cols-[90px_1fr_1fr] items-baseline gap-0 text-[11px]">
+              <span className="text-neutral-400">{r.label}</span>
+              <span className={`tabular-nums ${r.diff ? "font-medium text-[var(--diff-badge-text)]" : "text-neutral-700"}`}>
+                {r.valueA ?? "—"}
+              </span>
+              <span className={`tabular-nums ${r.diff ? "font-medium text-[var(--diff-badge-text)]" : "text-neutral-700"}`}>
+                {r.valueB ?? "—"}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
