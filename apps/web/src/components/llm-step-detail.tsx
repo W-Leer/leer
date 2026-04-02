@@ -23,7 +23,7 @@ function CopyBtn({ text }: { text: string }) {
   return (
     <button
       onClick={copy}
-      className="rounded px-1.5 py-0.5 text-[10px] text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600"
+      className="rounded px-1.5 py-0.5 text-[10px] text-neutral-400 transition-colors hover:bg-neutral-200 hover:text-neutral-600"
     >
       {copied ? "Copied" : "Copy"}
     </button>
@@ -34,7 +34,7 @@ function RawToggle({ raw, onToggle }: { raw: boolean; onToggle: () => void }) {
   return (
     <button
       onClick={onToggle}
-      className="rounded px-1.5 py-0.5 text-[10px] font-medium text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600"
+      className="rounded px-1.5 py-0.5 text-[10px] font-medium text-neutral-400 transition-colors hover:bg-neutral-200 hover:text-neutral-600"
     >
       {raw ? "Formatted" : "Raw"}
     </button>
@@ -377,7 +377,7 @@ function ToolCallsSection({
         return (
           <div
             key={i}
-            className="rounded-md bg-amber-50/40 px-3 py-1.5 dark:bg-amber-950/10"
+            className="rounded-md bg-amber-50/40 px-3 py-1.5 dark:bg-amber-950/20"
           >
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 flex-1 items-center gap-x-3 gap-y-1">
@@ -441,11 +441,11 @@ export function StreamStatsRow({ meta }: { meta: Dict }) {
   if (items.length === 0) return null;
 
   return (
-    <div className="flex items-center gap-3 rounded-md bg-violet-50/50 px-4 py-2 text-[11px] dark:bg-violet-950/10">
+    <div className="flex items-center gap-3 rounded-md bg-violet-50/50 px-4 py-2 text-[11px] dark:bg-violet-950/30">
       <span className="text-[10px] font-medium uppercase tracking-wider text-violet-400 dark:text-violet-500">
         Stream
       </span>
-      <span className="text-violet-200 dark:text-violet-800">·</span>
+      <span className="text-violet-200 dark:text-violet-700">·</span>
       {items.map((item) => (
         <span key={item.label} className="text-neutral-400">
           {item.label}{" "}
@@ -617,7 +617,7 @@ export function StreamSection({ meta, events }: { meta: Dict; events?: Dict[] })
   const playbackDone = inPlaybackMode && !isPlaying && visibleCount !== null && visibleCount >= effectiveEvents.length;
 
   return (
-    <div className="rounded-md border border-neutral-100 dark:border-neutral-800">
+    <div className="rounded-md border border-neutral-200">
       {/* Header */}
       <button
         onClick={() => setExpanded(!expanded)}
@@ -636,7 +636,7 @@ export function StreamSection({ meta, events }: { meta: Dict; events?: Dict[] })
       </button>
 
       {expanded && (
-        <div className="border-t border-neutral-100 dark:border-neutral-800">
+        <div className="border-t border-neutral-200">
           {/* Toolbar */}
           <div className="flex items-center justify-between gap-2 px-4 pt-2 pb-1">
             <div className="flex items-center gap-1">
@@ -665,7 +665,7 @@ export function StreamSection({ meta, events }: { meta: Dict; events?: Dict[] })
 
           {/* Playback progress */}
           {inPlaybackMode && hasEvents && (
-            <div className="mx-4 mb-1 h-[2px] rounded-full bg-neutral-100 dark:bg-neutral-800">
+            <div className="mx-4 mb-1 h-[2px] rounded-full bg-neutral-200">
               <div
                 className="h-full rounded-full bg-violet-400 transition-[width] duration-75"
                 style={{ width: `${Math.min(100, (showCount / effectiveEvents.length) * 100)}%` }}
@@ -675,7 +675,7 @@ export function StreamSection({ meta, events }: { meta: Dict; events?: Dict[] })
 
           {/* Content */}
           {raw ? (
-            <pre className="mx-4 mb-3 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded bg-neutral-50 px-3 py-2 font-mono text-xs leading-6 text-neutral-600 dark:bg-neutral-900">
+            <pre className="mx-4 mb-3 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded bg-neutral-50 px-3 py-2 font-mono text-xs leading-6 text-neutral-600">
               {rawText}
             </pre>
           ) : hasEvents ? (
@@ -732,8 +732,8 @@ function CtrlBtn({ label, title, onClick, active }: { label: string; title: stri
       title={title}
       className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
         active
-          ? "bg-violet-100 text-violet-600 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400"
-          : "text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600"
+          ? "bg-violet-100 text-violet-600 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400 dark:hover:bg-violet-900/50"
+          : "text-neutral-400 hover:bg-neutral-200 hover:text-neutral-600"
       }`}
     >
       {label}
@@ -780,7 +780,7 @@ function TextGroupRow({ item, highlight, baseIdx = 0 }: { item: Extract<DisplayI
     : item.firstOffset != null ? `+${item.firstOffset}ms` : null;
 
   return (
-    <div className={`mx-3 my-1 rounded-md px-3 py-2 transition-colors ${highlight ? "bg-emerald-50/80 dark:bg-emerald-950/20" : "bg-emerald-50/40 dark:bg-emerald-950/10"}`}>
+    <div className={`mx-3 my-1 rounded-md px-3 py-2 transition-colors ${highlight ? "bg-emerald-50/80 dark:bg-emerald-950/30" : "bg-emerald-50/40 dark:bg-emerald-950/15"}`}>
       <div className="mb-1 flex items-center gap-2">
         <span className="rounded bg-emerald-100 px-1 py-px text-[9px] font-medium text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400">
           text
@@ -791,7 +791,7 @@ function TextGroupRow({ item, highlight, baseIdx = 0 }: { item: Extract<DisplayI
         <span className="text-[10px] text-neutral-400">{item.count} chunks</span>
         {timeLabel && <span className="text-[10px] tabular-nums text-neutral-300">{timeLabel}</span>}
       </div>
-      <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-neutral-700 dark:text-neutral-300">
+      <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-neutral-700">
         {item.text || '""'}
       </pre>
     </div>
@@ -818,7 +818,7 @@ function ToolCallGroupRow({ item, highlight, baseIdx = 0 }: { item: Extract<Disp
   }
 
   return (
-    <div className={`mx-3 my-1 rounded-md px-3 py-2 transition-colors ${highlight ? "bg-amber-50/80 dark:bg-amber-950/20" : "bg-amber-50/40 dark:bg-amber-950/10"}`}>
+    <div className={`mx-3 my-1 rounded-md px-3 py-2 transition-colors ${highlight ? "bg-amber-50/80 dark:bg-amber-950/30" : "bg-amber-50/40 dark:bg-amber-950/15"}`}>
       <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 text-left">
         <span className={`text-[9px] transition-transform duration-100 ${open ? "rotate-90" : ""} text-neutral-400`}>▶</span>
         <span className="rounded bg-amber-100 px-1 py-px text-[9px] font-medium text-amber-600 dark:bg-amber-900/40 dark:text-amber-400">
@@ -834,7 +834,7 @@ function ToolCallGroupRow({ item, highlight, baseIdx = 0 }: { item: Extract<Disp
         {timeLabel && <span className="text-[10px] tabular-nums text-neutral-300">{timeLabel}</span>}
       </button>
       {open && prettyArgs && (
-        <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-white/60 px-2 py-1.5 font-mono text-[11px] leading-5 text-neutral-600 dark:bg-neutral-900/40 dark:text-neutral-400">
+        <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-white/60 px-2 py-1.5 font-mono text-[11px] leading-5 text-neutral-600">
           {prettyArgs}
         </pre>
       )}
@@ -851,7 +851,7 @@ const EVENT_TYPE_STYLES: Record<string, string> = {
   tool_call_delta: "bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400",
   message_start: "bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400",
   message_stop: "bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400",
-  usage: "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400",
+  usage: "bg-neutral-100 text-neutral-500",
   unknown: "bg-neutral-100 text-neutral-400",
 };
 
@@ -861,7 +861,7 @@ function StreamEventRow({ event, idx, offset, highlight }: { event: Dict; idx: n
   const badgeStyle = EVENT_TYPE_STYLES[type] ?? EVENT_TYPE_STYLES.unknown;
 
   return (
-    <div className={`flex items-baseline gap-2 px-4 py-[3px] font-mono text-[11px] transition-colors ${highlight ? "bg-violet-50/60 dark:bg-violet-950/10" : "hover:bg-neutral-50 dark:hover:bg-neutral-800/30"}`}>
+    <div className={`flex items-baseline gap-2 px-4 py-[3px] font-mono text-[11px] transition-colors ${highlight ? "bg-violet-50/60 dark:bg-violet-950/25" : "hover:bg-neutral-100"}`}>
       <span className="w-5 shrink-0 text-right tabular-nums text-neutral-300">{idx}</span>
       <span className={`shrink-0 rounded px-1 py-px text-[9px] font-medium ${badgeStyle}`}>
         {type.replace(/_/g, " ")}

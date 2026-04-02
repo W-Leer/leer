@@ -91,12 +91,12 @@ function Scalar({ value }: { value: unknown }): React.ReactNode {
     if (!value) return <span className="italic text-neutral-400">&quot;&quot;</span>;
     if (value.length > 100) {
       return (
-        <span className="text-neutral-700 dark:text-neutral-300" title={value}>
+        <span className="text-neutral-700" title={value}>
           {value.slice(0, 100)}…
         </span>
       );
     }
-    return <span className="text-neutral-700 dark:text-neutral-300">{value}</span>;
+    return <span className="text-neutral-700">{value}</span>;
   }
   return <span className="text-neutral-500">{String(value)}</span>;
 }
@@ -112,14 +112,14 @@ function StringBlock({ value }: { value: string }) {
 
   if (value.includes("\n") || value.length > 140) {
     return (
-      <pre className="whitespace-pre-wrap break-words rounded bg-neutral-50 px-2.5 py-1.5 font-mono text-xs leading-relaxed text-neutral-700 dark:bg-neutral-900/50 dark:text-neutral-300">
+      <pre className="whitespace-pre-wrap break-words rounded bg-neutral-50 px-2.5 py-1.5 font-mono text-xs leading-relaxed text-neutral-700">
         {value}
       </pre>
     );
   }
 
   return (
-    <span className="whitespace-pre-wrap break-words font-mono text-xs text-neutral-700 dark:text-neutral-300">
+    <span className="whitespace-pre-wrap break-words font-mono text-xs text-neutral-700">
       {value}
     </span>
   );
@@ -149,9 +149,9 @@ function ArrayBlock({
           {(items as string[]).map((s, i) => (
             <li
               key={i}
-              className="flex gap-2 font-mono text-xs leading-relaxed text-neutral-700 dark:text-neutral-300"
+              className="flex gap-2 font-mono text-xs leading-relaxed text-neutral-700"
             >
-              <span className="select-none text-neutral-300 dark:text-neutral-600">•</span>
+              <span className="select-none text-neutral-400">•</span>
               <span className="whitespace-pre-wrap break-words">{s}</span>
             </li>
           ))}
@@ -165,7 +165,7 @@ function ArrayBlock({
           {items.map((item, i) => (
             <span
               key={i}
-              className="rounded bg-neutral-50 px-1.5 py-0.5 dark:bg-neutral-800/60"
+              className="rounded bg-neutral-50 px-1.5 py-0.5"
             >
               <Scalar value={item} />
             </span>
@@ -178,7 +178,7 @@ function ArrayBlock({
       <div className="space-y-0.5">
         {items.map((item, i) => (
           <div key={i} className="flex gap-2 font-mono text-xs leading-6">
-            <span className="w-5 shrink-0 select-none text-right tabular-nums text-neutral-300 dark:text-neutral-600">
+            <span className="w-5 shrink-0 select-none text-right tabular-nums text-neutral-400">
               {i}
             </span>
             <Scalar value={item} />
@@ -202,7 +202,7 @@ function ArrayBlock({
         {objs.map((obj, i) => (
           <div
             key={i}
-            className="border-l-2 border-neutral-200 pl-3 dark:border-neutral-700"
+            className="border-l-2 border-neutral-200 pl-3"
           >
             <ObjectBlock obj={obj} expand={expand} />
           </div>
@@ -215,7 +215,7 @@ function ArrayBlock({
     <div className="space-y-1.5">
       {items.map((item, i) => (
         <div key={i} className="flex gap-2">
-          <span className="shrink-0 select-none pt-px font-mono text-[10px] tabular-nums text-neutral-300 dark:text-neutral-600">
+          <span className="shrink-0 select-none pt-px font-mono text-[10px] tabular-nums text-neutral-400">
             {i}
           </span>
           <div className="min-w-0 flex-1">
@@ -323,7 +323,7 @@ function Collapsible({
     <div>
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 font-mono text-xs leading-6 text-neutral-400 hover:text-neutral-600 dark:text-neutral-500 dark:hover:text-neutral-300"
+        className="flex items-center gap-1.5 font-mono text-xs leading-6 text-neutral-400 hover:text-neutral-600"
       >
         <span
           className={`inline-block text-[9px] transition-transform duration-100 ${open ? "rotate-90" : ""}`}
@@ -332,13 +332,13 @@ function Collapsible({
         </span>
         <span>{label}</span>
         {badge && (
-          <span className="text-neutral-300 dark:text-neutral-600">
+          <span className="text-neutral-400">
             {badge}
           </span>
         )}
       </button>
       {open && (
-        <div className="ml-3.5 mt-0.5 border-l border-neutral-200 pl-3 dark:border-neutral-700">
+        <div className="ml-3.5 mt-0.5 border-l border-neutral-200 pl-3">
           <StructuredValue value={value} defaultExpanded={defaultOpen} />
         </div>
       )}
@@ -361,7 +361,7 @@ function DataTable({ rows }: { rows: Record<string, unknown>[] }) {
             {cols.map((col) => (
               <th
                 key={col}
-                className="border-b border-neutral-200 px-3 py-1.5 text-left font-medium text-neutral-400 dark:border-neutral-700 dark:text-neutral-500"
+                className="border-b border-neutral-200 px-3 py-1.5 text-left font-medium text-neutral-400"
               >
                 {col}
               </th>
@@ -372,7 +372,7 @@ function DataTable({ rows }: { rows: Record<string, unknown>[] }) {
           {rows.map((row, i) => (
             <tr
               key={i}
-              className="border-b border-neutral-100 last:border-0 dark:border-neutral-800"
+              className="border-b border-neutral-100 last:border-0"
             >
               {cols.map((col) => (
                 <td key={col} className="px-3 py-1.5">
@@ -389,7 +389,7 @@ function DataTable({ rows }: { rows: Record<string, unknown>[] }) {
 
 function CellValue({ value }: { value: unknown }): React.ReactNode {
   if (value === null || value === undefined) {
-    return <span className="text-neutral-300 dark:text-neutral-600">—</span>;
+    return <span className="text-neutral-400">—</span>;
   }
   if (typeof value === "boolean") {
     return (
@@ -415,7 +415,7 @@ function CellValue({ value }: { value: unknown }): React.ReactNode {
     if (value.length > 60) {
       return (
         <span
-          className="text-neutral-700 dark:text-neutral-300"
+          className="text-neutral-700"
           title={value}
         >
           {value.slice(0, 60)}…
@@ -423,7 +423,7 @@ function CellValue({ value }: { value: unknown }): React.ReactNode {
       );
     }
     return (
-      <span className="text-neutral-700 dark:text-neutral-300">{value}</span>
+      <span className="text-neutral-700">{value}</span>
     );
   }
   const compact = JSON.stringify(value);

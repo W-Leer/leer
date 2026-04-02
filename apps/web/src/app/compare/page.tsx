@@ -1113,7 +1113,7 @@ function LlmStreamDiff({
     (ttfcA != null && ttfcB != null && pctDiff(ttfcA, ttfcB) > 0.2) ||
     termA !== termB;
 
-  const bg = anyDiff ? "bg-[var(--tint-diff-row)]" : "bg-violet-50/30";
+  const bg = anyDiff ? "bg-[var(--tint-diff-row)]" : "bg-violet-50/30 dark:bg-violet-950/25";
   const bothStream = !!sA && !!sB;
   const oneSided = (!!sA) !== (!!sB);
 
@@ -1155,7 +1155,7 @@ function LlmStreamDiff({
                 handlePlayback("a");
               }
             }}
-            className="ml-auto rounded px-1.5 py-0.5 text-[10px] font-medium text-violet-500 transition-colors hover:bg-violet-100"
+            className="ml-auto rounded px-1.5 py-0.5 text-[10px] font-medium text-violet-500 transition-colors hover:bg-violet-100 dark:text-violet-400 dark:hover:bg-violet-950/30"
           >
             {playbackSide ? "Hide playback" : "Compare playback"}
           </button>
@@ -1288,11 +1288,11 @@ function InsightBlock({ data }: { data: CompareResponse }) {
   if (!insight) return null;
 
   return (
-    <div className="mb-6 flex items-start gap-2.5 rounded-lg bg-violet-50/60 px-4 py-3">
+    <div className="mb-6 flex items-start gap-2.5 rounded-lg bg-violet-50/60 px-4 py-3 dark:bg-violet-950/20">
       <Lightbulb size={13} className="mt-0.5 shrink-0 text-violet-400" />
       <div>
         <span className="text-[10px] font-medium uppercase tracking-wider text-violet-400">Insight</span>
-        <p className="mt-0.5 text-[11px] leading-relaxed text-neutral-600">{insight}</p>
+        <p className="mt-0.5 text-[11px] leading-relaxed text-neutral-600 dark:text-neutral-400">{insight}</p>
       </div>
     </div>
   );
