@@ -13,6 +13,7 @@ def create_blob_store(settings: Settings) -> BlobStore:
     Currently supports:
       - ``local``  — filesystem-backed (default, suitable for dev)
       - ``s3``     — AWS S3 bucket
+      - ``azure``  — Azure Blob Storage container
 
     Raises ``ValueError`` for unknown backend names.
     """
@@ -31,7 +32,25 @@ def create_blob_store(settings: Settings) -> BlobStore:
             prefix=settings.blob_s3_prefix,
             region=settings.blob_s3_region,
         )
+    if backend == "azure":
+        if not settings.blob_azure_container:
+            raise ValueError(
+                "blob_azure_container is required when blob_backend='azure'."
+            )
+        if not settings.blob_azure_connection_string and not settings.blob_azure_account_url:
+            raise ValueError(
+                "blob_azure_connection_string or blob_azure_account_url "
+                "is required when blob_backend='azure'."
+            )
+        from app.storage.azure import AzureBlobStore
+
+        return AzureBlobStore(
+            container=settings.blob_azure_container,
+            prefix=settings.blob_azure_prefix,
+            connection_string=settings.blob_azure_connection_string,
+            account_url=settings.blob_azure_account_url,
+        )
     raise ValueError(
         f"Unknown blob_backend: {settings.blob_backend!r}. "
-        "Supported: 'local', 's3'."
+        "Supported: 'local', 's3', 'azure'."
     )

@@ -1,4 +1,4 @@
-"""Tests for the blob storage abstraction, local backend, S3 backend, and config wiring."""
+"""Tests for blob storage abstraction, local/S3/Azure backends, and config wiring."""
 
 import json
 import os
@@ -13,6 +13,7 @@ from app.storage.base import BlobRef, BlobStore, compute_sha256
 from app.storage.factory import create_blob_store
 from app.storage.local import LocalBlobStore
 from app.storage.s3 import S3BlobStore
+from app.storage.azure import AzureBlobStore
 
 
 # ---------------------------------------------------------------------------
@@ -283,12 +284,12 @@ class TestCreateBlobStore:
             backend = create_blob_store(s)
             assert isinstance(backend, S3BlobStore)
 
-    def test_unknown_backend_mentions_s3(self) -> None:
+    def test_unknown_backend_mentions_all(self) -> None:
         s = Settings(
             database_url="sqlite:///:memory:",
             blob_backend="gcs",
         )
-        with pytest.raises(ValueError, match="'local', 's3'"):
+        with pytest.raises(ValueError, match="'local', 's3', 'azure'"):
             create_blob_store(s)
 
 
@@ -492,3 +493,332 @@ class TestS3ConfigDefaults:
         assert s.blob_s3_bucket is None
         assert s.blob_s3_region is None
         assert s.blob_s3_prefix == ""
+
+
+# ===========================================================================
+# Azure Blob Storage
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# Azure — helpers
+# ---------------------------------------------------------------------------
+
+
+class _FakeResourceNotFoundError(Exception):
+    """Mimics azure ResourceNotFoundError for tests without azure SDK."""
+
+    def __init__(self) -> None:
+        super().__init__("BlobNotFound")
+
+    @property
+    def status_code(self) -> int:
+        return 404
+
+    @property
+    def error_code(self) -> str:
+        return "BlobNotFound"
+
+
+# Make type(exc).__name__ == "ResourceNotFoundError" so _is_not_found works.
+_FakeResourceNotFoundError.__name__ = "ResourceNotFoundError"  # type: ignore[attr-defined]
+
+
+class _FakeAzureError(Exception):
+    """Non-404 Azure error for propagation tests."""
+
+    def __init__(self, code: str = "AuthorizationFailure") -> None:
+        super().__init__(code)
+
+    @property
+    def status_code(self) -> int:
+        return 403
+
+
+@pytest.fixture()
+def mock_azure_client() -> MagicMock:
+    return MagicMock()
+
+
+@pytest.fixture()
+def azure_store(mock_azure_client: MagicMock) -> AzureBlobStore:
+    return AzureBlobStore(
+        container="test-container",
+        container_client=mock_azure_client,
+    )
+
+
+@pytest.fixture()
+def azure_store_prefixed(mock_azure_client: MagicMock) -> AzureBlobStore:
+    return AzureBlobStore(
+        container="test-container",
+        prefix="artifacts/",
+        container_client=mock_azure_client,
+    )
+
+
+# ---------------------------------------------------------------------------
+# AzureBlobStore — core operations
+# ---------------------------------------------------------------------------
+
+
+class TestAzureBlobStoreBasic:
+    def test_protocol_conformance(self, azure_store: AzureBlobStore) -> None:
+        assert isinstance(azure_store, BlobStore)
+
+    def test_provider_name(self, azure_store: AzureBlobStore) -> None:
+        assert azure_store.provider_name == "azure"
+
+    def test_put_calls_upload_blob(
+        self, azure_store: AzureBlobStore, mock_azure_client: MagicMock
+    ) -> None:
+        data = b'{"key": "value"}'
+        ref = azure_store.put("runs/abc/art.json", data)
+
+        mock_azure_client.upload_blob.assert_called_once()
+        call_kwargs = mock_azure_client.upload_blob.call_args
+        assert call_kwargs[1]["name"] == "runs/abc/art.json"
+        assert call_kwargs[1]["data"] == data
+        assert call_kwargs[1]["overwrite"] is True
+        assert ref.provider == "azure"
+        assert ref.key == "runs/abc/art.json"
+        assert ref.size_bytes == len(data)
+        assert ref.sha256 == compute_sha256(data)
+        assert ref.content_type == "application/json"
+
+    def test_put_custom_content_type(
+        self, azure_store: AzureBlobStore, mock_azure_client: MagicMock
+    ) -> None:
+        ref = azure_store.put("f.bin", b"\x00\x01", content_type="application/octet-stream")
+        assert ref.content_type == "application/octet-stream"
+
+    def test_put_overwrite_always_true(
+        self, azure_store: AzureBlobStore, mock_azure_client: MagicMock
+    ) -> None:
+        azure_store.put("k.json", b"x")
+        call_kwargs = mock_azure_client.upload_blob.call_args[1]
+        assert call_kwargs["overwrite"] is True
+
+    def test_get_returns_bytes(
+        self, azure_store: AzureBlobStore, mock_azure_client: MagicMock
+    ) -> None:
+        stream = MagicMock()
+        stream.readall.return_value = b'{"ok": true}'
+        mock_azure_client.download_blob.return_value = stream
+
+        result = azure_store.get("runs/abc/art.json")
+
+        mock_azure_client.download_blob.assert_called_once_with("runs/abc/art.json")
+        assert result == b'{"ok": true}'
+
+    def test_get_missing_raises_file_not_found(
+        self, azure_store: AzureBlobStore, mock_azure_client: MagicMock
+    ) -> None:
+        mock_azure_client.download_blob.side_effect = _FakeResourceNotFoundError()
+        with pytest.raises(FileNotFoundError, match="runs/abc/art.json"):
+            azure_store.get("runs/abc/art.json")
+
+    def test_get_non_missing_error_propagates(
+        self, azure_store: AzureBlobStore, mock_azure_client: MagicMock
+    ) -> None:
+        err = _FakeAzureError()
+        mock_azure_client.download_blob.side_effect = err
+        with pytest.raises(_FakeAzureError) as exc_info:
+            azure_store.get("runs/abc/art.json")
+        assert exc_info.value is err
+
+    def test_exists_true(
+        self, azure_store: AzureBlobStore, mock_azure_client: MagicMock
+    ) -> None:
+        mock_azure_client.get_blob_properties.return_value = {}
+        assert azure_store.exists("runs/abc/art.json") is True
+        mock_azure_client.get_blob_properties.assert_called_once_with("runs/abc/art.json")
+
+    def test_exists_false(
+        self, azure_store: AzureBlobStore, mock_azure_client: MagicMock
+    ) -> None:
+        mock_azure_client.get_blob_properties.side_effect = _FakeResourceNotFoundError()
+        assert azure_store.exists("nope.json") is False
+
+    def test_exists_non_missing_error_propagates(
+        self, azure_store: AzureBlobStore, mock_azure_client: MagicMock
+    ) -> None:
+        err = _FakeAzureError()
+        mock_azure_client.get_blob_properties.side_effect = err
+        with pytest.raises(_FakeAzureError) as exc_info:
+            azure_store.exists("runs/abc/art.json")
+        assert exc_info.value is err
+
+    def test_delete_existing(
+        self, azure_store: AzureBlobStore, mock_azure_client: MagicMock
+    ) -> None:
+        result = azure_store.delete("runs/abc/art.json")
+        assert result is True
+        mock_azure_client.delete_blob.assert_called_once_with("runs/abc/art.json")
+
+    def test_delete_missing_returns_false(
+        self, azure_store: AzureBlobStore, mock_azure_client: MagicMock
+    ) -> None:
+        mock_azure_client.delete_blob.side_effect = _FakeResourceNotFoundError()
+        assert azure_store.delete("nope.json") is False
+
+
+# ---------------------------------------------------------------------------
+# AzureBlobStore — prefix handling
+# ---------------------------------------------------------------------------
+
+
+class TestAzureBlobStorePrefix:
+    def test_prefix_prepended_to_put(
+        self, azure_store_prefixed: AzureBlobStore, mock_azure_client: MagicMock
+    ) -> None:
+        azure_store_prefixed.put("runs/abc/art.json", b"data")
+        call_kwargs = mock_azure_client.upload_blob.call_args[1]
+        assert call_kwargs["name"] == "artifacts/runs/abc/art.json"
+
+    def test_prefix_prepended_to_get(
+        self, azure_store_prefixed: AzureBlobStore, mock_azure_client: MagicMock
+    ) -> None:
+        stream = MagicMock()
+        stream.readall.return_value = b"data"
+        mock_azure_client.download_blob.return_value = stream
+
+        azure_store_prefixed.get("runs/abc/art.json")
+        mock_azure_client.download_blob.assert_called_once_with("artifacts/runs/abc/art.json")
+
+    def test_prefix_prepended_to_exists(
+        self, azure_store_prefixed: AzureBlobStore, mock_azure_client: MagicMock
+    ) -> None:
+        mock_azure_client.get_blob_properties.return_value = {}
+        azure_store_prefixed.exists("runs/abc/art.json")
+        mock_azure_client.get_blob_properties.assert_called_once_with(
+            "artifacts/runs/abc/art.json"
+        )
+
+    def test_prefix_prepended_to_delete(
+        self, azure_store_prefixed: AzureBlobStore, mock_azure_client: MagicMock
+    ) -> None:
+        azure_store_prefixed.delete("runs/abc/art.json")
+        mock_azure_client.delete_blob.assert_called_once_with("artifacts/runs/abc/art.json")
+
+    def test_blob_ref_uses_logical_key(
+        self, azure_store_prefixed: AzureBlobStore, mock_azure_client: MagicMock
+    ) -> None:
+        ref = azure_store_prefixed.put("runs/abc/art.json", b"data")
+        assert ref.key == "runs/abc/art.json"
+
+    def test_prefix_without_trailing_slash(self, mock_azure_client: MagicMock) -> None:
+        store = AzureBlobStore(
+            container="c", prefix="artifacts", container_client=mock_azure_client
+        )
+        store.put("k.json", b"x")
+        call_kwargs = mock_azure_client.upload_blob.call_args[1]
+        assert call_kwargs["name"] == "artifacts/k.json"
+
+    def test_empty_prefix(self, mock_azure_client: MagicMock) -> None:
+        store = AzureBlobStore(container="c", prefix="", container_client=mock_azure_client)
+        store.put("k.json", b"x")
+        call_kwargs = mock_azure_client.upload_blob.call_args[1]
+        assert call_kwargs["name"] == "k.json"
+
+
+# ---------------------------------------------------------------------------
+# Azure — factory tests
+# ---------------------------------------------------------------------------
+
+
+class TestCreateBlobStoreAzure:
+    def test_creates_azure_backend_with_connection_string(self) -> None:
+        s = Settings(
+            database_url="sqlite:///:memory:",
+            blob_backend="azure",
+            blob_azure_container="my-container",
+            blob_azure_connection_string="DefaultEndpointsProtocol=https;AccountName=test",
+        )
+        mock_cs = MagicMock()
+        mock_module = MagicMock()
+        mock_module.ContainerClient.from_connection_string.return_value = mock_cs
+        with patch.dict("sys.modules", {"azure.storage.blob": mock_module}):
+            backend = create_blob_store(s)
+            assert isinstance(backend, AzureBlobStore)
+            assert backend.provider_name == "azure"
+            mock_module.ContainerClient.from_connection_string.assert_called_once()
+
+    def test_creates_azure_backend_with_account_url(self) -> None:
+        s = Settings(
+            database_url="sqlite:///:memory:",
+            blob_backend="azure",
+            blob_azure_container="my-container",
+            blob_azure_account_url="https://myaccount.blob.core.windows.net",
+        )
+        mock_blob_module = MagicMock()
+        mock_identity_module = MagicMock()
+        with patch.dict(
+            "sys.modules",
+            {
+                "azure.storage.blob": mock_blob_module,
+                "azure.identity": mock_identity_module,
+            },
+        ):
+            backend = create_blob_store(s)
+            assert isinstance(backend, AzureBlobStore)
+            assert backend.provider_name == "azure"
+
+    def test_prefers_connection_string_over_account_url(self) -> None:
+        s = Settings(
+            database_url="sqlite:///:memory:",
+            blob_backend="azure",
+            blob_azure_container="my-container",
+            blob_azure_connection_string="DefaultEndpointsProtocol=https;AccountName=test",
+            blob_azure_account_url="https://myaccount.blob.core.windows.net",
+        )
+        mock_module = MagicMock()
+        mock_module.ContainerClient.from_connection_string.return_value = MagicMock()
+        with patch.dict("sys.modules", {"azure.storage.blob": mock_module}):
+            create_blob_store(s)
+            mock_module.ContainerClient.from_connection_string.assert_called_once()
+
+    def test_azure_missing_container_raises(self) -> None:
+        s = Settings(
+            database_url="sqlite:///:memory:",
+            blob_backend="azure",
+            blob_azure_connection_string="DefaultEndpointsProtocol=https;AccountName=test",
+        )
+        with pytest.raises(ValueError, match="blob_azure_container"):
+            create_blob_store(s)
+
+    def test_azure_no_auth_raises(self) -> None:
+        s = Settings(
+            database_url="sqlite:///:memory:",
+            blob_backend="azure",
+            blob_azure_container="my-container",
+        )
+        with pytest.raises(ValueError, match="blob_azure_connection_string or blob_azure_account_url"):
+            create_blob_store(s)
+
+    def test_case_insensitive_azure(self) -> None:
+        s = Settings(
+            database_url="sqlite:///:memory:",
+            blob_backend="Azure",
+            blob_azure_container="my-container",
+            blob_azure_connection_string="DefaultEndpointsProtocol=https;AccountName=test",
+        )
+        mock_module = MagicMock()
+        mock_module.ContainerClient.from_connection_string.return_value = MagicMock()
+        with patch.dict("sys.modules", {"azure.storage.blob": mock_module}):
+            backend = create_blob_store(s)
+            assert isinstance(backend, AzureBlobStore)
+
+
+# ---------------------------------------------------------------------------
+# Azure — config defaults
+# ---------------------------------------------------------------------------
+
+
+class TestAzureConfigDefaults:
+    def test_azure_settings_defaults(self) -> None:
+        s = Settings(database_url="sqlite:///:memory:")
+        assert s.blob_azure_container is None
+        assert s.blob_azure_account_url is None
+        assert s.blob_azure_connection_string is None
+        assert s.blob_azure_prefix == ""

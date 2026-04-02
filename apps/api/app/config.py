@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     blob_s3_region: str | None = None
     blob_s3_prefix: str = ""
 
+    # --- Blob storage: Azure ---
+    blob_azure_container: str | None = None
+    blob_azure_account_url: str | None = None
+    blob_azure_connection_string: str | None = None
+    blob_azure_prefix: str = ""
+
     # --- Optional ---
     log_level: str = "info"
 
