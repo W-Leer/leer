@@ -43,9 +43,7 @@ Make structured responses readable across run detail and compare.
 
 ---
 
-# NOW
-
-## 4. Streaming
+## 4. Streaming [DONE]
 ### Goal
 Capture token streams and render them meaningfully.
 
@@ -56,22 +54,30 @@ Capture token streams and render them meaningfully.
 - timeline / UI rendering
 - compare behavior rules
 
-### Complexity
-High
+### Why
+High debugging value, now completed across SDK + UI + compare.
 
 ---
 
-# NEXT
+# NOW
 
 ## 5. Blob Storage
 ### Goal
 Handle large payloads safely and scalably.
 
 ### Tasks
-- inline vs blob threshold
-- storage abstraction
-- retrieval endpoints
-- UI integration
+- define inline vs blob threshold
+- add storage abstraction
+- support blob-backed artifact writes
+- add retrieval endpoints
+- integrate blob-backed artifacts in UI
+- keep small payloads inline for speed and simplicity
+
+### Why
+Foundational for scale. Required before serious multimodal, large tool outputs, and very large stream artifacts.
+
+### Complexity
+High
 
 ---
 
@@ -110,6 +116,20 @@ High
 - full provider SDK parity
 - obscure provider-specific features
 - provider-specific UI branches unless unavoidable
+
+---
+
+# Execution Order
+
+## Recommended order:
+
+1. tool calling
+2. async support
+3. structured outputs
+4. streaming
+5. blob storage
+6. multimodal
+7. MCP
 
 ---
 

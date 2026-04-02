@@ -1,7 +1,6 @@
 # Provider Support Matrix
 
-This document defines the current level of support for LLM providers in Leer,
-what is fully supported, partially supported, and not yet supported.
+This document defines the current level of support for LLM providers in Leer, what is fully supported, partially supported, and not yet supported.
 
 This is the **source of truth** for:
 - SDK capabilities
@@ -20,8 +19,8 @@ This is the **source of truth** for:
 
 ## Definitions
 
-- **Supported** → fully implemented, tested, usable in production
-- **Partial** → works but missing edge cases or UX depth
+- **Supported** → implemented, tested, and usable in the main product flow
+- **Partial** → works, but important depth, edge cases, or UX are still missing
 - **Not supported** → not implemented
 
 ---
@@ -33,27 +32,38 @@ This is the **source of truth** for:
 - non-streaming calls
   - chat/completions
   - responses API (basic coverage)
-- request/response artifacts
+- streaming calls
+- request / response artifacts
+- `llm_stream` artifact capture
 - normalized LLM shape
-- metadata (tokens, latency, finish_reason, request_id)
-- summaries (input/output)
-- UI rendering (run view + compare)
+- metadata
+  - tokens
+  - latency
+  - finish_reason
+  - request_id
+- summaries
+  - input
+  - output
+  - error
+- structured output rendering
+- tool call capture
+- run detail UI
+- compare UI
 - error handling
 
 ## Partial
 
 - responses API full surface
-- structured outputs (basic, not schema-aware UI)
-- tool calls (captured but not fully modeled in UI)
-- async support (depends on implementation completeness)
-
-## Not Supported
-
-- streaming
-- multimodal (image/audio/file)
-- large file/blob handling
 - advanced response formats
-- retries / partial responses
+- multimodal inputs / outputs
+- very large payload handling
+- async parity, if any edge cases remain
+
+## Not supported
+
+- blob-backed large artifacts
+- provider-specific obscure features
+- replay / remote execution
 
 ---
 
@@ -62,26 +72,38 @@ This is the **source of truth** for:
 ## Supported
 
 - messages.create (non-streaming)
-- request/response artifacts
+- streaming calls
+- request / response artifacts
+- `llm_stream` artifact capture
 - normalized LLM shape
-- metadata (tokens, latency, finish_reason)
-- summaries (input/output)
-- tool_use extraction (basic)
-- UI rendering (run + compare)
+- metadata
+  - tokens
+  - latency
+  - finish_reason
+  - request_id
+- summaries
+  - input
+  - output
+  - error
+- structured output rendering
+- tool_use capture
+- run detail UI
+- compare UI
+- error handling
 
 ## Partial
 
-- tool calling lifecycle (no pairing with tool results)
-- thinking blocks (not fully surfaced)
-- async support (if not implemented)
-- complex content blocks (edge cases)
-
-## Not Supported
-
-- streaming
-- multimodal inputs (images, docs)
+- thinking / content block rich rendering
+- complex content block edge cases
+- multimodal inputs
 - advanced tool workflows
-- blob storage for large payloads
+- async parity, if any edge cases remain
+
+## Not supported
+
+- blob-backed large artifacts
+- replay / remote execution
+- provider-specific obscure streaming features
 
 ---
 
@@ -91,35 +113,43 @@ This is the **source of truth** for:
 
 - unified normalized LLM shape
 - provider-aware metadata
-- artifacts (request/response)
-- summaries
+- request / response artifacts
+- stream artifact capture
+- stream metadata + latency breakdown
+- structured output rendering
+- tool calling visibility
 - run timeline UI
-- compare UI (LLM-aware)
+- compare UI
+- streamed vs non-streamed compare behavior
 
 ## Partial
 
-- tool calling normalization (no lifecycle model)
-- structured outputs (no schema-aware diff)
-- error normalization across providers
+- full tool lifecycle modeling beyond current explicit tracing
+- schema-aware structured output UX
+- rich thinking / reasoning block rendering
+- error normalization across all edge cases
+- large artifact storage strategy
+- multimodal abstraction
 
 ## Not Supported
 
-- streaming abstraction
-- multimodal abstraction
-- blob-backed artifacts
-- MCP / skills / agent protocols
+- blob storage
+- multimodal rendering
+- MCP / skills / RAG tracing
+- replay execution
+- remote tool execution
 
 ---
 
 # Major Missing Areas
 
-## 1. Streaming
+## 1. Blob Storage
 
 Missing:
-- token-level events
-- partial outputs
-- stream artifacts
-- interruption handling
+- inline vs blob threshold
+- large artifact offloading
+- retrieval layer
+- UI integration for blob-backed payloads
 
 Complexity: **High**
 
@@ -128,65 +158,34 @@ Complexity: **High**
 ## 2. Multimodal
 
 Missing:
-- image/audio/document input
-- file artifacts
-- UI rendering for media
+- image / audio / document normalization
+- artifact handling for media
+- media rendering in UI
 
 Complexity: **Very High**
 
 ---
 
-## 3. Tool Calling (Full Support)
-
-Missing:
-- tool call → execution → result lifecycle
-- timeline linking
-- compare support
-
-Complexity: **Medium–High**
-
----
-
-## 4. Structured Outputs
-
-Missing:
-- schema-aware validation
-- UI rendering
-- intelligent diff
-
-Complexity: **Medium**
-
----
-
-## 5. Async Support
-
-Missing:
-- async wrappers parity
-- tests
-
-Complexity: **Medium**
-
----
-
-## 6. Blob Storage
-
-Missing:
-- large payload storage
-- artifact streaming
-- retrieval layer
-
-Complexity: **High**
-
----
-
-## 7. MCP / Skills
+## 3. MCP / Skills / RAG
 
 Missing:
 - protocol tracing
-- external tool servers
+- tool server / skill modeling
 - UI support
 
 Complexity: **High**
+
+---
+
+## 4. Replay / Execution
+
+Missing:
+- replay model
+- execution boundary definition
+- secure remote execution strategy
+- user-side registry / adapter approach
+
+Complexity: **Very High**
 
 ---
 
@@ -194,11 +193,11 @@ Complexity: **High**
 
 Leer currently provides:
 
-> Strong support for non-streaming LLM observability across OpenAI and Anthropic.
+> Strong observability for OpenAI and Anthropic across non-streaming and streaming LLM flows, including structured outputs, tool visibility, stream artifacts, and compare UX.
 
 It does NOT yet provide:
 
-> Full provider SDK coverage.
+> Full provider SDK parity, blob-backed scale primitives, multimodal support, or replay execution.
 
 ---
 
@@ -211,6 +210,6 @@ We prioritize:
 3. **Determinism**
 
 Over:
-
 - feature completeness
 - provider parity
+- provider-specific surface area
