@@ -53,7 +53,13 @@ class _FakeEvent:
 class _FakeStreamIterator:
     """Yields a realistic sequence of Anthropic streaming events."""
 
-    def __init__(self, text_parts: list[str], model: str) -> None:
+    def __init__(
+        self,
+        text_parts: list[str],
+        model: str,
+        startup_delay: float = 0.0,
+        chunk_delay: float = 0.03,
+    ) -> None:
         events: list[dict[str, Any]] = []
 
         events.append({
@@ -90,6 +96,8 @@ class _FakeStreamIterator:
 
         self._events = [_FakeEvent(e) for e in events]
         self._idx = 0
+        self._startup_delay = startup_delay
+        self._chunk_delay = chunk_delay
 
     def __iter__(self) -> _FakeStreamIterator:
         return self
@@ -98,8 +106,11 @@ class _FakeStreamIterator:
         if self._idx >= len(self._events):
             raise StopIteration
         ev = self._events[self._idx]
+        if self._idx == 0 and self._startup_delay > 0:
+            time.sleep(self._startup_delay)
+        else:
+            time.sleep(self._chunk_delay)
         self._idx += 1
-        time.sleep(0.03)
         return ev
 
     def __enter__(self) -> _FakeStreamIterator:
@@ -109,36 +120,45 @@ class _FakeStreamIterator:
         pass
 
 
+TEXT_PARTS = [
+    "Streaming ",
+    "LLM responses ",
+    "work by ",
+    "sending ",
+    "partial ",
+    "output tokens ",
+    "incrementally ",
+    "as they are ",
+    "generated, ",
+    "rather than ",
+    "waiting for ",
+    "the complete ",
+    "response. ",
+    "This allows ",
+    "clients to ",
+    "display text ",
+    "progressively, ",
+    "reducing ",
+    "perceived ",
+    "latency ",
+    "and improving ",
+    "user experience.",
+]
+
+
 class _FakeMessages:
+    def __init__(self, startup_delay: float = 0.0, chunk_delay: float = 0.03) -> None:
+        self._startup_delay = startup_delay
+        self._chunk_delay = chunk_delay
+
     def create(self, **kwargs: Any) -> Any:
         if kwargs.get("stream"):
             model = kwargs.get("model", "claude-sonnet-4-20250514")
             return _FakeStreamIterator(
-                text_parts=[
-                    "Streaming ",
-                    "LLM responses ",
-                    "work by ",
-                    "sending ",
-                    "partial ",
-                    "output tokens ",
-                    "incrementally ",
-                    "as they are ",
-                    "generated, ",
-                    "rather than ",
-                    "waiting for ",
-                    "the complete ",
-                    "response. ",
-                    "This allows ",
-                    "clients to ",
-                    "display text ",
-                    "progressively, ",
-                    "reducing ",
-                    "perceived ",
-                    "latency ",
-                    "and improving ",
-                    "user experience.",
-                ],
+                text_parts=TEXT_PARTS,
                 model=model,
+                startup_delay=self._startup_delay,
+                chunk_delay=self._chunk_delay,
             )
 
         return _FakeEvent({
@@ -153,22 +173,18 @@ class _FakeMessages:
 
 
 class _FakeAnthropic:
-    def __init__(self) -> None:
-        self.messages = _FakeMessages()
+    def __init__(self, startup_delay: float = 0.0, chunk_delay: float = 0.03) -> None:
+        self.messages = _FakeMessages(startup_delay=startup_delay, chunk_delay=chunk_delay)
 
 
 # ---------------------------------------------------------------------------
 # Demo workflow
 # ---------------------------------------------------------------------------
 
-client = wrap_anthropic_client(_FakeAnthropic())
-
-
-@trace(workflow_name="streaming-anthropic")
-def demo_streaming() -> str:
-    """A streaming Anthropic call — produces a run with stream events."""
-
-    stream = client.messages.create(
+def _run_stream(label: str, client_obj: Any) -> str:
+    """Run a streaming call and print output progressively."""
+    wrapped = wrap_anthropic_client(client_obj)
+    stream = wrapped.messages.create(
         model="claude-sonnet-4-20250514",
         messages=[
             {
@@ -190,7 +206,20 @@ def demo_streaming() -> str:
                 collected += text
 
     print()
+    print(f"  [{label}] {len(collected)} chars collected")
     return collected
+
+
+@trace(workflow_name="streaming-fast")
+def demo_streaming_fast() -> str:
+    """Fast stream: low TTFC, fast chunk pace."""
+    return _run_stream("fast", _FakeAnthropic(startup_delay=0.02, chunk_delay=0.02))
+
+
+@trace(workflow_name="streaming-slow")
+def demo_streaming_slow() -> str:
+    """Slow stream: high startup, slower chunks — for latency compare."""
+    return _run_stream("slow", _FakeAnthropic(startup_delay=0.25, chunk_delay=0.06))
 
 
 # ---------------------------------------------------------------------------
@@ -199,14 +228,17 @@ def demo_streaming() -> str:
 
 def main() -> None:
     print("=" * 60)
-    print("Demo: Anthropic streaming call")
+    print("Demo: Streaming latency variants")
     print("=" * 60)
 
-    result = demo_streaming()
+    print("\n— Fast stream —")
+    demo_streaming_fast()
+
+    print("\n— Slow stream —")
+    demo_streaming_slow()
 
     print()
-    print(f"Collected {len(result)} chars.")
-    print("Done. Check the Leer UI for a run under 'demo-project'.")
+    print("Done. Compare 'streaming-fast' vs 'streaming-slow' in the Leer UI.")
 
 
 if __name__ == "__main__":

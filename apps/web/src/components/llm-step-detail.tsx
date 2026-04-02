@@ -500,8 +500,8 @@ function StreamLatencySummary({ breakdown }: { breakdown: LatencyBreakdown }) {
     { id: "overhead_ms", label: "Overhead", value: breakdown.overhead_ms != null && breakdown.overhead_ms > 0 ? formatDuration(breakdown.overhead_ms) : null },
     { id: "chunk_count", label: "Chunks", value: breakdown.chunk_count !== null ? String(breakdown.chunk_count) : null },
     { id: "text_chars", label: "Output chars", value: breakdown.text_chars !== null ? String(breakdown.text_chars) : null },
-    { id: "chars_per_sec", label: "Chars/s", value: fmtRate(breakdown.chars_per_sec, "") },
-    { id: "tokens_per_sec", label: "Tok/s", value: fmtRate(breakdown.tokens_per_sec, "") },
+    { id: "chars_per_sec", label: "Chars/s", value: breakdown.chars_per_sec !== null ? (breakdown.chars_per_sec >= 100 ? String(Math.round(breakdown.chars_per_sec)) : breakdown.chars_per_sec.toFixed(1)) : null },
+    { id: "tokens_per_sec", label: "Tok/s", value: breakdown.tokens_per_sec !== null ? (breakdown.tokens_per_sec >= 100 ? String(Math.round(breakdown.tokens_per_sec)) : breakdown.tokens_per_sec.toFixed(1)) : null },
     { id: "startup_pct", label: "Startup share", value: fmtPct(breakdown.startup_pct) },
     { id: "generation_pct", label: "Generation share", value: fmtPct(breakdown.generation_pct) },
   ];
