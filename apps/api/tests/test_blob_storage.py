@@ -1,9 +1,10 @@
-"""Tests for the blob storage abstraction, local backend, and config wiring."""
+"""Tests for the blob storage abstraction, local backend, S3 backend, and config wiring."""
 
 import json
 import os
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -11,6 +12,7 @@ from app.config import Settings
 from app.storage.base import BlobRef, BlobStore, compute_sha256
 from app.storage.factory import create_blob_store
 from app.storage.local import LocalBlobStore
+from app.storage.s3 import S3BlobStore
 
 
 # ---------------------------------------------------------------------------
@@ -246,3 +248,233 @@ class TestCreateBlobStore:
         )
         backend = create_blob_store(s)
         assert isinstance(backend, LocalBlobStore)
+
+    def test_creates_s3_backend(self) -> None:
+        s = Settings(
+            database_url="sqlite:///:memory:",
+            blob_backend="s3",
+            blob_s3_bucket="my-bucket",
+            blob_s3_region="us-east-1",
+        )
+        mock_boto3 = MagicMock()
+        mock_boto3.client.return_value = MagicMock()
+        with patch.dict("sys.modules", {"boto3": mock_boto3}):
+            backend = create_blob_store(s)
+            assert isinstance(backend, S3BlobStore)
+            assert backend.provider_name == "s3"
+
+    def test_s3_missing_bucket_raises(self) -> None:
+        s = Settings(
+            database_url="sqlite:///:memory:",
+            blob_backend="s3",
+        )
+        with pytest.raises(ValueError, match="blob_s3_bucket"):
+            create_blob_store(s)
+
+    def test_case_insensitive_s3(self) -> None:
+        s = Settings(
+            database_url="sqlite:///:memory:",
+            blob_backend="S3",
+            blob_s3_bucket="my-bucket",
+        )
+        mock_boto3 = MagicMock()
+        mock_boto3.client.return_value = MagicMock()
+        with patch.dict("sys.modules", {"boto3": mock_boto3}):
+            backend = create_blob_store(s)
+            assert isinstance(backend, S3BlobStore)
+
+    def test_unknown_backend_mentions_s3(self) -> None:
+        s = Settings(
+            database_url="sqlite:///:memory:",
+            blob_backend="gcs",
+        )
+        with pytest.raises(ValueError, match="'local', 's3'"):
+            create_blob_store(s)
+
+
+# ---------------------------------------------------------------------------
+# S3BlobStore — helpers
+# ---------------------------------------------------------------------------
+
+
+class _FakeClientError(Exception):
+    """Mimics botocore ClientError shape for tests without botocore installed."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(f"ClientError: {code}")
+        self.response = {"Error": {"Code": code, "Message": "test"}}
+
+
+@pytest.fixture()
+def mock_s3_client() -> MagicMock:
+    client = MagicMock()
+    no_such_key = type("NoSuchKey", (Exception,), {})
+    client.exceptions = MagicMock()
+    client.exceptions.NoSuchKey = no_such_key
+    return client
+
+
+@pytest.fixture()
+def s3_store(mock_s3_client: MagicMock) -> S3BlobStore:
+    return S3BlobStore(bucket="test-bucket", client=mock_s3_client)
+
+
+@pytest.fixture()
+def s3_store_prefixed(mock_s3_client: MagicMock) -> S3BlobStore:
+    return S3BlobStore(bucket="test-bucket", prefix="artifacts/", client=mock_s3_client)
+
+
+# ---------------------------------------------------------------------------
+# S3BlobStore — core operations
+# ---------------------------------------------------------------------------
+
+
+class TestS3BlobStoreBasic:
+    def test_protocol_conformance(self, s3_store: S3BlobStore) -> None:
+        assert isinstance(s3_store, BlobStore)
+
+    def test_provider_name(self, s3_store: S3BlobStore) -> None:
+        assert s3_store.provider_name == "s3"
+
+    def test_put_calls_put_object(self, s3_store: S3BlobStore, mock_s3_client: MagicMock) -> None:
+        data = b'{"key": "value"}'
+        ref = s3_store.put("runs/abc/art.json", data)
+
+        mock_s3_client.put_object.assert_called_once_with(
+            Bucket="test-bucket",
+            Key="runs/abc/art.json",
+            Body=data,
+            ContentType="application/json",
+        )
+        assert ref.provider == "s3"
+        assert ref.key == "runs/abc/art.json"
+        assert ref.size_bytes == len(data)
+        assert ref.sha256 == compute_sha256(data)
+        assert ref.content_type == "application/json"
+
+    def test_put_custom_content_type(self, s3_store: S3BlobStore, mock_s3_client: MagicMock) -> None:
+        ref = s3_store.put("f.bin", b"\x00\x01", content_type="application/octet-stream")
+        assert ref.content_type == "application/octet-stream"
+        call_kwargs = mock_s3_client.put_object.call_args[1]
+        assert call_kwargs["ContentType"] == "application/octet-stream"
+
+    def test_get_returns_bytes(self, s3_store: S3BlobStore, mock_s3_client: MagicMock) -> None:
+        body = MagicMock()
+        body.read.return_value = b'{"ok": true}'
+        mock_s3_client.get_object.return_value = {"Body": body}
+
+        result = s3_store.get("runs/abc/art.json")
+
+        mock_s3_client.get_object.assert_called_once_with(
+            Bucket="test-bucket",
+            Key="runs/abc/art.json",
+        )
+        assert result == b'{"ok": true}'
+
+    def test_get_missing_raises_file_not_found(
+        self, s3_store: S3BlobStore, mock_s3_client: MagicMock
+    ) -> None:
+        mock_s3_client.get_object.side_effect = (
+            mock_s3_client.exceptions.NoSuchKey("not found")
+        )
+        with pytest.raises(FileNotFoundError, match="runs/abc/art.json"):
+            s3_store.get("runs/abc/art.json")
+
+    def test_exists_true(self, s3_store: S3BlobStore, mock_s3_client: MagicMock) -> None:
+        mock_s3_client.head_object.return_value = {}
+        assert s3_store.exists("runs/abc/art.json") is True
+        mock_s3_client.head_object.assert_called_once_with(
+            Bucket="test-bucket",
+            Key="runs/abc/art.json",
+        )
+
+    def test_exists_false(self, s3_store: S3BlobStore, mock_s3_client: MagicMock) -> None:
+        mock_s3_client.head_object.side_effect = _FakeClientError("404")
+        assert s3_store.exists("nope.json") is False
+
+    def test_delete_calls_delete_object(
+        self, s3_store: S3BlobStore, mock_s3_client: MagicMock
+    ) -> None:
+        result = s3_store.delete("runs/abc/art.json")
+        assert result is True
+        mock_s3_client.delete_object.assert_called_once_with(
+            Bucket="test-bucket",
+            Key="runs/abc/art.json",
+        )
+
+    def test_delete_always_returns_true(
+        self, s3_store: S3BlobStore, mock_s3_client: MagicMock
+    ) -> None:
+        result = s3_store.delete("nonexistent.json")
+        assert result is True
+
+
+# ---------------------------------------------------------------------------
+# S3BlobStore — prefix handling
+# ---------------------------------------------------------------------------
+
+
+class TestS3BlobStorePrefix:
+    def test_prefix_prepended_to_put(
+        self, s3_store_prefixed: S3BlobStore, mock_s3_client: MagicMock
+    ) -> None:
+        s3_store_prefixed.put("runs/abc/art.json", b"data")
+        call_kwargs = mock_s3_client.put_object.call_args[1]
+        assert call_kwargs["Key"] == "artifacts/runs/abc/art.json"
+
+    def test_prefix_prepended_to_get(
+        self, s3_store_prefixed: S3BlobStore, mock_s3_client: MagicMock
+    ) -> None:
+        body = MagicMock()
+        body.read.return_value = b"data"
+        mock_s3_client.get_object.return_value = {"Body": body}
+
+        s3_store_prefixed.get("runs/abc/art.json")
+        call_kwargs = mock_s3_client.get_object.call_args[1]
+        assert call_kwargs["Key"] == "artifacts/runs/abc/art.json"
+
+    def test_prefix_prepended_to_exists(
+        self, s3_store_prefixed: S3BlobStore, mock_s3_client: MagicMock
+    ) -> None:
+        mock_s3_client.head_object.return_value = {}
+        s3_store_prefixed.exists("runs/abc/art.json")
+        call_kwargs = mock_s3_client.head_object.call_args[1]
+        assert call_kwargs["Key"] == "artifacts/runs/abc/art.json"
+
+    def test_prefix_prepended_to_delete(
+        self, s3_store_prefixed: S3BlobStore, mock_s3_client: MagicMock
+    ) -> None:
+        s3_store_prefixed.delete("runs/abc/art.json")
+        call_kwargs = mock_s3_client.delete_object.call_args[1]
+        assert call_kwargs["Key"] == "artifacts/runs/abc/art.json"
+
+    def test_blob_ref_uses_logical_key(
+        self, s3_store_prefixed: S3BlobStore, mock_s3_client: MagicMock
+    ) -> None:
+        ref = s3_store_prefixed.put("runs/abc/art.json", b"data")
+        assert ref.key == "runs/abc/art.json"
+
+    def test_prefix_without_trailing_slash(self, mock_s3_client: MagicMock) -> None:
+        store = S3BlobStore(bucket="b", prefix="artifacts", client=mock_s3_client)
+        store.put("k.json", b"x")
+        call_kwargs = mock_s3_client.put_object.call_args[1]
+        assert call_kwargs["Key"] == "artifacts/k.json"
+
+    def test_empty_prefix(self, mock_s3_client: MagicMock) -> None:
+        store = S3BlobStore(bucket="b", prefix="", client=mock_s3_client)
+        store.put("k.json", b"x")
+        call_kwargs = mock_s3_client.put_object.call_args[1]
+        assert call_kwargs["Key"] == "k.json"
+
+
+# ---------------------------------------------------------------------------
+# S3BlobStore — config defaults
+# ---------------------------------------------------------------------------
+
+
+class TestS3ConfigDefaults:
+    def test_s3_settings_defaults(self) -> None:
+        s = Settings(database_url="sqlite:///:memory:")
+        assert s.blob_s3_bucket is None
+        assert s.blob_s3_region is None
+        assert s.blob_s3_prefix == ""

@@ -12,13 +12,26 @@ def create_blob_store(settings: Settings) -> BlobStore:
 
     Currently supports:
       - ``local``  — filesystem-backed (default, suitable for dev)
+      - ``s3``     — AWS S3 bucket
 
     Raises ``ValueError`` for unknown backend names.
     """
     backend = settings.blob_backend.lower()
     if backend == "local":
         return LocalBlobStore(root=settings.blob_local_root)
+    if backend == "s3":
+        if not settings.blob_s3_bucket:
+            raise ValueError(
+                "blob_s3_bucket is required when blob_backend='s3'."
+            )
+        from app.storage.s3 import S3BlobStore
+
+        return S3BlobStore(
+            bucket=settings.blob_s3_bucket,
+            prefix=settings.blob_s3_prefix,
+            region=settings.blob_s3_region,
+        )
     raise ValueError(
         f"Unknown blob_backend: {settings.blob_backend!r}. "
-        "Supported: 'local'."
+        "Supported: 'local', 's3'."
     )
