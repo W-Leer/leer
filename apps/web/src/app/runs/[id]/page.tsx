@@ -26,6 +26,7 @@ export default function RunDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
+  const [eventsExpanded, setEventsExpanded] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -168,19 +169,16 @@ export default function RunDetailPage() {
         )}
       </section>
 
-      {/* Events list */}
-      <section className="mb-12">
-        <h2 className="mb-6 text-lg font-semibold tracking-tight text-neutral-900">Events</h2>
-        {events.length === 0 ? (
-          <p className="text-sm text-neutral-500">No events recorded.</p>
-        ) : (
-          <div className="space-y-1">
-            {events.map((event) => (
-              <EventRow key={event.id} event={event} />
-            ))}
-          </div>
-        )}
-      </section>
+      {/* Events list — collapsible, grouped by step */}
+      {events.length > 0 && (
+        <EventsSection
+          events={events}
+          expanded={eventsExpanded}
+          onToggle={() => setEventsExpanded(!eventsExpanded)}
+          runStartedAt={run.started_at}
+          stepById={stepById}
+        />
+      )}
     </div>
   );
 }
@@ -732,19 +730,125 @@ function InlineError({ data }: { data: Record<string, unknown> }) {
 }
 
 // ---------------------------------------------------------------------------
-// Event row
+// Events section — collapsible, grouped by step
 // ---------------------------------------------------------------------------
 
-function EventRow({ event }: { event: TimelineEvent }) {
+type EventGroup = {
+  stepId: string | null;
+  stepName: string | null;
+  events: TimelineEvent[];
+};
+
+function groupEventsByStep(
+  events: TimelineEvent[],
+  stepById: Map<string, TimelineStep>,
+): EventGroup[] {
+  const groups: EventGroup[] = [];
+  let current: EventGroup | null = null;
+
+  for (const ev of events) {
+    if (!current || current.stepId !== ev.step_id) {
+      const step = ev.step_id ? stepById.get(ev.step_id) : undefined;
+      current = {
+        stepId: ev.step_id,
+        stepName: step?.name ?? null,
+        events: [],
+      };
+      groups.push(current);
+    }
+    current.events.push(ev);
+  }
+  return groups;
+}
+
+function EventsSection({
+  events,
+  expanded,
+  onToggle,
+  runStartedAt,
+  stepById,
+}: {
+  events: TimelineEvent[];
+  expanded: boolean;
+  onToggle: () => void;
+  runStartedAt: string | null;
+  stepById: Map<string, TimelineStep>;
+}) {
+  const groups = useMemo(() => groupEventsByStep(events, stepById), [events, stepById]);
+  const baseTime = useMemo(() => {
+    if (runStartedAt) return new Date(runStartedAt).getTime();
+    if (events.length > 0) return new Date(events[0].timestamp).getTime();
+    return 0;
+  }, [runStartedAt, events]);
+
   return (
-    <div className="flex items-center gap-3 rounded px-3 py-2 text-sm hover:bg-neutral-50">
-      <span className="font-mono text-[11px] text-neutral-400">#{event.sequence_index}</span>
-      <span className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[11px] text-neutral-500">
+    <section className="mb-12">
+      <button
+        onClick={onToggle}
+        className="mb-4 flex w-full items-center gap-2 text-left"
+      >
+        <span className={`text-[10px] transition-transform duration-150 ${expanded ? "rotate-90" : ""} text-neutral-400`}>▶</span>
+        <h2 className="text-lg font-semibold tracking-tight text-neutral-900">Events</h2>
+        <span className="text-[11px] tabular-nums text-neutral-400">{events.length}</span>
+      </button>
+
+      {expanded && (
+        <div className="rounded-lg border border-neutral-200 bg-white">
+          <div className="divide-y divide-neutral-100">
+            {groups.map((group, gi) => (
+              <div key={gi}>
+                {group.stepId && group.stepName && (
+                  <div className="px-4 pt-2.5 pb-0.5">
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+                      {group.stepName}
+                    </span>
+                  </div>
+                )}
+                <div className="py-1">
+                  {group.events.map((ev) => (
+                    <EventRow key={ev.id} event={ev} baseTime={baseTime} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+const EVENT_BADGE_STYLES: Record<string, string> = {
+  "run.created": "bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400",
+  "run.started": "bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400",
+  "run.completed": "bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400",
+  "run.failed": "bg-red-50 text-red-500 dark:bg-red-950/30 dark:text-red-400",
+  "step.created": "bg-neutral-100 text-neutral-500",
+  "step.started": "bg-neutral-100 text-neutral-500",
+  "step.completed": "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400",
+  "step.failed": "bg-red-50 text-red-500 dark:bg-red-950/30 dark:text-red-400",
+};
+
+function EventRow({ event, baseTime }: { event: TimelineEvent; baseTime: number }) {
+  const offsetMs = baseTime ? new Date(event.timestamp).getTime() - baseTime : null;
+  const badgeStyle = EVENT_BADGE_STYLES[event.event_type] ?? "bg-neutral-100 text-neutral-400";
+  const hasPayload = Object.keys(event.payload).length > 0;
+
+  return (
+    <div className="flex items-baseline gap-2.5 px-4 py-[3px] font-mono text-[11px] hover:bg-neutral-100">
+      <span className="w-5 shrink-0 text-right tabular-nums text-neutral-400">
+        {event.sequence_index}
+      </span>
+      <span className={`shrink-0 rounded px-1.5 py-px text-[9px] font-medium ${badgeStyle}`}>
         {event.event_type}
       </span>
-      <span className="text-[11px] text-neutral-400">{formatDate(event.timestamp)}</span>
-      {Object.keys(event.payload).length > 0 && (
-        <span className="truncate font-mono text-[11px] text-neutral-400">
+      {offsetMs != null && (
+        <span className="shrink-0 tabular-nums text-neutral-400">
+          +{offsetMs}ms
+        </span>
+      )}
+      {hasPayload && (
+        <span className="min-w-0 truncate text-neutral-400" title={JSON.stringify(event.payload)}>
           {JSON.stringify(event.payload)}
         </span>
       )}
