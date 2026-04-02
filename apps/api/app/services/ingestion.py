@@ -1,10 +1,14 @@
+from __future__ import annotations
+
+import json
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import insert, null as sa_null, select
 from sqlalchemy.orm import Session
 
 from app.models import Artifact, Event, Project, Replay, Run, Step
-from app.schemas import IngestRunRequest
+from app.schemas import ArtifactPayload, IngestRunRequest
+from app.storage.base import BlobStore, compute_sha256
 
 
 def resolve_or_create_project(session: Session, slug: str) -> Project:
@@ -19,7 +23,72 @@ def resolve_or_create_project(session: Session, slug: str) -> Project:
     return project
 
 
-def ingest_run(session: Session, request: IngestRunRequest) -> uuid.UUID:
+def _blob_key(project_id: uuid.UUID, run_id: uuid.UUID, artifact_id: uuid.UUID) -> str:
+    return f"projects/{project_id}/runs/{run_id}/artifacts/{artifact_id}.json"
+
+
+def _persist_artifact(
+    session: Session,
+    a: ArtifactPayload,
+    *,
+    project_id: uuid.UUID,
+    run_id: uuid.UUID,
+    blob_store: BlobStore | None,
+    threshold: int,
+) -> None:
+    """Persist one artifact, offloading to blob storage when above threshold.
+
+    Uses ``sa.insert()`` with explicit ``sa.null()`` to guarantee real SQL NULL
+    for the mutually-exclusive inline_data / blob_path columns (psycopg3 would
+    otherwise write JSON null for JSONB columns set to Python None).
+    """
+    storage_kind = "inline"
+    inline_data = a.inline_data
+    blob_path = None
+    size_bytes: int | None = None
+    sha256: str | None = None
+
+    if inline_data is not None:
+        raw = json.dumps(inline_data, separators=(",", ":")).encode()
+        size_bytes = len(raw)
+        sha256 = compute_sha256(raw)
+
+        if blob_store is not None and size_bytes > threshold:
+            key = _blob_key(project_id, run_id, a.id)
+            blob_store.put(key, raw)
+            storage_kind = "blob"
+            blob_path = key
+            inline_data = None
+
+    session.execute(
+        insert(Artifact).values(
+            id=a.id,
+            project_id=project_id,
+            run_id=run_id,
+            step_id=a.step_id,
+            artifact_type=a.artifact_type,
+            role=a.role,
+            format_=a.format,
+            storage_kind=storage_kind,
+            sequence_index=a.sequence_index,
+            mime_type=a.mime_type,
+            size_bytes=size_bytes,
+            inline_data=inline_data if inline_data is not None else sa_null(),
+            blob_path=blob_path if blob_path is not None else sa_null(),
+            preview_text=a.preview_text,
+            sha256=sha256,
+            metadata_=a.metadata or {},
+        )
+    )
+
+
+def ingest_run(
+    session: Session,
+    request: IngestRunRequest,
+    *,
+    blob_store: BlobStore | None = None,
+    threshold: int = 256 * 1024,
+) -> uuid.UUID:
     project = resolve_or_create_project(session, request.project_slug)
 
     completed = sum(1 for s in request.steps if s.status == "completed")
@@ -120,23 +189,14 @@ def ingest_run(session: Session, request: IngestRunRequest) -> uuid.UUID:
         session.add(event)
 
     for a in request.artifacts:
-        artifact = Artifact(
-            id=a.id,
+        _persist_artifact(
+            session,
+            a,
             project_id=project.id,
             run_id=request.run.id,
-            step_id=a.step_id,
-            artifact_type=a.artifact_type,
-            role=a.role,
-            format_=a.format,
-            storage_kind=a.storage_kind,
-            sequence_index=a.sequence_index,
-            mime_type=a.mime_type,
-            inline_data=a.inline_data,
-            blob_path=a.blob_path,
-            preview_text=a.preview_text,
-            metadata_=a.metadata,
+            blob_store=blob_store,
+            threshold=threshold,
         )
-        session.add(artifact)
 
     if request.replay is not None:
         replay = Replay(

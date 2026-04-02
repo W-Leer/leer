@@ -44,7 +44,7 @@ class BlobStore(Protocol):
 
     @property
     def provider_name(self) -> str:
-        """Short identifier for this backend (e.g. 'local', 's3')."""
+        """Short identifier for this backend (e.g. 'local', 's3', 'gcs', 'azure')."""
         ...
 
     def put(self, key: str, data: bytes, *, content_type: str = "application/json") -> BlobRef:

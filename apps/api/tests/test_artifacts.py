@@ -1,7 +1,6 @@
 """Tests for the artifact content fetch endpoint and blob-aware artifact refs."""
 
 import json
-import tempfile
 import uuid
 
 from fastapi.testclient import TestClient
@@ -11,15 +10,15 @@ from sqlalchemy import text
 from app.db import get_session
 from app.dependencies import get_blob_store
 from app.main import app
-from app.storage.local import LocalBlobStore
+
+from tests.conftest import shared_blob_store
 
 
 # ---------------------------------------------------------------------------
-# Test fixtures — session rollback + local blob store per-test
+# Test fixtures — session rollback + shared blob store
 # ---------------------------------------------------------------------------
 
-_blob_dir = tempfile.mkdtemp(prefix="leer-test-blobs-")
-_test_blob_store = LocalBlobStore(root=_blob_dir)
+_test_blob_store = shared_blob_store
 
 
 def _session_with_rollback():
