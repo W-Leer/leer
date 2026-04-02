@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import type { LLMShape } from "@/lib/types";
+import type { LLMShape, StepArtifactRef } from "@/lib/types";
 import { formatDuration, errorHeadline, errorDetail, rawJson } from "@/lib/format";
 import { StructuredValue } from "@/components/structured-value";
+import { ArtifactViewer } from "@/components/artifact-viewer";
 import { computeLatencyBreakdown, type LatencyBreakdown } from "@/lib/latency";
 
 type Dict = Record<string, unknown>;
@@ -100,6 +101,13 @@ export interface ToolCallLinkInfo {
   toolStepStatus: string;
 }
 
+export interface BlobStreamState {
+  loading: boolean;
+  error: string | null;
+  loaded: boolean;
+  onLoad: () => void;
+}
+
 export function LlmStepDetail({
   llm,
   errorSummary,
@@ -108,6 +116,8 @@ export function LlmStepDetail({
   durationMs,
   streamMeta,
   streamEvents,
+  blobStreamState,
+  artifacts,
 }: {
   llm: LLMShape;
   errorSummary?: Dict | null;
@@ -116,6 +126,8 @@ export function LlmStepDetail({
   durationMs?: number | null;
   streamMeta?: Dict | null;
   streamEvents?: Dict[];
+  blobStreamState?: BlobStreamState;
+  artifacts?: StepArtifactRef[];
 }) {
   const [raw, setRaw] = useState(false);
   const rawText = JSON.stringify(llm, null, 2);
@@ -165,9 +177,12 @@ export function LlmStepDetail({
             />
           )}
           {breakdown.is_available && <LatencyBreakdownRow breakdown={breakdown} />}
-          {isStream && <StreamSection meta={streamMeta!} events={streamEvents} breakdown={breakdown} />}
+          {isStream && <StreamSection meta={streamMeta!} events={streamEvents} breakdown={breakdown} blobStreamState={blobStreamState} />}
           {hasError && <ErrorSection data={errorSummary!} />}
           <UsageRow usage={llm.usage} />
+          {artifacts && artifacts.length > 0 && (
+            <LlmArtifactList artifacts={artifacts} />
+          )}
         </>
       )}
     </div>
@@ -598,7 +613,7 @@ const STREAM_TAIL = 200;
 const PLAYBACK_MAX = 1000;
 const SPEEDS = [1, 2, 4] as const;
 
-export function StreamSection({ meta, events, breakdown }: { meta: Dict; events?: Dict[]; breakdown?: LatencyBreakdown }) {
+export function StreamSection({ meta, events, breakdown, blobStreamState }: { meta: Dict; events?: Dict[]; breakdown?: LatencyBreakdown; blobStreamState?: BlobStreamState }) {
   const [expanded, setExpanded] = useState(false);
   const [raw, setRaw] = useState(false);
 
@@ -774,6 +789,32 @@ export function StreamSection({ meta, events, breakdown }: { meta: Dict; events?
                 displayItems.map((item, i) => (
                   <DisplayItemRow key={i} item={item} />
                 ))
+              )}
+            </div>
+          ) : blobStreamState && !blobStreamState.loaded ? (
+            <div className="px-4 pb-3 space-y-2">
+              {blobStreamState.loading ? (
+                <p className="text-xs text-neutral-400">Loading stream events…</p>
+              ) : blobStreamState.error ? (
+                <>
+                  <p className="text-xs text-red-500">{blobStreamState.error}</p>
+                  <button
+                    onClick={blobStreamState.onLoad}
+                    className="rounded-md border border-neutral-200 px-3 py-1.5 text-[11px] font-medium text-neutral-500 transition-colors hover:border-neutral-300 hover:bg-neutral-50 hover:text-neutral-700"
+                  >
+                    Retry
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs text-neutral-400">Stream events stored as blob</p>
+                  <button
+                    onClick={blobStreamState.onLoad}
+                    className="rounded-md border border-neutral-200 px-3 py-1.5 text-[11px] font-medium text-neutral-500 transition-colors hover:border-neutral-300 hover:bg-neutral-50 hover:text-neutral-700"
+                  >
+                    Load stream events
+                  </button>
+                </>
               )}
             </div>
           ) : (
@@ -1070,6 +1111,40 @@ function UsageRow({
           </span>
         </span>
       ))}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Artifact list for LLM steps (excludes llm_stream)                   */
+/* ------------------------------------------------------------------ */
+
+function LlmArtifactList({ artifacts }: { artifacts: StepArtifactRef[] }) {
+  const filtered = useMemo(
+    () => artifacts.filter((a) => a.kind !== "llm_stream"),
+    [artifacts],
+  );
+  const [expanded, setExpanded] = useState(false);
+
+  if (filtered.length === 0) return null;
+
+  return (
+    <div>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 text-[11px] text-neutral-400 transition-colors hover:text-neutral-600"
+      >
+        <span className={`text-[9px] transition-transform duration-150 ${expanded ? "rotate-90" : ""}`}>▶</span>
+        <span className="font-medium">Artifacts</span>
+        <span className="tabular-nums">{filtered.length}</span>
+      </button>
+      {expanded && (
+        <div className="mt-2 space-y-2">
+          {filtered.map((a) => (
+            <ArtifactViewer key={a.id} artifact={a} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

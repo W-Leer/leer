@@ -52,7 +52,22 @@ export interface StepArtifactRef {
   format: string | null;
   preview_text: string | null;
   sequence_index: number | null;
+  storage_kind: string;
+  size_bytes: number | null;
+  sha256: string | null;
   inline_data?: Record<string, unknown> | null;
+}
+
+export interface ArtifactContentResponse {
+  id: string;
+  artifact_type: string;
+  role: string | null;
+  format: string | null;
+  storage_kind: string;
+  size_bytes: number | null;
+  sha256: string | null;
+  preview_text: string | null;
+  data: Record<string, unknown> | null;
 }
 
 export interface LLMShape {

@@ -19,3 +19,7 @@ build/
 .env
 .env.*
 !.env.example
+
+# Leer
+.leer/
+

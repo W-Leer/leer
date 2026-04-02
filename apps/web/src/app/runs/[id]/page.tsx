@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, fetchArtifactContent } from "@/lib/api";
 import {
   errorDetail,
   errorHeadline,
@@ -14,10 +14,11 @@ import {
   resolveData,
   statusClass,
 } from "@/lib/format";
-import type { TimelineResponse, TimelineStep, TimelineEvent } from "@/lib/types";
+import type { TimelineResponse, TimelineStep, TimelineEvent, StepArtifactRef } from "@/lib/types";
 import { StructuredValue } from "@/components/structured-value";
 import { LlmStepDetail } from "@/components/llm-step-detail";
 import type { ToolCallLinkInfo } from "@/components/llm-step-detail";
+import { ArtifactViewer } from "@/components/artifact-viewer";
 import { ChevronRight, GitCompareArrows } from "lucide-react";
 
 export default function RunDetailPage() {
@@ -370,14 +371,40 @@ function StepCard({
   const childCount = children?.length ?? 0;
   const allChildrenAreTools = childCount > 0 && children!.every((c) => c.step_type === "tool");
 
-  // Extract stream events from llm_stream artifact
-  const streamEvents = useMemo(() => {
+  // Extract stream events from llm_stream artifact (inline or lazy-fetched)
+  const streamArtifact = useMemo(() => {
     if (step.step_type !== "llm") return undefined;
-    const art = step.artifacts.find((a) => a.kind === "llm_stream");
-    if (!art?.inline_data) return undefined;
-    const evts = art.inline_data.events;
-    return Array.isArray(evts) ? (evts as Record<string, unknown>[]) : undefined;
+    return step.artifacts.find((a) => a.kind === "llm_stream");
   }, [step.step_type, step.artifacts]);
+
+  const inlineStreamEvents = useMemo(() => {
+    if (!streamArtifact?.inline_data) return undefined;
+    const evts = streamArtifact.inline_data.events;
+    return Array.isArray(evts) ? (evts as Record<string, unknown>[]) : undefined;
+  }, [streamArtifact]);
+
+  const streamIsBlob = streamArtifact != null && streamArtifact.storage_kind === "blob" && !streamArtifact.inline_data;
+
+  const [blobStreamEvents, setBlobStreamEvents] = useState<Record<string, unknown>[] | undefined>(undefined);
+  const [blobStreamLoading, setBlobStreamLoading] = useState(false);
+  const [blobStreamError, setBlobStreamError] = useState<string | null>(null);
+
+  const loadBlobStreamEvents = useCallback(async () => {
+    if (!streamArtifact || !streamIsBlob) return;
+    setBlobStreamLoading(true);
+    setBlobStreamError(null);
+    try {
+      const resp = await fetchArtifactContent(streamArtifact.id);
+      const evts = resp.data?.events;
+      setBlobStreamEvents(Array.isArray(evts) ? (evts as Record<string, unknown>[]) : []);
+    } catch (err) {
+      setBlobStreamError(err instanceof Error ? err.message : "Failed to load stream events");
+    } finally {
+      setBlobStreamLoading(false);
+    }
+  }, [streamArtifact, streamIsBlob]);
+
+  const streamEvents = inlineStreamEvents ?? blobStreamEvents;
 
   // Build tool call link map for LLM steps
   const llmToolCallLinks = useMemo(() => {
@@ -486,6 +513,13 @@ function StepCard({
                 durationMs={step.duration_ms}
                 streamMeta={step.metadata?.stream as Record<string, unknown> | undefined}
                 streamEvents={streamEvents}
+                blobStreamState={streamIsBlob ? {
+                  loading: blobStreamLoading,
+                  error: blobStreamError,
+                  loaded: blobStreamEvents != null,
+                  onLoad: loadBlobStreamEvents,
+                } : undefined}
+                artifacts={step.artifacts}
               />
             ) : (
               <StepDetailPanel
@@ -620,6 +654,11 @@ function StepDetailPanel({
           <InlineError data={step.error_summary!} />
         </StepSection>
       )}
+
+      {/* Artifacts */}
+      {step.artifacts.length > 0 && (
+        <ArtifactList artifacts={step.artifacts} />
+      )}
     </div>
   );
 }
@@ -725,6 +764,35 @@ function InlineError({ data }: { data: Record<string, unknown> }) {
         </>
       ) : (
         <StructuredValue value={resolveData(data)} />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Artifact list (shown in step detail panels)
+// ---------------------------------------------------------------------------
+
+function ArtifactList({ artifacts }: { artifacts: StepArtifactRef[] }) {
+  const [expanded, setExpanded] = useState(false);
+  if (artifacts.length === 0) return null;
+
+  return (
+    <div>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 text-[11px] text-neutral-400 transition-colors hover:text-neutral-600"
+      >
+        <span className={`text-[9px] transition-transform duration-150 ${expanded ? "rotate-90" : ""}`}>▶</span>
+        <span className="font-medium">Artifacts</span>
+        <span className="tabular-nums">{artifacts.length}</span>
+      </button>
+      {expanded && (
+        <div className="mt-2 space-y-2">
+          {artifacts.map((a) => (
+            <ArtifactViewer key={a.id} artifact={a} />
+          ))}
+        </div>
       )}
     </div>
   );
