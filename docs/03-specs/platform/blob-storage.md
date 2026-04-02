@@ -479,230 +479,68 @@ It exists to let Leer scale safely while keeping the developer experience clean:
 - UI stays mostly storage-agnostic
 - the design remains cloud-provider agnostic
 
-# Appendix — Blob Storage Backend Configuration
-
-This appendix defines how blob storage should be configured across environments.
-
-The guiding principle is:
-
-> Leer should stay provider-agnostic at the product layer and backend-specific only at the storage adapter layer.
-
 ---
 
-## Configuration Goals
+## Backend Configuration
 
-Blob backend configuration should:
+Leer blob storage is backend-agnostic by design. The backend is selected through a single setting and all artifact semantics remain identical regardless of which backend is active.
 
-- keep local development simple
-- support cloud object storage in production
-- avoid product-level coupling to any one cloud
-- make migration between backends possible without changing artifact semantics
+For practical setup instructions and example `.env` files, see `docs/04-execution/blob-storage-setup.md`.
 
----
+### Shared settings
 
-## Shared Concepts
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `BLOB_BACKEND` | `local` | Backend selector: `local`, `s3`, or `azure` |
+| `BLOB_INLINE_THRESHOLD_BYTES` | `262144` (256 KB) | Payloads at or below this size stay inline; payloads above are offloaded to blob storage |
 
-Regardless of backend, Leer should treat blob storage through the same logical contract:
+### Local filesystem
 
-- `blob_backend` — which adapter to use
-- `blob_inline_threshold_bytes` — maximum inline payload size before offloading
-- provider-specific credentials/config only inside the selected adapter
+Use for local development and single-node testing.
 
-Artifact semantics should remain unchanged:
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `BLOB_LOCAL_ROOT` | `.leer/blobs` | Directory where blob files are written |
 
-- inline artifacts use `storage_kind=inline`
-- offloaded artifacts use `storage_kind=blob`
-- `blob_path` stores the backend key/path, not a public URL
-- full artifact payload retrieval always goes through the Leer API
+Not suitable for multi-instance production deployments.
 
----
+### AWS S3
 
-## Local Backend
+Use for production deployments on AWS or S3-compatible infrastructure.
 
-Use for:
+| Setting | Default | Required | Description |
+|---------|---------|----------|-------------|
+| `BLOB_S3_BUCKET` | — | yes | S3 bucket name |
+| `BLOB_S3_REGION` | — | no | AWS region passed to the boto3 client |
+| `BLOB_S3_PREFIX` | `""` | no | Key prefix prepended to all blob keys |
 
-- local development
-- single-machine testing
-- CI smoke tests
+Authentication uses the standard boto3 credential chain (environment variables, shared config, IAM role, IRSA, ECS task role). Leer does not accept AWS credentials as its own settings.
 
-Suggested config:
+Requires `boto3` to be installed.
 
-```env
-BLOB_BACKEND=local
-BLOB_LOCAL_ROOT=.leer/blobs
-BLOB_INLINE_THRESHOLD_BYTES=262144
-```
+### Azure Blob Storage
 
-Behavior:
+Use for production deployments on Azure.
 
-- blob files are stored on the local filesystem
-- best for development only
-- not suitable for multi-instance production deployments
+| Setting | Default | Required | Description |
+|---------|---------|----------|-------------|
+| `BLOB_AZURE_CONTAINER` | — | yes | Azure container name |
+| `BLOB_AZURE_CONNECTION_STRING` | — | one of these | Full connection string (takes precedence) |
+| `BLOB_AZURE_ACCOUNT_URL` | — | one of these | Account URL; used with `DefaultAzureCredential` |
+| `BLOB_AZURE_PREFIX` | `""` | no | Key prefix prepended to all blob keys |
 
-Recommended notes in the main spec:
+If `BLOB_AZURE_CONNECTION_STRING` is set, it takes precedence. Otherwise `BLOB_AZURE_ACCOUNT_URL` is required and auth uses `DefaultAzureCredential`.
 
-- local backend is the default
-- local backend is not a production HA storage strategy
+Requires `azure-storage-blob` and `azure-identity` to be installed.
 
----
+### What is not stored in artifact rows
 
-## Amazon S3 Backend
+Artifact database rows contain only portable blob reference data:
 
-Use for:
+- `storage_kind` (`inline` or `blob`)
+- `blob_path` (the object key)
+- `size_bytes`
+- `sha256`
 
-- production deployments on AWS
-- general-purpose object storage
-- environments where S3-compatible tooling already exists
-
-Suggested config shape:
-
-```env
-BLOB_BACKEND=s3
-BLOB_S3_BUCKET=leer-artifacts-prod
-BLOB_S3_REGION=eu-west-1
-BLOB_S3_PREFIX=artifacts/
-BLOB_INLINE_THRESHOLD_BYTES=262144
-```
-
-Credential strategy:
-
-- prefer IAM role / workload identity in production
-- allow explicit access key / secret only for local testing or exceptional cases
-
-Suggested optional fields:
-
-```env
-AWS_ACCESS_KEY_ID=...
-AWS_SECRET_ACCESS_KEY=...
-AWS_SESSION_TOKEN=...
-```
-
-Design notes:
-
-- `blob_path` should store the object key, not a signed URL
-- signed/public URLs should not be persisted in artifact rows
-- all reads should still be mediated by the Leer API
-- S3 adapter should support bucket + prefix separation
-
-Recommended future adapter responsibilities:
-
-- put bytes
-- get bytes
-- delete object
-- existence check
-- consistent content-type support
-- optional metadata tagging if useful later
-
----
-
-## Azure Blob Storage Backend
-
-Use for:
-
-- production deployments on Azure
-- teams standardized on Azure infra
-
-Suggested config shape:
-
-```env
-BLOB_BACKEND=azure
-BLOB_AZURE_ACCOUNT_URL=https://myaccount.blob.core.windows.net
-BLOB_AZURE_CONTAINER=leer-artifacts
-BLOB_AZURE_PREFIX=artifacts/
-BLOB_INLINE_THRESHOLD_BYTES=262144
-```
-
-Credential strategy:
-
-- prefer managed identity / workload identity in production
-- allow connection string only for local development or transitional setups
-
-Suggested optional fields:
-
-```env
-AZURE_STORAGE_CONNECTION_STRING=...
-```
-
-Design notes:
-
-- `blob_path` should store the blob key/path within the container
-- keep container/account config in backend settings, not in artifact rows
-- full payload retrieval should still go through the Leer API
-
----
-
-## Recommended Settings Structure
-
-As the backend matrix grows, config should stay grouped by backend.
-
-Suggested long-term shape:
-
-```text
-blob_backend
-blob_inline_threshold_bytes
-
-blob_local_root
-
-blob_s3_bucket
-blob_s3_region
-blob_s3_prefix
-
-blob_azure_account_url
-blob_azure_container
-blob_azure_prefix
-```
-
-This keeps the interface explicit while avoiding cross-provider confusion.
-
----
-
-## What Should Not Be in Artifact Rows
-
-Do not store these in the artifact DB row:
-
-- raw cloud credentials
-- signed URLs
-- public URLs
-- provider SDK objects
-- backend-specific auth state
-
-Artifact rows should only store portable blob reference data such as:
-
-- storage kind
-- blob key/path
-- size
-- checksum
-
----
-
-## Recommended Production Guidance
-
-For production docs, recommend:
-
-- local backend only for dev/testing
-- S3 or Azure Blob for production
-- private buckets/containers by default
-- no direct browser access required
-- API-mediated artifact retrieval as the default security model
-
----
-
-## Future Extensions
-
-This appendix can later expand to cover:
-
-- GCS backend
-- S3-compatible backends (Cloudflare R2, MinIO, Backblaze B2, Wasabi)
-- encryption-at-rest expectations
-- object lifecycle / retention rules
-- blob garbage collection
-- cross-region replication
-
----
-
-## Suggested Short Note for the Main Spec
-
-You can append a short note like this inside `docs/03-specs/blob-storage.md`:
-
-> Leer blob storage is backend-agnostic by design. Local filesystem storage is the default for development. Production deployments should use a managed object store such as Amazon S3 or Azure Blob Storage via a storage adapter, while preserving the same artifact semantics and API-mediated retrieval model.
+Bucket names, container names, credentials, signed URLs, and provider endpoints are never stored in artifact rows.
 
