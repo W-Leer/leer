@@ -256,10 +256,16 @@ def main() -> None:
     print("Demo: Compare-page blob-backed stream validation")
     print("=" * 60)
     print()
-    print(f"  Chunks per run:     {CHUNK_COUNT:>8,}")
-    print(f"  Est. event payload: {estimated_bytes:>8,} bytes")
-    print(f"  Blob threshold:     {threshold:>8,} bytes")
-    print(f"  Above threshold:    {'yes' if estimated_bytes > threshold else 'NO — may stay inline'}")
+    print(f"  Chunks per run:       {CHUNK_COUNT:>8,}")
+    print(f"  Est. event payload:   {estimated_bytes:>8,} bytes  (rough estimate)")
+    print(f"  Blob threshold:       {threshold:>8,} bytes")
+    if estimated_bytes > threshold:
+        print(f"  Expected to exceed threshold (~{estimated_bytes / threshold:.1f}x)")
+    else:
+        print("  WARNING: estimate is below threshold — artifact may stay inline")
+    print()
+    print("  Note: the actual artifact size depends on the SDK's serialized")
+    print("  event shape. Confirm blob storage in the UI or API response.")
     print()
 
     print("  Creating stream-blob-fast...")
