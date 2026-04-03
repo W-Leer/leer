@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import {
   formatDuration,
@@ -78,7 +78,16 @@ function restoreScrollPosition() {
 // ---------------------------------------------------------------------------
 
 export default function HomePage() {
+  return (
+    <Suspense>
+      <HomePageInner />
+    </Suspense>
+  );
+}
+
+function HomePageInner() {
   const router = useRouter();
+  const sp = useSearchParams();
   const [runs, setRuns] = useState<RunListItem[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -97,7 +106,14 @@ export default function HomePage() {
     });
   }, []);
 
-  const initParams = useRef(parseUrlParams());
+  const initStatus = sp.get("status");
+  const initSort = sp.get("sort");
+  const initParams = useRef({
+    q: sp.get("q") ?? "",
+    status: (initStatus === "completed" || initStatus === "failed" ? initStatus : "") as StatusFilter,
+    sort: (initSort === "newest" || initSort === "oldest" ? initSort : "newest") as SortOrder,
+    limit: Math.min(100, Math.max(PAGE_SIZE, parseInt(sp.get("limit") ?? "", 10) || PAGE_SIZE)),
+  });
   const [query, setQuery] = useState(initParams.current.q);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(initParams.current.status);
   const [sort, setSort] = useState<SortOrder>(initParams.current.sort);
