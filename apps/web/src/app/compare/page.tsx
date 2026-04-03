@@ -8,6 +8,7 @@ import { formatDate, formatDuration, rawJson, resolveData, statusClass, timeAgo 
 import { computeLatencyBreakdown, type LatencyBreakdown } from "@/lib/latency";
 import { StructuredValue } from "@/components/structured-value";
 import { ROLE_STYLES, extractMessageContent, tryParseJson, resolveArgs, StreamSection } from "@/components/llm-step-detail";
+import { ExpandableTextBlock } from "@/components/expandable-text-block";
 import { RunSelector, type SelectedRun } from "@/components/run-selector";
 import { GitCompareArrows, Lightbulb } from "lucide-react";
 import type {
@@ -918,9 +919,7 @@ function OutputContent({ llm }: { llm: LLMShape | null }) {
         (structuredText != null ? (
           <StructuredValue value={structuredText} />
         ) : (
-          <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-neutral-700">
-            {llm.output.text}
-          </pre>
+          <ExpandableTextBlock text={llm.output.text} />
         ))}
       {llm.output.tool_calls.length > 0 && (
         <div className="space-y-1.5">

@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { LLMShape, StepArtifactRef } from "@/lib/types";
 import { formatDuration, errorHeadline, errorDetail, rawJson } from "@/lib/format";
 import { StructuredValue } from "@/components/structured-value";
+import { ExpandableTextBlock } from "@/components/expandable-text-block";
 import { ArtifactViewer } from "@/components/artifact-viewer";
 import { computeLatencyBreakdown, type LatencyBreakdown } from "@/lib/latency";
 
@@ -343,9 +344,7 @@ function OutputSection({ llm, hideToolCalls }: { llm: LLMShape; hideToolCalls?: 
           (structuredText != null ? (
             <StructuredValue value={structuredText} />
           ) : (
-            <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-neutral-700">
-              {output.text}
-            </pre>
+            <ExpandableTextBlock text={output.text} />
           ))}
         {!hideToolCalls && output.tool_calls.length > 0 && <ToolCallsList calls={output.tool_calls} />}
       </div>
