@@ -913,3 +913,162 @@ class TestMaterializePreservesTextAndToolCalls:
         assert len(artifacts) == 0
         assert n.output.content_blocks[0] == {"type": "text", "text": "Checking..."}
         assert n.output.content_blocks[1]["type"] == "tool_call"
+
+
+# ===================================================================
+# Step 4 edge cases — multiple media, unknown types, fallbacks
+# ===================================================================
+
+
+class TestMultipleMediaBlocksMaterialization:
+    """Multiple image/document blocks in one response are each materialized."""
+
+    def test_two_anthropic_images_both_materialized(self):
+        response = {
+            "id": "msg-test",
+            "model": "claude-sonnet-4-20250514",
+            "content": [
+                {"type": "text", "text": "Two images:"},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": PNG_1PX}},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": PNG_1PX}},
+            ],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        n = normalize_anthropic(_ant_req(messages=[{"role": "user", "content": "Draw two"}]), response)
+        artifacts = materialize_media_artifacts(n, response)
+
+        assert len(artifacts) == 2
+        # v1 heuristic: both match the first response block, so both get image/png
+        assert artifacts[0].mime_type == "image/png"
+        assert artifacts[1].mime_type == "image/png"
+        assert n.output.content_blocks[1]["artifact_id"] == artifacts[0].id
+        assert n.output.content_blocks[2]["artifact_id"] == artifacts[1].id
+
+    def test_mixed_image_and_document(self):
+        response = {
+            "id": "msg-test",
+            "model": "claude-sonnet-4-20250514",
+            "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": PNG_1PX}},
+                {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": PDF_FAKE}, "title": "r.pdf"},
+            ],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        n = normalize_anthropic(_ant_req(messages=[{"role": "user", "content": "Both"}]), response)
+        artifacts = materialize_media_artifacts(n, response)
+
+        assert len(artifacts) == 2
+        assert artifacts[0].artifact_type == "output_image"
+        assert artifacts[1].artifact_type == "output_document"
+
+
+class TestUnknownBlockTypeFallback:
+    """Unknown/unsupported block types should normalize as 'file' and not crash materialization."""
+
+    def test_anthropic_unknown_type_normalizes_as_file(self):
+        response = {
+            "id": "msg-test",
+            "model": "claude-sonnet-4-20250514",
+            "content": [
+                {"type": "spreadsheet", "data": "some-data", "source": {"media_type": "text/csv"}},
+            ],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        n = normalize_anthropic(_ant_req(messages=[{"role": "user", "content": "CSV"}]), response)
+        blocks = n.output.content_blocks
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "file"
+
+    def test_openai_unknown_output_normalizes_as_file(self):
+        output = [
+            {"type": "audio_output", "data": "fake-audio-data"},
+        ]
+        n = normalize_openai(_oai_resp_req(), _oai_resp_resp(output=output))
+        blocks = n.output.content_blocks
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "file"
+
+    def test_materialization_skips_file_type(self):
+        """File-type blocks do not get materialized — only image and document do."""
+        response = {
+            "id": "msg-test",
+            "model": "claude-sonnet-4-20250514",
+            "content": [
+                {"type": "spreadsheet", "data": "some-data", "source": {"media_type": "text/csv"}},
+            ],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        n = normalize_anthropic(_ant_req(messages=[{"role": "user", "content": "CSV"}]), response)
+        artifacts = materialize_media_artifacts(n, response)
+        assert len(artifacts) == 0
+
+
+class TestContentBlockEdgeCases:
+    """Edge cases: empty content blocks, blocks with only text, etc."""
+
+    def test_empty_content_blocks_no_crash(self):
+        """Anthropic response with no content blocks at all."""
+        response = {
+            "id": "msg-test",
+            "model": "claude-sonnet-4-20250514",
+            "content": [],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        n = normalize_anthropic(_ant_req(messages=[{"role": "user", "content": "Empty"}]), response)
+        assert n.output.content_blocks == []
+        artifacts = materialize_media_artifacts(n, response)
+        assert len(artifacts) == 0
+
+    def test_text_only_blocks_untouched_by_materialization(self):
+        response = {
+            "id": "msg-test",
+            "model": "claude-sonnet-4-20250514",
+            "content": [
+                {"type": "text", "text": "Hello world"},
+                {"type": "text", "text": "Second paragraph"},
+            ],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        n = normalize_anthropic(_ant_req(messages=[{"role": "user", "content": "Hi"}]), response)
+        artifacts = materialize_media_artifacts(n, response)
+        assert len(artifacts) == 0
+        assert len(n.output.content_blocks) == 2
+        assert all(b["type"] == "text" for b in n.output.content_blocks)
+
+
+class TestSummaryMediaPresence:
+    """Summaries should reveal media type markers, not drop them."""
+
+    def test_multimodal_input_summary_shows_all_media_types(self):
+        msgs = [
+            {"role": "user", "content": [
+                {"type": "text", "text": "Analyze these"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+                {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,def"}},
+            ]},
+        ]
+        summary = _summarize_content_for_user(msgs[0]["content"])
+        assert summary.count("[image]") == 2
+        assert "Analyze these" in summary
+
+    def test_summary_with_file_blocks(self):
+        content = [
+            {"type": "text", "text": "Read this"},
+            {"type": "file", "filename": "data.csv"},
+        ]
+        summary = _summarize_content_for_user(content)
+        assert "[file: data.csv]" in summary
+
+    def test_summary_with_document_block(self):
+        content = [
+            {"type": "text", "text": "Review the report"},
+            {"type": "document", "filename": "report.pdf"},
+        ]
+        summary = _summarize_content_for_user(content)
+        assert "[document: report.pdf]" in summary

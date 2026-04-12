@@ -81,9 +81,7 @@ High
 
 ---
 
-NOW
-
-## 6. Multimodal
+## 6. Multimodal [DONE]
 ### Goal
 Support image, audio, document, spreadsheet, and video inputs/outputs in a provider-agnostic way.
 

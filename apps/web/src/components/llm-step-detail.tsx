@@ -110,8 +110,24 @@ export interface BlobStreamState {
   onLoad: () => void;
 }
 
+const EMPTY_INPUT: LLMShape["input"] = { system: null, messages: [], tools: [], params: {} };
+const EMPTY_OUTPUT: LLMShape["output"] = { text: null, tool_calls: [], content_blocks: [] };
+const EMPTY_USAGE: LLMShape["usage"] = { prompt_tokens: null, completion_tokens: null, total_tokens: null };
+const EMPTY_META: LLMShape["meta"] = { finish_reason: null, request_id: null, latency_ms: null };
+
+function safeLlm(raw: LLMShape): LLMShape {
+  return {
+    provider: raw.provider ?? "",
+    model: raw.model ?? null,
+    input: raw.input ? { ...EMPTY_INPUT, ...raw.input, messages: raw.input.messages ?? [], tools: raw.input.tools ?? [], params: raw.input.params ?? {} } : EMPTY_INPUT,
+    output: raw.output ? { ...EMPTY_OUTPUT, ...raw.output, tool_calls: raw.output.tool_calls ?? [], content_blocks: raw.output.content_blocks ?? [] } : EMPTY_OUTPUT,
+    usage: raw.usage ? { ...EMPTY_USAGE, ...raw.usage } : EMPTY_USAGE,
+    meta: raw.meta ? { ...EMPTY_META, ...raw.meta } : EMPTY_META,
+  };
+}
+
 export function LlmStepDetail({
-  llm,
+  llm: rawLlm,
   errorSummary,
   toolCallLinks,
   onJumpToStep,
@@ -131,8 +147,9 @@ export function LlmStepDetail({
   blobStreamState?: BlobStreamState;
   artifacts?: StepArtifactRef[];
 }) {
+  const llm = useMemo(() => safeLlm(rawLlm), [rawLlm]);
   const [raw, setRaw] = useState(false);
-  const rawText = JSON.stringify(llm, null, 2);
+  const rawText = JSON.stringify(rawLlm, null, 2);
 
   const hasInput = !!llm.input.system || llm.input.messages.length > 0 || llm.input.tools.length > 0 || Object.keys(llm.input.params).length > 0;
   const hasOutputText = !!llm.output.text;

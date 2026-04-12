@@ -8,6 +8,7 @@ import { formatDate, formatDuration, rawJson, resolveData, statusClass, timeAgo 
 import { computeLatencyBreakdown, type LatencyBreakdown } from "@/lib/latency";
 import { StructuredValue } from "@/components/structured-value";
 import { ROLE_STYLES, extractMessageContent, tryParseJson, resolveArgs, StreamSection } from "@/components/llm-step-detail";
+import { CompareMediaBadge } from "@/components/media-artifact";
 import { ExpandableTextBlock } from "@/components/expandable-text-block";
 import { RunSelector, type SelectedRun } from "@/components/run-selector";
 import { GitCompareArrows, Lightbulb } from "lucide-react";
@@ -792,17 +793,17 @@ function MetaPills({ llm }: { llm: LLMShape | null }) {
           model <span className="font-medium text-neutral-700">{llm.model}</span>
         </span>
       )}
-      {llm.meta.latency_ms != null && (
+      {llm.meta?.latency_ms != null && (
         <span className="text-neutral-400">
           latency <span className="font-medium text-neutral-700">{formatDuration(llm.meta.latency_ms)}</span>
         </span>
       )}
-      {llm.meta.finish_reason && (
+      {llm.meta?.finish_reason && (
         <span className="text-neutral-400">
           finish <span className="font-medium text-neutral-700">{llm.meta.finish_reason}</span>
         </span>
       )}
-      {llm.usage.total_tokens != null && (
+      {llm.usage?.total_tokens != null && (
         <span className="text-neutral-400">
           tokens <span className="font-medium tabular-nums text-neutral-700">{llm.usage.total_tokens.toLocaleString()}</span>
         </span>
@@ -812,8 +813,8 @@ function MetaPills({ llm }: { llm: LLMShape | null }) {
 }
 
 function LlmInputDiff({ a, b }: { a: LLMShape | null; b: LLMShape | null }) {
-  const hasA = !!(a && (a.input.system || a.input.messages.length > 0));
-  const hasB = !!(b && (b.input.system || b.input.messages.length > 0));
+  const hasA = !!(a && (a.input?.system || (a.input?.messages?.length ?? 0) > 0));
+  const hasB = !!(b && (b.input?.system || (b.input?.messages?.length ?? 0) > 0));
   if (!hasA && !hasB) return null;
 
   const diff = JSON.stringify(a?.input) !== JSON.stringify(b?.input);
@@ -839,14 +840,27 @@ function LlmInputDiff({ a, b }: { a: LLMShape | null; b: LLMShape | null }) {
   );
 }
 
+function extractMediaBlocks(msg: Record<string, unknown>): Record<string, unknown>[] {
+  const c = msg.content;
+  if (!Array.isArray(c)) return [];
+  return c.filter((block) => {
+    if (!block || typeof block !== "object") return false;
+    const b = block as Record<string, unknown>;
+    const t = b.type as string | undefined;
+    return t && t !== "text" && t !== "input_text";
+  }) as Record<string, unknown>[];
+}
+
 function InputMessages({ llm }: { llm: LLMShape | null }) {
-  if (!llm || (!llm.input.system && llm.input.messages.length === 0)) {
+  const messages = llm?.input?.messages ?? [];
+  const tools = llm?.input?.tools ?? [];
+  if (!llm || (!llm.input?.system && messages.length === 0)) {
     return <p className="text-xs italic text-neutral-400">No prompt</p>;
   }
 
   return (
     <div className="space-y-2.5">
-      {llm.input.system && (
+      {llm.input?.system && (
         <div>
           <span className={`text-[10px] font-medium ${ROLE_STYLES.system}`}>system</span>
           <pre className="mt-0.5 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-neutral-700">
@@ -854,24 +868,32 @@ function InputMessages({ llm }: { llm: LLMShape | null }) {
           </pre>
         </div>
       )}
-      {llm.input.messages.map((msg, i) => {
+      {messages.map((msg, i) => {
         const role = (msg.role as string) ?? "unknown";
         const content = extractMessageContent(msg);
+        const media = extractMediaBlocks(msg);
         const color = ROLE_STYLES[role] ?? "text-neutral-400";
         return (
           <div key={i}>
             <span className={`text-[10px] font-medium ${color}`}>{role}</span>
+            {media.length > 0 && (
+              <div className="mt-0.5 flex flex-wrap gap-1">
+                {media.map((b, j) => (
+                  <CompareMediaBadge key={j} block={b} />
+                ))}
+              </div>
+            )}
             <pre className="mt-0.5 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-neutral-700">
               {content || "(empty)"}
             </pre>
           </div>
         );
       })}
-      {llm.input.tools.length > 0 && (
+      {tools.length > 0 && (
         <div>
           <span className="text-[10px] font-medium text-neutral-400">tools</span>
           <div className="mt-0.5 flex flex-wrap gap-1">
-            {llm.input.tools.map((t, i) => (
+            {tools.map((t, i) => (
               <span key={i} className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[10px] text-neutral-500">
                 {(t.name as string) ?? (t.function as Dict)?.name ?? "tool"}
               </span>
@@ -906,23 +928,26 @@ function LlmOutputDiff({ a, b, diff }: { a: LLMShape | null; b: LLMShape | null;
   );
 }
 
+function isMediaBlock(b: Record<string, unknown>): boolean {
+  const t = b.type as string | undefined;
+  return !!t && t !== "text" && t !== "thinking" && t !== "redacted_thinking" && t !== "tool_call";
+}
+
 function OutputContent({ llm }: { llm: LLMShape | null }) {
-  const hasMedia = llm?.output.content_blocks.some(
-    (b) => { const t = b.type as string | undefined; return t && t !== "text" && t !== "thinking" && t !== "redacted_thinking" && t !== "tool_call"; },
-  );
-  if (!llm || (!llm.output.text && llm.output.tool_calls.length === 0 && !hasMedia)) {
+  const contentBlocks = llm?.output?.content_blocks ?? [];
+  const toolCalls = llm?.output?.tool_calls ?? [];
+  const hasMedia = contentBlocks.some(isMediaBlock);
+  if (!llm || (!llm.output?.text && toolCalls.length === 0 && !hasMedia)) {
     return <p className="text-xs italic text-neutral-400">No output</p>;
   }
 
-  const structuredText = llm.output.text ? tryParseJson(llm.output.text) : null;
+  const structuredText = llm.output?.text ? tryParseJson(llm.output.text) : null;
 
-  const mediaBlocks = llm.output.content_blocks.filter(
-    (b) => { const t = b.type as string | undefined; return t && t !== "text" && t !== "thinking" && t !== "redacted_thinking" && t !== "tool_call"; },
-  );
+  const mediaBlocks = contentBlocks.filter(isMediaBlock);
 
   return (
     <div className="space-y-2">
-      {llm.output.text &&
+      {llm.output?.text &&
         (structuredText != null ? (
           <StructuredValue value={structuredText} />
         ) : (
@@ -930,25 +955,15 @@ function OutputContent({ llm }: { llm: LLMShape | null }) {
         ))}
       {mediaBlocks.length > 0 && (
         <div className="space-y-1">
-          {mediaBlocks.map((b, i) => {
-            const t = (b.type as string) ?? "media";
-            const fname = b.filename as string | undefined;
-            return (
-              <div key={i} className="flex items-center gap-1.5 rounded bg-neutral-50 px-2 py-1 text-[10px]">
-                <span className="rounded bg-neutral-200 px-1 py-px text-[9px] font-medium text-neutral-500">
-                  {t.toUpperCase()}
-                </span>
-                {fname && <span className="font-mono text-neutral-600">{fname}</span>}
-                {typeof b.mime_type === "string" && <span className="text-neutral-400">{b.mime_type}</span>}
-              </div>
-            );
-          })}
+          {mediaBlocks.map((b, i) => (
+            <CompareMediaBadge key={i} block={b} />
+          ))}
         </div>
       )}
-      {llm.output.tool_calls.length > 0 && (
+      {toolCalls.length > 0 && (
         <div className="space-y-1.5">
           <span className="text-[10px] font-medium text-neutral-400">Tool calls</span>
-          {llm.output.tool_calls.map((tc, i) => {
+          {toolCalls.map((tc, i) => {
             const args = resolveArgs(tc.arguments);
             return (
               <div key={i} className="rounded bg-neutral-50 px-2 py-1.5">
@@ -1139,7 +1154,7 @@ function LlmLatencyDiff({
 
   const breakdownA = useMemo(
     () => computeLatencyBreakdown({
-      durationMs: durationMsA ?? llmA?.meta.latency_ms,
+      durationMs: durationMsA ?? llmA?.meta?.latency_ms,
       streamMeta: streamMetaA,
       usage: llmA?.usage,
     }),
@@ -1148,7 +1163,7 @@ function LlmLatencyDiff({
 
   const breakdownB = useMemo(
     () => computeLatencyBreakdown({
-      durationMs: durationMsB ?? llmB?.meta.latency_ms,
+      durationMs: durationMsB ?? llmB?.meta?.latency_ms,
       streamMeta: streamMetaB,
       usage: llmB?.usage,
     }),

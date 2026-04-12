@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { artifactContentUrl } from "@/lib/api";
 import type { StepArtifactRef } from "@/lib/types";
 
@@ -41,9 +41,47 @@ function formatBytes(bytes: number | null): string {
 }
 
 function mimeLabel(mime: string | null): string {
-  if (!mime) return "file";
+  if (!mime) return "FILE";
   const sub = mime.split("/")[1] ?? mime;
   return sub.toUpperCase();
+}
+
+// ---------------------------------------------------------------------------
+// Shared artifact header
+// ---------------------------------------------------------------------------
+
+function ArtifactHeader({
+  badge,
+  badgeColor,
+  artifact,
+}: {
+  badge: string;
+  badgeColor: string;
+  artifact: StepArtifactRef;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-2 px-3 py-2 text-[11px]">
+      <span className={`shrink-0 rounded px-1.5 py-px text-[9px] font-medium ${badgeColor}`}>
+        {badge}
+      </span>
+      <span className="min-w-0 truncate font-mono font-medium text-neutral-600">
+        {artifact.filename ?? artifact.kind}
+      </span>
+      {artifact.mime_type && (
+        <span className="shrink-0 text-[10px] text-neutral-400">{artifact.mime_type}</span>
+      )}
+      {artifact.size_bytes != null && (
+        <span className="shrink-0 text-[10px] tabular-nums text-neutral-400">
+          {formatBytes(artifact.size_bytes)}
+        </span>
+      )}
+      {artifact.storage_kind === "blob" && (
+        <span className="shrink-0 rounded bg-indigo-50 px-1.5 py-px text-[9px] font-medium text-indigo-500">
+          blob
+        </span>
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -51,45 +89,39 @@ function mimeLabel(mime: string | null): string {
 // ---------------------------------------------------------------------------
 
 export function ImageArtifactPreview({ artifact }: { artifact: StepArtifactRef }) {
-  const [state, setState] = useState<"idle" | "loaded" | "error">("idle");
+  const [state, setState] = useState<"loading" | "loaded" | "error">("loading");
   const src = artifactContentUrl(artifact.id);
 
   return (
-    <div className="rounded-md border border-neutral-200 bg-white overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2 text-[11px]">
-        <span className="rounded bg-violet-50 px-1.5 py-px text-[9px] font-medium text-violet-600">
-          IMG
-        </span>
-        <span className="font-mono font-medium text-neutral-600">
-          {artifact.filename ?? artifact.kind}
-        </span>
-        {artifact.mime_type && (
-          <span className="text-[10px] text-neutral-400">{artifact.mime_type}</span>
-        )}
-        {artifact.size_bytes != null && (
-          <span className="text-[10px] tabular-nums text-neutral-400">
-            {formatBytes(artifact.size_bytes)}
-          </span>
-        )}
-        {artifact.storage_kind === "blob" && (
-          <span className="rounded bg-indigo-50 px-1.5 py-px text-[9px] font-medium text-indigo-500">
-            blob
-          </span>
-        )}
-      </div>
+    <div className="overflow-hidden rounded-md border border-neutral-200 bg-white">
+      <ArtifactHeader badge="IMG" badgeColor="bg-violet-50 text-violet-600" artifact={artifact} />
       <div className="border-t border-neutral-100 bg-neutral-50 p-3">
         {state === "error" ? (
-          <p className="text-xs text-red-500">Failed to load image</p>
+          <div className="flex items-center gap-2 py-2">
+            <span className="text-xs text-red-500">Failed to load image</span>
+            <button
+              onClick={() => setState("loading")}
+              className="rounded border border-neutral-200 px-2 py-0.5 text-[10px] font-medium text-neutral-500 hover:bg-neutral-100"
+            >
+              Retry
+            </button>
+          </div>
         ) : (
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img
-            src={src}
-            alt={artifact.preview_text ?? artifact.filename ?? "image artifact"}
-            className="max-h-96 max-w-full rounded object-contain"
-            loading="lazy"
-            onLoad={() => setState("loaded")}
-            onError={() => setState("error")}
-          />
+          <div className="relative">
+            {state === "loading" && (
+              <div className="flex h-16 items-center justify-center">
+                <span className="text-xs text-neutral-400">Loading image…</span>
+              </div>
+            )}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={src}
+              alt={artifact.preview_text ?? artifact.filename ?? "image artifact"}
+              className={`max-h-[480px] max-w-full rounded object-contain ${state === "loading" ? "absolute opacity-0" : ""}`}
+              onLoad={() => setState("loaded")}
+              onError={() => setState("error")}
+            />
+          </div>
         )}
       </div>
     </div>
@@ -105,26 +137,9 @@ export function DocumentArtifactPreview({ artifact }: { artifact: StepArtifactRe
   const [showEmbed, setShowEmbed] = useState(false);
 
   return (
-    <div className="rounded-md border border-neutral-200 bg-white">
-      <div className="flex items-center gap-2 px-3 py-2 text-[11px]">
-        <span className="rounded bg-orange-50 px-1.5 py-px text-[9px] font-medium text-orange-600">
-          PDF
-        </span>
-        <span className="font-mono font-medium text-neutral-600">
-          {artifact.filename ?? artifact.kind}
-        </span>
-        {artifact.size_bytes != null && (
-          <span className="text-[10px] tabular-nums text-neutral-400">
-            {formatBytes(artifact.size_bytes)}
-          </span>
-        )}
-        {artifact.storage_kind === "blob" && (
-          <span className="rounded bg-indigo-50 px-1.5 py-px text-[9px] font-medium text-indigo-500">
-            blob
-          </span>
-        )}
-      </div>
-      <div className="border-t border-neutral-100 px-3 py-2 space-y-2">
+    <div className="overflow-hidden rounded-md border border-neutral-200 bg-white">
+      <ArtifactHeader badge="PDF" badgeColor="bg-orange-50 text-orange-600" artifact={artifact} />
+      <div className="space-y-2 border-t border-neutral-100 px-3 py-2">
         <div className="flex gap-2">
           <a
             href={src}
@@ -142,18 +157,25 @@ export function DocumentArtifactPreview({ artifact }: { artifact: StepArtifactRe
           </button>
         </div>
         {showEmbed && (
-          <div className="rounded border border-neutral-200 overflow-hidden">
+          <div className="overflow-hidden rounded border border-neutral-200">
             <object
               data={src}
               type="application/pdf"
               className="h-[480px] w-full"
             >
-              <p className="p-3 text-xs text-neutral-400">
-                PDF preview not available.{" "}
-                <a href={src} target="_blank" rel="noopener noreferrer" className="underline">
-                  Open directly
+              <div className="flex flex-col items-center gap-2 p-6 text-center">
+                <p className="text-xs text-neutral-400">
+                  PDF preview not supported in this browser.
+                </p>
+                <a
+                  href={src}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-md border border-neutral-200 px-3 py-1.5 text-[11px] font-medium text-neutral-600 transition-colors hover:border-neutral-300 hover:bg-neutral-50"
+                >
+                  Open PDF directly
                 </a>
-              </p>
+              </div>
             </object>
           </div>
         )}
@@ -170,25 +192,25 @@ export function GenericMediaArtifactCard({ artifact }: { artifact: StepArtifactR
   const src = artifactContentUrl(artifact.id);
 
   return (
-    <div className="rounded-md border border-neutral-200 bg-white">
-      <div className="flex items-center justify-between px-3 py-2">
-        <div className="flex items-center gap-2 text-[11px]">
-          <span className="rounded bg-neutral-100 px-1.5 py-px text-[9px] font-medium text-neutral-500">
+    <div className="overflow-hidden rounded-md border border-neutral-200 bg-white">
+      <div className="flex min-w-0 items-center justify-between gap-2 px-3 py-2">
+        <div className="flex min-w-0 items-center gap-2 text-[11px]">
+          <span className="shrink-0 rounded bg-neutral-100 px-1.5 py-px text-[9px] font-medium text-neutral-500">
             {mimeLabel(artifact.mime_type)}
           </span>
-          <span className="font-mono font-medium text-neutral-600">
+          <span className="min-w-0 truncate font-mono font-medium text-neutral-600">
             {artifact.filename ?? artifact.kind}
           </span>
           {artifact.mime_type && (
-            <span className="text-[10px] text-neutral-400">{artifact.mime_type}</span>
+            <span className="shrink-0 text-[10px] text-neutral-400">{artifact.mime_type}</span>
           )}
           {artifact.size_bytes != null && (
-            <span className="text-[10px] tabular-nums text-neutral-400">
+            <span className="shrink-0 text-[10px] tabular-nums text-neutral-400">
               {formatBytes(artifact.size_bytes)}
             </span>
           )}
           {artifact.storage_kind === "blob" && (
-            <span className="rounded bg-indigo-50 px-1.5 py-px text-[9px] font-medium text-indigo-500">
+            <span className="shrink-0 rounded bg-indigo-50 px-1.5 py-px text-[9px] font-medium text-indigo-500">
               blob
             </span>
           )}
@@ -197,14 +219,14 @@ export function GenericMediaArtifactCard({ artifact }: { artifact: StepArtifactR
           href={src}
           target="_blank"
           rel="noopener noreferrer"
-          className="rounded-md border border-neutral-200 px-2.5 py-1 text-[10px] font-medium text-neutral-500 transition-colors hover:border-neutral-300 hover:bg-neutral-50 hover:text-neutral-700"
+          className="shrink-0 rounded-md border border-neutral-200 px-2.5 py-1 text-[10px] font-medium text-neutral-500 transition-colors hover:border-neutral-300 hover:bg-neutral-50 hover:text-neutral-700"
         >
           Open
         </a>
       </div>
       {artifact.preview_text && (
         <div className="border-t border-neutral-100 px-3 py-1.5">
-          <p className="font-mono text-[10px] text-neutral-400">{artifact.preview_text}</p>
+          <p className="truncate font-mono text-[10px] text-neutral-400">{artifact.preview_text}</p>
         </div>
       )}
     </div>
@@ -255,21 +277,47 @@ export function ContentBlockRow({ block, artifacts }: ContentBlockRowProps) {
   const previewText = block.preview_text as string | undefined;
 
   return (
-    <div className="rounded-md border border-neutral-200 bg-white px-3 py-2">
-      <div className="flex items-center gap-2 text-[11px]">
-        <span className="rounded bg-neutral-100 px-1.5 py-px text-[9px] font-medium text-neutral-500">
+    <div className="overflow-hidden rounded-md border border-neutral-200 bg-white px-3 py-2">
+      <div className="flex min-w-0 items-center gap-2 text-[11px]">
+        <span className="shrink-0 rounded bg-neutral-100 px-1.5 py-px text-[9px] font-medium text-neutral-500">
           {(type ?? "media").toUpperCase()}
         </span>
         {filename && (
-          <span className="font-mono font-medium text-neutral-600">{filename}</span>
+          <span className="min-w-0 truncate font-mono font-medium text-neutral-600">{filename}</span>
         )}
         {mime && (
-          <span className="text-[10px] text-neutral-400">{mime}</span>
+          <span className="shrink-0 text-[10px] text-neutral-400">{mime}</span>
         )}
       </div>
       {previewText && (
-        <p className="mt-1 font-mono text-[10px] text-neutral-400">{previewText}</p>
+        <p className="mt-1 truncate font-mono text-[10px] text-neutral-400">{previewText}</p>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CompareMediaBadge — compact media badge for compare page
+// ---------------------------------------------------------------------------
+
+export function CompareMediaBadge({ block }: { block: Record<string, unknown> }) {
+  const t = (block.type as string) ?? "media";
+  const fname = block.filename as string | undefined;
+  const mime = typeof block.mime_type === "string" ? block.mime_type : undefined;
+
+  const badgeColors: Record<string, string> = {
+    image: "bg-violet-50 text-violet-600",
+    document: "bg-orange-50 text-orange-600",
+    file: "bg-neutral-100 text-neutral-500",
+  };
+
+  return (
+    <div className="flex min-w-0 items-center gap-1.5 rounded bg-neutral-50 px-2 py-1 text-[10px]">
+      <span className={`shrink-0 rounded px-1 py-px text-[9px] font-medium ${badgeColors[t] ?? "bg-neutral-200 text-neutral-500"}`}>
+        {t.toUpperCase()}
+      </span>
+      {fname && <span className="min-w-0 truncate font-mono text-neutral-600">{fname}</span>}
+      {mime && <span className="shrink-0 text-neutral-400">{mime}</span>}
     </div>
   );
 }
@@ -297,7 +345,7 @@ export function InputMediaMarker({ block }: { block: Record<string, unknown> }) 
   }
 
   return (
-    <span className="inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600">
+    <span className="inline-flex max-w-[200px] items-center truncate rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600">
       {label}
     </span>
   );

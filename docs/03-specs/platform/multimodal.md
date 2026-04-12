@@ -2,7 +2,7 @@
 
 Defines Leer's platform-level multimodal support model.
 
-This document is the permanent product and technical spec for how Leer handles image, audio, video, document, spreadsheet, and generic file content across providers.
+This document is the permanent product and technical spec for how Leer handles multimodal content across providers. The platform model covers image, audio, video, document, spreadsheet, and generic file content. See **v1 Support Strategy** and **v1 Status** for what is currently shipped.
 
 ---
 
@@ -253,9 +253,11 @@ Adapters should:
 Examples:
 - PDF becomes `document`
 - PNG becomes `image`
-- WAV becomes `file` in v1 (dedicated `audio` type deferred)
-- MP4 becomes `file` in v1 (dedicated `video` type deferred)
+- WAV currently normalizes to `file` in v1
+- MP4 currently normalizes to `file` in v1
 - XLSX becomes `file` with `kind_hint=spreadsheet` in v1
+
+Dedicated `audio`/`video` canonical handling is deferred.
 
 ---
 
@@ -307,53 +309,98 @@ The first multimodal milestone should explicitly avoid:
 
 ---
 
-## v1 Implementation Constraints
+## v1 Architecture Summary
 
-These are known, accepted constraints in the current implementation. They do not block the v1 milestone but are documented here for clarity.
+### Binary artifact transport
 
-### Step 1 — Binary artifact transport
+- SDK helper: `create_binary_artifact()` creates blob-backed media artifacts with `mime_type`, `filename`, raw bytes
+- Ingestion: API decodes base64 from the ingest payload, computes `sha256`/`size_bytes`, stores to blob
+- Serving: `/v1/artifacts/{id}/content` returns raw bytes with correct `Content-Type`
+- Timeline refs include `mime_type`, `filename`, `size_bytes`, `storage_kind`
 
-**Binary/media artifacts are blob-only.** Binary artifacts are always stored in blob storage. They never use `inline_data`. This is enforced by the SDK helper (`create_binary_artifact`) and the ingestion path. Small text/JSON artifacts may still be inline.
+### Content-part normalization
 
-**Binary transport uses base64-over-JSON.** The SDK encodes binary artifact content as base64 in the ingest JSON payload (`binary_data_b64` field). The API decodes and stores directly to blob. This causes ~33% payload expansion and is acceptable for small-to-medium media. Future optimization: multipart upload or signed-upload-then-reference flow.
+- Canonical part types: `text`, `image`, `document`, `file`, `tool_call`
+- Each media part carries: `type`, `mime_type`, `source`, `artifact_id`, `filename`, `preview_text`
+- Source descriptors: `inline`, `url`, `artifact`, `provider_file`
+- OpenAI: `output_image`, `image_generation_call` → canonical `image`; unknown output items → `file` fallback
+- Anthropic: `image` blocks → `image`; `document` blocks → `document`; unknown blocks → `file` fallback
+- Summaries reveal media presence: `[image] Explain this chart`, `[document: report.pdf]`
 
-### Step 2 — Content-part normalization
+### Media artifact materialization
 
-**Output is canonical; input is still provider-shaped.** Output `content_blocks` use the canonical content-part model. Input `LLMInput.messages` still carry raw provider shapes. Summaries reveal multimodal presence (e.g. `[image] Explain this chart`), but message payloads are not yet normalized. This asymmetry is acceptable for v1. Canonical input content parts will be needed later for diffing, replay, and provider-agnostic message rendering.
+- After normalization, `materialize_media_artifacts()` scans output content blocks
+- For `image`/`document` parts with inline base64, decodes bytes and creates binary artifacts
+- Enriches content parts with `artifact_id`, `source: {"kind": "artifact"}`, `size_bytes`
+- Artifact types: `output_image`, `output_document`
+- Idempotent — skips parts that already have `artifact_id`
+- Called from both OpenAI and Anthropic wrapper `_enrich_step` flows
 
-**Inline base64 media has no artifact reference.** When providers return base64-encoded media (e.g. Anthropic image/document blocks), canonical parts get `source: {"kind": "inline"}` but no `artifact_id`. Step 3 must create derived artifacts for renderable media rather than rendering from raw provider payloads.
+### Frontend rendering
 
-**Canonical type scope is image, document, and file only.** `_canonical_type_from_mime` only produces `image`, `document`, or `file`. Audio and video MIME types fall through to generic `file` to avoid overclassifying beyond current scope. Dedicated `audio`/`video` types are deferred.
+- `ImageArtifactPreview`: inline `<img>` loaded from artifact content endpoint, loading/error states
+- `DocumentArtifactPreview`: open/preview actions, embedded `<object>` PDF viewer with fallback
+- `GenericMediaArtifactCard`: typed card with MIME label, filename, size, open action
+- `ContentBlockRow`: renders canonical content blocks, matches `artifact_id` to step artifacts
+- `CompareMediaBadge`: compact color-coded badges for compare page (no rich previews)
+- `ArtifactViewer` dispatches to media renderer for binary/media artifacts
 
-### General
+### Provider coverage
 
-**Rich media rendering is not part of Step 1 or Step 2.** The binary artifact pipeline and content-part normalization are plumbing-only. Image, PDF, audio, and video renderers are Step 3. Until then, binary artifacts appear as typed artifact cards with metadata (kind, MIME type, filename, size).
+| Provider | Input capture | Output normalization | Materialization |
+|----------|---------------|----------------------|-----------------|
+| OpenAI Responses API | summaries with media markers | `output_image`, `image_generation_call`, `refusal`, unknown → `file` | base64 images → `output_image` artifacts |
+| OpenAI Chat Completions | summaries with media markers | text + tool_call only (no multimodal output shapes yet) | n/a |
+| Anthropic | summaries with media markers | `image`, `document`, unknown → `file` | base64 image/document → `output_image`/`output_document` artifacts |
 
 ---
 
-## Delivery Order
+## v1 Known Constraints
 
-Recommended implementation order:
+These are accepted constraints in the current implementation. They do not block v1 but are documented for future reference.
 
-1. ~~spec and audit~~ — done (Step 0)
-2. ~~binary artifact transport (SDK helper, ingestion, serving, mime_type in refs)~~ — done (Step 1)
-3. ~~canonical content-part model and provider normalization~~ — done (Step 2)
-4. ~~media artifact linking, image + PDF/document rendering, typed generic artifact cards~~ — done (Step 3)
-5. compare non-regression, polish, QA (Step 4)
-6. later rich renderers for audio/video/spreadsheet
+### Transport
 
-Binary transport comes before normalization because normalizers need a working artifact pipeline to write media into.
+- **Base64-over-JSON transport.** Binary artifact content is base64-encoded in the ingest JSON payload. ~33% payload expansion, acceptable for small-to-medium media. Future: multipart upload or signed-upload-then-reference.
+- **`/v1/artifacts/{id}/content` is dual-purpose.** Returns raw bytes for binary artifacts and serialized JSON for JSON artifacts. Pragmatic but slightly mixed contract.
+
+### Normalization
+
+- **Output is canonical; input is still provider-shaped.** Output `content_blocks` use canonical parts. Input `LLMInput.messages` still carry raw provider shapes. Summaries reveal media presence, but messages are not normalized. Later needed for diffing, replay, and provider-agnostic rendering.
+- **Canonical type scope: `image`, `document`, `file` only.** Audio/video MIME types fall through to generic `file`. Dedicated `audio`/`video` canonical types are deferred.
+- **Chat completions API has no multimodal output shapes to normalize yet.**
+
+### Materialization
+
+- **Matching is heuristic.** `_find_response_block()` matches content parts to provider response blocks by `provider_part_type`. Works for common single-image/document cases. Could become ambiguous with multiple blocks of the same type. Future: positional or identity-based matching.
+- **Post-normalization mutation pass.** Normalization creates content blocks first, then `materialize_media_artifacts` mutates them in a second pass. Keeps normalization pure but means normalization + materialization should be treated as one pipeline.
+- **URL-sourced media is not materialized.** Only base64-encoded media (where bytes are available) creates artifacts. URL references and provider-file references are preserved as-is.
+
+### Rendering
+
+- **Input-side media is display-only.** Output media gets first-class artifacts and rich rendering. Input media gets text markers and badges only — no materialization, no artifact creation. Later needed for replay and full provenance.
+- **Compare shows badges, not rich previews.** The compare page renders compact media badges (type, filename, MIME) rather than inline images or PDF previews. Rich compare-level media diffing is deferred.
 
 ---
 
-## Done Criteria for v1
+## v1 Status
 
-Multimodal v1 is considered complete when:
-- canonical content-part model exists
-- media artifact taxonomy exists
-- providers can map supported multimodal payloads into canonical parts
-- large media is stored as blob-backed artifacts when needed
-- run detail can inspect multimodal artifacts safely
-- image and document rendering exist
-- unsupported media types still appear as clear typed artifact cards
-- compare does not regress on multimodal runs
+Multimodal v1 is complete:
+
+- Canonical content-part model exists
+- Media artifact taxonomy exists
+- OpenAI and Anthropic map multimodal payloads into canonical parts
+- Large media is stored as blob-backed artifacts
+- Run detail renders image and PDF/document artifacts richly
+- Unsupported media types appear as typed generic artifact cards
+- Compare page handles multimodal content without crashing
+- 65+ backend tests cover normalization, materialization, and edge cases
+
+### What's next (beyond v1)
+
+- Rich renderers for audio/video/spreadsheet
+- Canonical input content parts (input normalization)
+- Input-side media artifact materialization
+- Positional materialization matching
+- Multipart binary upload transport
+- Compare-level media diffing
