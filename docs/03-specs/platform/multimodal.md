@@ -306,6 +306,18 @@ The first multimodal milestone should explicitly avoid:
 
 ---
 
+## v1 Implementation Constraints
+
+These are known, accepted constraints in the current implementation. They do not block the v1 milestone but are documented here for clarity.
+
+**Binary/media artifacts are blob-only.** Binary artifacts are always stored in blob storage. They never use `inline_data`. This is enforced by the SDK helper (`create_binary_artifact`) and the ingestion path. Small text/JSON artifacts may still be inline.
+
+**Binary transport uses base64-over-JSON.** The SDK encodes binary artifact content as base64 in the ingest JSON payload (`binary_data_b64` field). The API decodes and stores directly to blob. This causes ~33% payload expansion and is acceptable for small-to-medium media. Future optimization: multipart upload or signed-upload-then-reference flow.
+
+**Rich media rendering is not part of Step 1 or Step 2.** The binary artifact pipeline and content-part normalization are plumbing-only. Image, PDF, audio, and video renderers are Step 3. Until then, binary artifacts appear as typed artifact cards with metadata (kind, MIME type, filename, size).
+
+---
+
 ## Delivery Order
 
 Recommended implementation order:

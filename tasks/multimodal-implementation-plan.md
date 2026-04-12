@@ -62,6 +62,17 @@ Binary transport comes first because normalizers will need to create media artif
 - add `mime_type` to `StepArtifactRef` in timeline response schemas
 - update blob key format to use MIME-appropriate extensions instead of hardcoded `.json`
 
+### Status
+Complete. Implemented via `create_binary_artifact()` SDK helper, base64-over-JSON transport, blob-backed ingestion, `/v1/artifacts/{id}/content` serving endpoint, and `mime_type` in timeline refs.
+
+### Known limitations (acceptable for v1, revisit later)
+
+1. **Base64 transport** — binary data travels as base64 inside the JSON ingest payload. This causes ~33% payload expansion and higher memory use during encode/decode. Acceptable for small-to-medium media (up to ~10–50 MB). Future optimization: multipart upload or signed-upload-then-reference flow.
+
+2. **`/v1/artifacts/{id}/content` is dual-purpose** — returns raw bytes for binary artifacts and serialized JSON for JSON artifacts. The contract is slightly mixed but pragmatic: the metadata endpoint (`/v1/artifacts/{id}`) stays canonical for structured reads, and `/content` is the generic "give me the artifact body" endpoint. Acceptable for v1; revisit if the two paths diverge significantly.
+
+3. ~~`filename` lives in `metadata`~~ — **Fixed.** `filename` is now a first-class field on `TraceArtifact`, `ArtifactPayload`, `StepArtifactRef`, `ArtifactContentResponse`, the ORM model, and the frontend types. Migration `0003_artifact_filename` adds the DB column.
+
 ### Output
 An artifact pipeline that can store, retrieve, and serve binary media end-to-end.
 
@@ -203,5 +214,6 @@ For the first implementation wave, do not do:
 ## Immediate Next Step
 
 Step 0 audit is complete (`docs/04-execution/multimodal-step-0-audit.md`).
+Step 1 binary artifact transport is complete.
 
-Next: begin **Step 1 — Binary artifact transport** (SDK helper, ingestion path, serving endpoint, mime_type in refs).
+Next: begin **Step 2 — Canonical content parts and provider normalization**.

@@ -64,12 +64,14 @@ High debugging value, now completed across SDK + UI + compare.
 Handle large payloads safely and scalably.
 
 ### Tasks
-- define inline vs blob threshold
-- add storage abstraction
-- support blob-backed artifact writes
-- add retrieval endpoints
-- integrate blob-backed artifacts in UI
-- keep small payloads inline for speed and simplicity
+- inline vs blob threshold
+- storage abstraction
+- local / S3 / Azure backends
+- blob-backed artifact writes
+- retrieval endpoint
+- run UI lazy loading
+- compare-page blob-backed stream loading
+- setup docs and QA checklist
 
 ### Why
 Foundational for scale. Required before serious multimodal, large tool outputs, and very large stream artifacts.
@@ -83,12 +85,21 @@ NOW
 
 ## 6. Multimodal
 ### Goal
-Support image, audio, and document payloads.
+Support image, audio, document, spreadsheet, and video inputs/outputs in a provider-agnostic way.
 
 ### Tasks
-- normalized multimodal format
-- artifact handling
-- rendering strategy
+- define canonical multimodal content-part schema
+- define provider mapping rules (OpenAI, Anthropic first)
+- define multimodal artifact taxonomy
+- store binary/media as artifacts, blob-backed when large
+- support lightweight previews + lazy loading in UI
+- add rendering strategy by mime type
+- ship in phases: images → documents/PDFs → audio → video
+
+### Notes
+- provider APIs are not standardized enough to mirror directly
+- Leer should normalize multimodal content into a stable internal model
+- blob storage is the foundation for real multimodal support
 
 ### Complexity
 Very High
