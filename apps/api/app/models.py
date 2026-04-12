@@ -152,6 +152,7 @@ class Artifact(Base):
     sequence_index: Mapped[int | None] = mapped_column(Integer)
 
     mime_type: Mapped[str | None] = mapped_column(Text)
+    filename: Mapped[str | None] = mapped_column(Text)
     size_bytes: Mapped[int | None] = mapped_column(BigInteger)
 
     inline_data: Mapped[dict | None] = mapped_column(JSONB)

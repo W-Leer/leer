@@ -1,8 +1,10 @@
+import base64
 from unittest.mock import patch
 
 from leer import (
     attach_artifact,
     configure,
+    create_binary_artifact,
     create_json_artifact,
     create_text_artifact,
     step,
@@ -133,3 +135,99 @@ def test_artifact_serialization_round_trip():
     assert a["metadata"] == {"provider": "openai"}
     assert a["blob_path"] is None
     assert a["step_id"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Binary / media artifact helpers
+# ---------------------------------------------------------------------------
+
+_PNG_HEADER = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+
+
+def test_create_binary_artifact_fields():
+    a = create_binary_artifact(
+        "user_upload",
+        data=_PNG_HEADER,
+        mime_type="image/png",
+        role="input",
+        filename="screenshot.png",
+        preview_text="user screenshot",
+        metadata={"source": "paste"},
+    )
+    assert a.artifact_type == "user_upload"
+    assert a.role == "input"
+    assert a.format == "binary"
+    assert a.storage_kind == "blob"
+    assert a.mime_type == "image/png"
+    assert a.binary_data == _PNG_HEADER
+    assert a.inline_data is None
+    assert a.preview_text == "user screenshot"
+    assert a.filename == "screenshot.png"
+    assert a.metadata == {"source": "paste"}
+
+
+def test_create_binary_artifact_minimal():
+    a = create_binary_artifact("media", data=b"\xff\xd8\xff", mime_type="image/jpeg")
+    assert a.artifact_type == "media"
+    assert a.role is None
+    assert a.format == "binary"
+    assert a.storage_kind == "blob"
+    assert a.mime_type == "image/jpeg"
+    assert a.binary_data == b"\xff\xd8\xff"
+    assert a.metadata == {}
+
+
+def test_binary_artifact_serialization():
+    raw = b"hello world binary"
+    a = create_binary_artifact("doc", data=raw, mime_type="application/pdf", role="output")
+
+    from leer.client import _serialize_artifact
+    d = _serialize_artifact(a)
+    assert d["artifact_type"] == "doc"
+    assert d["storage_kind"] == "blob"
+    assert d["format"] == "binary"
+    assert d["mime_type"] == "application/pdf"
+    assert d["inline_data"] is None
+    assert "binary_data_b64" in d
+    assert base64.b64decode(d["binary_data_b64"]) == raw
+
+
+def test_json_artifact_has_no_binary_data_b64():
+    a = create_json_artifact("llm_request", data={"model": "gpt-4.1"})
+    from leer.client import _serialize_artifact
+    d = _serialize_artifact(a)
+    assert "binary_data_b64" not in d
+
+
+def test_binary_artifact_round_trip_in_payload():
+    configure(api_base_url="http://localhost:8000", project_slug="test")
+    captured: list[TraceRun] = []
+    raw = b"\x89PNG" + b"\x00" * 50
+
+    with patch("leer.decorators.submit", lambda r: captured.append(r)):
+
+        @trace(workflow_name="binary-test")
+        def workflow():
+            with step("upload", step_type="tool"):
+                attach_artifact(create_binary_artifact(
+                    "user_image",
+                    data=raw,
+                    mime_type="image/png",
+                    role="input",
+                    filename="test.png",
+                ))
+            return "ok"
+
+        workflow()
+
+    payload = _build_payload(captured[0])
+    arts = payload["artifacts"]
+    assert len(arts) == 1
+
+    a = arts[0]
+    assert a["storage_kind"] == "blob"
+    assert a["format"] == "binary"
+    assert a["mime_type"] == "image/png"
+    assert a["inline_data"] is None
+    assert base64.b64decode(a["binary_data_b64"]) == raw
+    assert a["filename"] == "test.png"

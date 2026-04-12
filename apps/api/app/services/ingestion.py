@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import json
+import mimetypes
 import uuid
 
 from sqlalchemy import insert, null as sa_null, select
@@ -23,8 +25,22 @@ def resolve_or_create_project(session: Session, slug: str) -> Project:
     return project
 
 
-def _blob_key(project_id: uuid.UUID, run_id: uuid.UUID, artifact_id: uuid.UUID) -> str:
-    return f"projects/{project_id}/runs/{run_id}/artifacts/{artifact_id}.json"
+def _blob_ext(mime_type: str | None) -> str:
+    """Derive a file extension from a MIME type, defaulting to .bin."""
+    if not mime_type:
+        return ".bin"
+    ext = mimetypes.guess_extension(mime_type, strict=False)
+    return ext or ".bin"
+
+
+def _blob_key(
+    project_id: uuid.UUID,
+    run_id: uuid.UUID,
+    artifact_id: uuid.UUID,
+    *,
+    ext: str = ".json",
+) -> str:
+    return f"projects/{project_id}/runs/{run_id}/artifacts/{artifact_id}{ext}"
 
 
 def _persist_artifact(
@@ -38,10 +54,19 @@ def _persist_artifact(
 ) -> None:
     """Persist one artifact, offloading to blob storage when above threshold.
 
+    Binary artifacts (those carrying ``binary_data_b64``) are always stored in
+    blob storage — they never use ``inline_data``.
+
     Uses ``sa.insert()`` with explicit ``sa.null()`` to guarantee real SQL NULL
     for the mutually-exclusive inline_data / blob_path columns (psycopg3 would
     otherwise write JSON null for JSONB columns set to Python None).
     """
+
+    if a.binary_data_b64 is not None:
+        return _persist_binary_artifact(
+            session, a, project_id=project_id, run_id=run_id, blob_store=blob_store
+        )
+
     storage_kind = "inline"
     inline_data = a.inline_data
     blob_path = None
@@ -72,9 +97,54 @@ def _persist_artifact(
             storage_kind=storage_kind,
             sequence_index=a.sequence_index,
             mime_type=a.mime_type,
+            filename=a.filename,
             size_bytes=size_bytes,
             inline_data=inline_data if inline_data is not None else sa_null(),
             blob_path=blob_path if blob_path is not None else sa_null(),
+            preview_text=a.preview_text,
+            sha256=sha256,
+            metadata_=a.metadata or {},
+        )
+    )
+
+
+def _persist_binary_artifact(
+    session: Session,
+    a: ArtifactPayload,
+    *,
+    project_id: uuid.UUID,
+    run_id: uuid.UUID,
+    blob_store: BlobStore | None,
+) -> None:
+    """Persist a binary/media artifact — always blob-backed."""
+    raw = base64.b64decode(a.binary_data_b64)  # type: ignore[arg-type]
+    size_bytes = len(raw)
+    sha256 = compute_sha256(raw)
+    content_type = a.mime_type or "application/octet-stream"
+
+    if blob_store is None:
+        raise ValueError("Binary artifacts require blob storage but none is configured")
+
+    ext = _blob_ext(a.mime_type)
+    key = _blob_key(project_id, run_id, a.id, ext=ext)
+    blob_store.put(key, raw, content_type=content_type)
+
+    session.execute(
+        insert(Artifact).values(
+            id=a.id,
+            project_id=project_id,
+            run_id=run_id,
+            step_id=a.step_id,
+            artifact_type=a.artifact_type,
+            role=a.role,
+            format_=a.format or "binary",
+            storage_kind="blob",
+            sequence_index=a.sequence_index,
+            mime_type=content_type,
+            filename=a.filename,
+            size_bytes=size_bytes,
+            inline_data=sa_null(),
+            blob_path=key,
             preview_text=a.preview_text,
             sha256=sha256,
             metadata_=a.metadata or {},

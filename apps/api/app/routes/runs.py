@@ -114,6 +114,8 @@ def _artifact_ref(a: Artifact) -> StepArtifactRef:
         kind=a.artifact_type,
         role=a.role,
         format=a.format_,
+        mime_type=a.mime_type,
+        filename=a.filename,
         preview_text=a.preview_text,
         sequence_index=a.sequence_index,
         storage_kind=a.storage_kind,

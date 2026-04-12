@@ -50,10 +50,12 @@ class TraceArtifact:
     format: str | None = None
     sequence_index: int | None = None
     mime_type: str | None = None
+    filename: str | None = None
     inline_data: dict[str, Any] | None = None
     blob_path: str | None = None
     preview_text: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    binary_data: bytes | None = field(default=None, repr=False)
 
 
 @dataclass

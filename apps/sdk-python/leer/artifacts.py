@@ -73,6 +73,37 @@ def create_text_artifact(
     )
 
 
+def create_binary_artifact(
+    artifact_type: str,
+    *,
+    data: bytes,
+    mime_type: str,
+    role: str | None = None,
+    filename: str | None = None,
+    preview_text: str | None = None,
+    metadata: dict[str, Any] | None = None,
+    step_id: str | None = None,
+) -> TraceArtifact:
+    """Create a binary/media artifact.
+
+    Binary artifacts are always blob-backed — ``inline_data`` is left empty and
+    the raw bytes travel via ``binary_data``.  The API will store them directly
+    in blob storage and compute ``size_bytes`` / ``sha256`` on ingest.
+    """
+    return TraceArtifact(
+        artifact_type=artifact_type,
+        storage_kind="blob",
+        role=role,
+        format="binary",
+        mime_type=mime_type,
+        filename=filename,
+        preview_text=preview_text,
+        metadata=metadata or {},
+        step_id=step_id,
+        binary_data=data,
+    )
+
+
 def attach_artifact(artifact: TraceArtifact) -> TraceArtifact:
     """Attach an artifact to the current run. Auto-sets step_id from context if not provided."""
     run = get_current_run()

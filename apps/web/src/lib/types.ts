@@ -50,6 +50,8 @@ export interface StepArtifactRef {
   kind: string;
   role: string | null;
   format: string | null;
+  mime_type: string | null;
+  filename: string | null;
   preview_text: string | null;
   sequence_index: number | null;
   storage_kind: string;
@@ -63,6 +65,8 @@ export interface ArtifactContentResponse {
   artifact_type: string;
   role: string | null;
   format: string | null;
+  mime_type: string | null;
+  filename: string | null;
   storage_kind: string;
   size_bytes: number | null;
   sha256: string | null;

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import sys
 from dataclasses import dataclass
 from typing import Any
@@ -59,7 +60,7 @@ def _serialize_event(e: TraceEvent) -> dict[str, Any]:
 
 
 def _serialize_artifact(a: TraceArtifact) -> dict[str, Any]:
-    return {
+    d: dict[str, Any] = {
         "id": a.id,
         "step_id": a.step_id,
         "artifact_type": a.artifact_type,
@@ -68,11 +69,15 @@ def _serialize_artifact(a: TraceArtifact) -> dict[str, Any]:
         "storage_kind": a.storage_kind,
         "sequence_index": a.sequence_index,
         "mime_type": a.mime_type,
+        "filename": a.filename,
         "inline_data": a.inline_data,
         "blob_path": a.blob_path,
         "preview_text": a.preview_text,
         "metadata": a.metadata,
     }
+    if a.binary_data is not None:
+        d["binary_data_b64"] = base64.b64encode(a.binary_data).decode("ascii")
+    return d
 
 
 def _build_payload(run: TraceRun) -> dict[str, Any]:

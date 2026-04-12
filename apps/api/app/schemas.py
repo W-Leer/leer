@@ -60,10 +60,12 @@ class ArtifactPayload(BaseModel):
     storage_kind: str
     sequence_index: int | None = None
     mime_type: str | None = None
+    filename: str | None = None
     inline_data: dict[str, Any] | None = None
     blob_path: str | None = None
     preview_text: str | None = None
     metadata: dict[str, Any] = {}
+    binary_data_b64: str | None = None
 
 
 # --- Replay ---
@@ -187,6 +189,8 @@ class StepArtifactRef(BaseModel):
     kind: str
     role: str | None = None
     format: str | None = None
+    mime_type: str | None = None
+    filename: str | None = None
     preview_text: str | None = None
     sequence_index: int | None = None
     storage_kind: str = "inline"
@@ -318,11 +322,13 @@ class CompareResponse(BaseModel):
 # --- Artifact Content ---
 
 class ArtifactContentResponse(BaseModel):
-    """Full artifact content returned by the dedicated fetch endpoint."""
+    """Full artifact content returned by the dedicated fetch endpoint (JSON artifacts only)."""
     id: UUID
     artifact_type: str
     role: str | None = None
     format: str | None = None
+    mime_type: str | None = None
+    filename: str | None = None
     storage_kind: str
     size_bytes: int | None = None
     sha256: str | None = None
