@@ -338,7 +338,7 @@ Recommended implementation order:
 1. ~~spec and audit~~ — done (Step 0)
 2. ~~binary artifact transport (SDK helper, ingestion, serving, mime_type in refs)~~ — done (Step 1)
 3. ~~canonical content-part model and provider normalization~~ — done (Step 2)
-4. image + PDF/document rendering, typed generic artifact cards (Step 3)
+4. ~~media artifact linking, image + PDF/document rendering, typed generic artifact cards~~ — done (Step 3)
 5. compare non-regression, polish, QA (Step 4)
 6. later rich renderers for audio/video/spreadsheet
 

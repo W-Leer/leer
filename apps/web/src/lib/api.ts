@@ -20,3 +20,7 @@ export async function apiFetch<T>(path: string): Promise<T> {
 export function fetchArtifactContent(artifactId: string): Promise<ArtifactContentResponse> {
   return apiFetch<ArtifactContentResponse>(`/v1/artifacts/${artifactId}`);
 }
+
+export function artifactContentUrl(artifactId: string): string {
+  return `${API_BASE}/v1/artifacts/${artifactId}/content`;
+}

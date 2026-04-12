@@ -135,31 +135,56 @@ A code-level content model and provider normalizers that produce multimodal cont
 
 ---
 
-## Step 3 — UI rendering v1
+## Step 3 — Media artifact linking + v1 rendering
 
 ### Goal
-Ship the first multimodal UI surfaces.
+Ship the first multimodal UI surfaces with artifact-backed rendering.
 
-### Prerequisite from Step 2
-Step 2 canonical parts with `source: {"kind": "inline"}` do not yet have artifact references. Before rendering, Step 3 must create derived artifacts for inline base64 media during normalization/ingestion so that rendering always works through the artifact pipeline — not by reading raw provider payloads.
+### Status
+Complete. Implemented media artifact materialization in both provider wrappers, artifact-linked content parts, and frontend rendering components.
 
-### v1 rich renderers
-- image renderer (`<img>` with lazy load from binary artifact endpoint)
-- PDF/document renderer (embedded preview or styled download card)
+### What was implemented
 
-### v1 generic artifact-card renderers
-- audio (kind + MIME + size + download)
-- video (kind + MIME + size + download)
-- spreadsheet (kind + MIME + size + download)
-- generic file (kind + MIME + size + download)
+**Backend — media artifact materialization** (in `normalize.py`):
+- `materialize_media_artifacts()` inspects canonical content blocks after normalization
+- For `image`/`document` parts with inline base64 data, decodes and creates binary artifacts via `create_binary_artifact`
+- Enriches content parts with `artifact_id`, `source: {"kind": "artifact"}`, `size_bytes`, `mime_type`
+- Called from both OpenAI and Anthropic `_enrich_step` flows, before metadata is serialized
+- Uses clean artifact types: `output_image`, `output_document`
+- Idempotent — skips parts that already have `artifact_id`
 
-### Tasks
-- create derived artifacts for inline base64 media (image, document) during normalization, populating `artifact_id` on canonical parts
-- add image renderer component
-- add document/PDF renderer component
-- improve generic artifact viewer for typed media (MIME-type icon/badge, download action)
-- update `extractMessageContent` to render media badges in message views instead of raw JSON
-- ensure lazy loading works for blob-backed media assets
+**Backend — provider support**:
+- Anthropic: base64 image blocks → `output_image` artifacts
+- Anthropic: base64 document/PDF blocks → `output_document` artifacts
+- OpenAI: `image_generation_call` with base64 result → `output_image` artifacts
+- OpenAI: `output_image` with base64 data → `output_image` artifacts
+- URL-sourced and provider-file-referenced media are not materialized (no bytes available)
+
+**Frontend — new components** (`media-artifact.tsx`):
+- `ImageArtifactPreview` — inline `<img>` with lazy loading from artifact content endpoint
+- `DocumentArtifactPreview` — download/open actions + embedded `<object>` PDF preview toggle
+- `GenericMediaArtifactCard` — typed card with MIME label, filename, size, open action
+- `MediaArtifactRenderer` — smart dispatcher that picks the right renderer
+- `ContentBlockRow` — renders a canonical content block, matching to step artifacts by `artifact_id`
+- `InputMediaMarker` — compact badge for multimodal input content
+
+**Frontend — existing component updates**:
+- `ArtifactViewer` dispatches media artifacts to `MediaArtifactRenderer` instead of JSON viewer
+- `LlmStepDetail` `OutputSection` renders media content blocks via `ContentBlockRow`
+- `LlmStepDetail` `MessageBlock` shows `InputMediaMarker` badges for multimodal inputs
+- `extractMessageContent` produces `[image]`, `[document: file.pdf]`, `[file]` markers instead of raw JSON
+- Compare page `OutputContent` renders media block badges without crashing
+
+### Tests added
+- 7 materialization tests covering Anthropic image, Anthropic document, OpenAI image generation, text-only no-ops, URL media not materialized, idempotent re-runs, text+tool_call preserved
+
+### Intentional v1 decisions
+
+1. **Materialization matching is heuristic.** `_find_response_block()` matches canonical content parts to provider response blocks by `provider_part_type`. This works for common single-image/document cases but could become ambiguous if a response contains multiple blocks of the same type (e.g. two Anthropic image blocks). A future improvement would use positional or identity-based matching.
+
+2. **Materialization is a post-normalization mutation pass.** Normalization first creates content blocks without artifact linkage, then `materialize_media_artifacts` mutates them in a second pass. This is practical and keeps normalization pure, but means Step 2 + Step 3 should be treated as one pipeline. Tests around ordering and mutation behavior are important.
+
+3. **Input-side media is display-only.** Output media gets first-class artifacts; input media gets markers/badges only. This is a deliberate v1 cut. Replay, full provenance, and richer input rendering may push toward materializing input-side media as artifacts too.
 
 ### Output
 A UI that renders image and document artifacts richly, and all other media types as clear typed artifact cards.
@@ -240,5 +265,6 @@ For the first implementation wave, do not do:
 Step 0 audit is complete (`docs/04-execution/multimodal-step-0-audit.md`).
 Step 1 binary artifact transport is complete.
 Step 2 canonical content parts and provider normalization is complete.
+Step 3 media artifact linking + v1 rendering is complete.
 
-Next: begin **Step 3 — UI rendering v1**.
+Next: begin **Step 4 — Polish and compare non-regression**.

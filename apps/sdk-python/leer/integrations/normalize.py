@@ -11,6 +11,7 @@ them here.
 
 from __future__ import annotations
 
+import base64
 import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -603,3 +604,135 @@ def normalize_anthropic(
             request_id=response.get("id"),
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Media artifact materialization
+# ---------------------------------------------------------------------------
+
+_ARTIFACT_TYPE_MAP = {
+    "image": "output_image",
+    "document": "output_document",
+}
+
+
+def _extract_base64_from_response(
+    block: dict[str, Any],
+    response: dict[str, Any],
+    provider: str,
+) -> tuple[bytes, str] | None:
+    """Try to extract raw bytes + mime from a provider response block.
+
+    Returns ``(raw_bytes, mime_type)`` or ``None`` if bytes are not available.
+    """
+    if provider == "anthropic":
+        source = block.get("source") or {}
+        if source.get("type") == "base64" and source.get("data"):
+            mime = source.get("media_type") or "application/octet-stream"
+            try:
+                raw = base64.b64decode(source["data"])
+                return raw, mime
+            except Exception:
+                return None
+    elif provider == "openai":
+        if block.get("type") == "output_image":
+            b64 = block.get("image_url") or block.get("data")
+            if isinstance(b64, str) and len(b64) > 20:
+                mime = block.get("mime_type") or "image/png"
+                try:
+                    raw = base64.b64decode(b64)
+                    return raw, mime
+                except Exception:
+                    return None
+        if block.get("type") == "image_generation_call":
+            result = block.get("result")
+            if isinstance(result, str) and len(result) > 20:
+                try:
+                    raw = base64.b64decode(result)
+                    return raw, "image/png"
+                except Exception:
+                    return None
+    return None
+
+
+def _find_response_block(
+    content_part: dict[str, Any],
+    response: dict[str, Any],
+    provider: str,
+) -> dict[str, Any] | None:
+    """Find the original provider response block matching a canonical part."""
+    ppt = content_part.get("provider_part_type")
+    if not ppt:
+        return None
+
+    if provider == "anthropic":
+        for block in response.get("content", []):
+            if isinstance(block, dict) and block.get("type") == ppt:
+                return block
+    elif provider == "openai":
+        for item in response.get("output", []):
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == ppt:
+                return item
+            if item.get("type") == "message":
+                for blk in item.get("content", []):
+                    if isinstance(blk, dict) and blk.get("type") == ppt:
+                        return blk
+    return None
+
+
+def materialize_media_artifacts(
+    normalized: NormalizedLLMCall,
+    response: dict[str, Any],
+    *,
+    step_id: str | None = None,
+) -> list[Any]:
+    """Create binary artifacts for inline/base64 media in content_blocks.
+
+    Mutates ``normalized.output.content_blocks`` in-place to add ``artifact_id``,
+    and updates the ``source`` to ``artifact`` kind.
+
+    Returns a list of ``TraceArtifact`` objects ready to be attached.
+    """
+    from leer.artifacts import create_binary_artifact
+
+    artifacts: list[Any] = []
+    provider = normalized.provider
+
+    for part in normalized.output.content_blocks:
+        part_type = part.get("type")
+        if part_type not in ("image", "document"):
+            continue
+        if part.get("artifact_id"):
+            continue
+
+        resp_block = _find_response_block(part, response, provider)
+        if resp_block is None:
+            continue
+
+        extracted = _extract_base64_from_response(resp_block, response, provider)
+        if extracted is None:
+            continue
+
+        raw_bytes, mime = extracted
+        artifact_type = _ARTIFACT_TYPE_MAP.get(part_type, f"output_{part_type}")
+
+        art = create_binary_artifact(
+            artifact_type=artifact_type,
+            data=raw_bytes,
+            mime_type=mime,
+            role="output",
+            filename=part.get("filename"),
+            preview_text=part.get("preview_text") or f"{part_type} output",
+            step_id=step_id,
+        )
+
+        part["artifact_id"] = art.id
+        part["source"] = _make_source("artifact", art.id)
+        part["size_bytes"] = len(raw_bytes)
+        part["mime_type"] = mime
+
+        artifacts.append(art)
+
+    return artifacts

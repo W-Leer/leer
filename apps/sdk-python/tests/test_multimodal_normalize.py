@@ -9,7 +9,10 @@ Covers:
 - Text-only and tool_call behavior remains unchanged
 """
 
+import base64
+
 from leer.integrations.normalize import (
+    materialize_media_artifacts,
     normalize_anthropic,
     normalize_openai,
     _summarize_content_for_user,
@@ -740,3 +743,173 @@ class TestOrderingPreserved:
         assert len(blocks) == 2
         assert blocks[0]["type"] == "text"
         assert blocks[1]["type"] == "image"
+
+
+# ===================================================================
+# Media artifact materialization
+# ===================================================================
+
+PNG_1PX = base64.b64encode(b"\x89PNG\r\n\x1a\nfake-image-bytes").decode()
+PDF_FAKE = base64.b64encode(b"%PDF-1.4 fake-document-bytes").decode()
+
+
+class TestMaterializeAnthropicImage:
+
+    def test_base64_image_becomes_artifact(self):
+        response = {
+            "id": "msg-test",
+            "model": "claude-sonnet-4-20250514",
+            "content": [
+                {"type": "text", "text": "Here:"},
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": "image/png", "data": PNG_1PX},
+                },
+            ],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        req = _ant_req(messages=[{"role": "user", "content": "Draw"}])
+        n = normalize_anthropic(req, response)
+
+        artifacts = materialize_media_artifacts(n, response, step_id="s1")
+
+        assert len(artifacts) == 1
+        art = artifacts[0]
+        assert art.artifact_type == "output_image"
+        assert art.mime_type == "image/png"
+        assert art.binary_data == base64.b64decode(PNG_1PX)
+        assert art.role == "output"
+        assert art.step_id == "s1"
+
+        img_block = n.output.content_blocks[1]
+        assert img_block["artifact_id"] == art.id
+        assert img_block["source"]["kind"] == "artifact"
+        assert img_block["size_bytes"] == len(art.binary_data)
+
+    def test_url_image_not_materialized(self):
+        response = {
+            "id": "msg-test",
+            "model": "claude-sonnet-4-20250514",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {"type": "url", "media_type": "image/jpeg", "url": "https://example.com/img.jpg"},
+                },
+            ],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        n = normalize_anthropic(_ant_req(messages=[{"role": "user", "content": "Show"}]), response)
+
+        artifacts = materialize_media_artifacts(n, response)
+        assert len(artifacts) == 0
+        assert n.output.content_blocks[0]["source"]["kind"] == "url"
+
+
+class TestMaterializeAnthropicDocument:
+
+    def test_base64_pdf_becomes_artifact(self):
+        response = {
+            "id": "msg-test",
+            "model": "claude-sonnet-4-20250514",
+            "content": [
+                {
+                    "type": "document",
+                    "source": {"type": "base64", "media_type": "application/pdf", "data": PDF_FAKE},
+                    "title": "report.pdf",
+                },
+            ],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        n = normalize_anthropic(_ant_req(messages=[{"role": "user", "content": "PDF"}]), response)
+
+        artifacts = materialize_media_artifacts(n, response, step_id="s2")
+
+        assert len(artifacts) == 1
+        art = artifacts[0]
+        assert art.artifact_type == "output_document"
+        assert art.mime_type == "application/pdf"
+        assert art.binary_data == base64.b64decode(PDF_FAKE)
+
+        doc_block = n.output.content_blocks[0]
+        assert doc_block["artifact_id"] == art.id
+        assert doc_block["source"]["kind"] == "artifact"
+        assert doc_block["filename"] == "report.pdf"
+
+
+class TestMaterializeOpenAI:
+
+    def test_text_only_no_artifacts(self):
+        output = [
+            {"type": "message", "content": [{"type": "output_text", "text": "Hello"}]},
+        ]
+        response = _oai_resp_resp(output=output)
+        n = normalize_openai(_oai_resp_req(), response)
+
+        artifacts = materialize_media_artifacts(n, response)
+        assert len(artifacts) == 0
+
+    def test_image_generation_with_base64_result(self):
+        output = [
+            {"type": "image_generation_call", "result": PNG_1PX},
+        ]
+        response = _oai_resp_resp(output=output)
+        n = normalize_openai(_oai_resp_req(), response)
+
+        artifacts = materialize_media_artifacts(n, response, step_id="s3")
+
+        assert len(artifacts) == 1
+        art = artifacts[0]
+        assert art.artifact_type == "output_image"
+        assert art.mime_type == "image/png"
+
+        img = n.output.content_blocks[0]
+        assert img["artifact_id"] == art.id
+        assert img["source"]["kind"] == "artifact"
+
+
+class TestMaterializeIdempotent:
+
+    def test_already_linked_not_duplicated(self):
+        response = {
+            "id": "msg-test",
+            "model": "claude-sonnet-4-20250514",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": "image/png", "data": PNG_1PX},
+                },
+            ],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        n = normalize_anthropic(_ant_req(messages=[{"role": "user", "content": "Draw"}]), response)
+
+        arts1 = materialize_media_artifacts(n, response)
+        assert len(arts1) == 1
+
+        arts2 = materialize_media_artifacts(n, response)
+        assert len(arts2) == 0
+
+
+class TestMaterializePreservesTextAndToolCalls:
+
+    def test_text_and_tool_calls_unaffected(self):
+        response = {
+            "id": "msg-test",
+            "model": "claude-sonnet-4-20250514",
+            "content": [
+                {"type": "text", "text": "Checking..."},
+                {"type": "tool_use", "id": "t1", "name": "weather", "input": {"city": "NYC"}},
+            ],
+            "stop_reason": "tool_use",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        n = normalize_anthropic(_ant_req(messages=[{"role": "user", "content": "Weather"}]), response)
+
+        artifacts = materialize_media_artifacts(n, response)
+        assert len(artifacts) == 0
+        assert n.output.content_blocks[0] == {"type": "text", "text": "Checking..."}
+        assert n.output.content_blocks[1]["type"] == "tool_call"

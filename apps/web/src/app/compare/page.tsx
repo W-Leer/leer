@@ -907,11 +907,18 @@ function LlmOutputDiff({ a, b, diff }: { a: LLMShape | null; b: LLMShape | null;
 }
 
 function OutputContent({ llm }: { llm: LLMShape | null }) {
-  if (!llm || (!llm.output.text && llm.output.tool_calls.length === 0)) {
+  const hasMedia = llm?.output.content_blocks.some(
+    (b) => { const t = b.type as string | undefined; return t && t !== "text" && t !== "thinking" && t !== "redacted_thinking" && t !== "tool_call"; },
+  );
+  if (!llm || (!llm.output.text && llm.output.tool_calls.length === 0 && !hasMedia)) {
     return <p className="text-xs italic text-neutral-400">No output</p>;
   }
 
   const structuredText = llm.output.text ? tryParseJson(llm.output.text) : null;
+
+  const mediaBlocks = llm.output.content_blocks.filter(
+    (b) => { const t = b.type as string | undefined; return t && t !== "text" && t !== "thinking" && t !== "redacted_thinking" && t !== "tool_call"; },
+  );
 
   return (
     <div className="space-y-2">
@@ -921,6 +928,23 @@ function OutputContent({ llm }: { llm: LLMShape | null }) {
         ) : (
           <ExpandableTextBlock text={llm.output.text} />
         ))}
+      {mediaBlocks.length > 0 && (
+        <div className="space-y-1">
+          {mediaBlocks.map((b, i) => {
+            const t = (b.type as string) ?? "media";
+            const fname = b.filename as string | undefined;
+            return (
+              <div key={i} className="flex items-center gap-1.5 rounded bg-neutral-50 px-2 py-1 text-[10px]">
+                <span className="rounded bg-neutral-200 px-1 py-px text-[9px] font-medium text-neutral-500">
+                  {t.toUpperCase()}
+                </span>
+                {fname && <span className="font-mono text-neutral-600">{fname}</span>}
+                {typeof b.mime_type === "string" && <span className="text-neutral-400">{b.mime_type}</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
       {llm.output.tool_calls.length > 0 && (
         <div className="space-y-1.5">
           <span className="text-[10px] font-medium text-neutral-400">Tool calls</span>

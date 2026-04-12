@@ -28,7 +28,7 @@ from typing import Any, Iterator
 
 from leer.artifacts import attach_artifact, create_json_artifact
 from leer.context import current_step, get_current_run, pop_step, push_step
-from leer.integrations.normalize import NormalizedLLMCall, normalize_anthropic
+from leer.integrations.normalize import NormalizedLLMCall, materialize_media_artifacts, normalize_anthropic
 from leer.integrations.streaming import StreamCollector
 from leer.models import TraceStep, _now
 from leer.step import _duration_ms, _emit_step_event, step as leer_step
@@ -487,6 +487,12 @@ def _enrich_step(
     """Populate the step with metadata, summaries, and artifacts."""
     response_dict = result if _is_dict else _to_dict(result)
     normalized = normalize_anthropic(request_dict, response_dict, latency_ms=latency_ms)
+
+    media_artifacts = materialize_media_artifacts(
+        normalized, response_dict, step_id=s.id,
+    )
+    for art in media_artifacts:
+        attach_artifact(art)
 
     s.metadata.update({
         "provider": "anthropic",

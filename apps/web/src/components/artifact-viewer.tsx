@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import { fetchArtifactContent } from "@/lib/api";
 import type { StepArtifactRef } from "@/lib/types";
 import { StructuredValue } from "@/components/structured-value";
+import { isMediaArtifact, MediaArtifactRenderer } from "@/components/media-artifact";
 
 type LoadState = "idle" | "loading" | "loaded" | "error";
 
@@ -22,6 +23,10 @@ function formatBytes(bytes: number | null): string {
  * that fetches the full content on demand.
  */
 export function ArtifactViewer({ artifact }: { artifact: StepArtifactRef }) {
+  if (isMediaArtifact(artifact)) {
+    return <MediaArtifactRenderer artifact={artifact} />;
+  }
+
   const isBlob = artifact.storage_kind === "blob";
   const hasInlineData = artifact.inline_data != null;
 

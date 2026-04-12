@@ -6,6 +6,7 @@ import { formatDuration, errorHeadline, errorDetail, rawJson } from "@/lib/forma
 import { StructuredValue } from "@/components/structured-value";
 import { ExpandableTextBlock } from "@/components/expandable-text-block";
 import { ArtifactViewer } from "@/components/artifact-viewer";
+import { ContentBlockRow, InputMediaMarker } from "@/components/media-artifact";
 import { computeLatencyBreakdown, type LatencyBreakdown } from "@/lib/latency";
 
 type Dict = Record<string, unknown>;
@@ -136,7 +137,10 @@ export function LlmStepDetail({
   const hasInput = !!llm.input.system || llm.input.messages.length > 0 || llm.input.tools.length > 0 || Object.keys(llm.input.params).length > 0;
   const hasOutputText = !!llm.output.text;
   const hasToolCalls = llm.output.tool_calls.length > 0;
-  const hasOutput = hasOutputText || hasToolCalls;
+  const hasMediaBlocks = llm.output.content_blocks.some(
+    (b) => { const t = b.type as string | undefined; return t && t !== "text" && t !== "thinking" && t !== "redacted_thinking" && t !== "tool_call"; },
+  );
+  const hasOutput = hasOutputText || hasToolCalls || hasMediaBlocks;
   const hasError = errorSummary && Object.keys(errorSummary).length > 0;
   const isStream = streamMeta?.is_stream === true;
 
@@ -168,7 +172,7 @@ export function LlmStepDetail({
         <>
           {hasInput && <InputSection llm={llm} />}
           {!hasInput && !hasError && <EmptyHint text="No prompt captured" />}
-          {hasOutput && <OutputSection llm={llm} hideToolCalls={hasToolCalls} />}
+          {hasOutput && <OutputSection llm={llm} hideToolCalls={hasToolCalls} artifacts={artifacts} />}
           {!hasOutput && !hasError && <EmptyHint text="No response captured" />}
           {hasToolCalls && (
             <ToolCallsSection
@@ -250,7 +254,8 @@ function InputSection({ llm }: { llm: LLMShape }) {
         {input.messages.map((msg, i) => {
           const role = (msg.role as string) ?? "unknown";
           const content = extractMessageContent(msg);
-          return <MessageBlock key={i} role={role} content={content} />;
+          const media = extractMediaBlocks(msg);
+          return <MessageBlock key={i} role={role} content={content} mediaBlocks={media} />;
         })}
         {input.tools.length > 0 && <ToolsList tools={input.tools} />}
         {Object.keys(input.params).length > 0 && <ParamsBlock params={input.params} />}
@@ -259,11 +264,18 @@ function InputSection({ llm }: { llm: LLMShape }) {
   );
 }
 
-function MessageBlock({ role, content }: { role: string; content: string }) {
+function MessageBlock({ role, content, mediaBlocks }: { role: string; content: string; mediaBlocks?: Record<string, unknown>[] }) {
   const color = ROLE_STYLES[role] ?? "text-neutral-400";
   return (
     <div>
       <span className={`mb-1 inline-block text-[10px] font-medium ${color}`}>{role}</span>
+      {mediaBlocks && mediaBlocks.length > 0 && (
+        <div className="mb-1 flex flex-wrap gap-1">
+          {mediaBlocks.map((b, i) => (
+            <InputMediaMarker key={i} block={b} />
+          ))}
+        </div>
+      )}
       <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-neutral-700">
         {content || "(empty)"}
       </pre>
@@ -281,6 +293,19 @@ export function extractMessageContent(msg: Record<string, unknown>): string {
         if (block && typeof block === "object") {
           const b = block as Record<string, unknown>;
           if (typeof b.text === "string") return b.text;
+          const t = b.type as string | undefined;
+          if (t === "image_url" || t === "image" || t === "input_image")
+            return "[image]";
+          if (t === "document" || t === "input_pdf") {
+            const fname = (b.filename as string) || "";
+            return fname ? `[document: ${fname}]` : "[document]";
+          }
+          if (t === "file" || t === "input_file") {
+            const fname = (b.filename as string) || "";
+            return fname ? `[file: ${fname}]` : "[file]";
+          }
+          if (t === "input_text" && typeof b.text === "string") return b.text;
+          if (t) return `[${t}]`;
           return JSON.stringify(b);
         }
         return String(block);
@@ -289,6 +314,17 @@ export function extractMessageContent(msg: Record<string, unknown>): string {
   }
   if (c != null) return JSON.stringify(c, null, 2);
   return "";
+}
+
+function extractMediaBlocks(msg: Record<string, unknown>): Record<string, unknown>[] {
+  const c = msg.content;
+  if (!Array.isArray(c)) return [];
+  return c.filter((block) => {
+    if (!block || typeof block !== "object") return false;
+    const b = block as Record<string, unknown>;
+    const t = b.type as string | undefined;
+    return t && t !== "text" && t !== "input_text";
+  }) as Record<string, unknown>[];
 }
 
 function ToolsList({ tools }: { tools: Record<string, unknown>[] }) {
@@ -330,9 +366,16 @@ function ParamsBlock({ params }: { params: Record<string, unknown> }) {
 /* Output section                                                      */
 /* ------------------------------------------------------------------ */
 
-function OutputSection({ llm, hideToolCalls }: { llm: LLMShape; hideToolCalls?: boolean }) {
+function OutputSection({ llm, hideToolCalls, artifacts }: { llm: LLMShape; hideToolCalls?: boolean; artifacts?: StepArtifactRef[] }) {
   const output = llm.output;
   const structuredText = output.text ? tryParseJson(output.text) : null;
+
+  const mediaBlocks = output.content_blocks.filter(
+    (b) => {
+      const t = b.type as string | undefined;
+      return t && t !== "text" && t !== "thinking" && t !== "redacted_thinking" && t !== "tool_call";
+    },
+  );
 
   return (
     <div className="rounded-md bg-[var(--tint-output)] px-4 py-3">
@@ -346,6 +389,13 @@ function OutputSection({ llm, hideToolCalls }: { llm: LLMShape; hideToolCalls?: 
           ) : (
             <ExpandableTextBlock text={output.text} />
           ))}
+        {mediaBlocks.length > 0 && (
+          <div className="space-y-2">
+            {mediaBlocks.map((block, i) => (
+              <ContentBlockRow key={i} block={block} artifacts={artifacts ?? []} />
+            ))}
+          </div>
+        )}
         {!hideToolCalls && output.tool_calls.length > 0 && <ToolCallsList calls={output.tool_calls} />}
       </div>
     </div>
