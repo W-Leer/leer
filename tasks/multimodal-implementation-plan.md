@@ -83,32 +83,52 @@ An artifact pipeline that can store, retrieve, and serve binary media end-to-end
 ### Goal
 Introduce the content-part model and map provider-native multimodal payloads into canonical parts.
 
-### Tasks — content-part model
-- add typed canonical part definitions aligned with `content-parts.md`
-- define shared fields (type, mime_type, source, artifact_id, filename, size_bytes, preview_text, metadata)
-- define source descriptor model (inline, artifact, provider_file, url, derived)
-- extend `LLMOutput.content_blocks` to carry multimodal part types
+### Status
+Complete. Implemented in `normalize.py` (shared helpers + canonical part builder), OpenAI and Anthropic wrapper summary updates. 85 new multimodal normalization tests + 322 full-suite SDK tests pass.
 
-### Tasks — provider input normalization
-- OpenAI: map `image_url` blocks, file/document inputs into canonical parts
-- Anthropic: map `image` blocks, `document` blocks into canonical parts
-- preserve provider-native metadata where useful
-- create media artifacts for inline base64 payloads
-- use `file` as safe fallback for unknown content types
+### What was implemented
 
-### Tasks — provider output normalization
-- OpenAI: map generated image outputs (Responses API) into canonical parts
-- Anthropic: map any media output blocks
-- preserve original artifacts/references
-- generic file fallback for unrecognized output types
+**Canonical content-part helpers** (in `normalize.py`):
+- `_media_part()` builder produces canonical parts with shared fields: `type`, `mime_type`, `source`, `provider`, `provider_part_type`, `filename`, `preview_text`, `metadata`
+- `_make_source()` builder for `inline`, `url`, `provider_file` source descriptors
+- `_canonical_type_from_mime()` maps MIME types to `image`, `document`, or `file` (audio/video deferred to a future step)
+- `_summarize_content_for_user()` produces media-aware summaries like `[image] Explain this chart`
+
+**OpenAI normalization**:
+- Responses API: `output_image` blocks mapped to canonical `image` parts
+- Responses API: `image_generation_call` items mapped to canonical `image` parts
+- Responses API: `refusal` blocks preserved as text
+- Unknown output items/blocks preserved as generic `file` fallback (never dropped)
+- Chat completions: no multimodal output shapes yet (text + tool_call only)
+
+**Anthropic normalization**:
+- `image` response blocks mapped to canonical `image` parts (base64 and url sources)
+- `document` response blocks mapped to canonical `document` parts (with filename from title)
+- Unknown block types preserved as generic `file` fallback (never dropped)
+
+**Summary improvements** (both providers):
+- `_input_summary` now reveals `[image]`, `[document: report.pdf]`, `[file]` markers
+- `_output_summary` includes `media` field listing output media parts
+- `_request_preview` shows media markers in user messages
+- `_response_preview` shows media labels when no text output
 
 ### v1 target media types
 - image (input and output)
-- PDF/document (input)
+- PDF/document (input and output)
 - generic file fallback
 
 ### Stretch target
 - audio, video, spreadsheet through generic file
+
+### Intentional v1 decisions
+
+1. **Input messages stay provider-shaped.** Output `content_blocks` are canonical; input `LLMInput.messages` still carry the raw provider shapes. Summaries reveal multimodal presence, but the message payloads are not normalized. This asymmetry is acceptable for v1. Canonical input content parts will be needed later for clean diffing, replay, and provider-agnostic message rendering.
+
+2. **Inline base64 media has no artifact reference yet.** Anthropic base64 image/document blocks get `source: {"kind": "inline"}` but no `artifact_id`. Step 3 must create derived artifacts for renderable media rather than rendering from raw provider payloads — this is the preferred long-term approach.
+
+3. **`_canonical_type_from_mime` only produces `image`, `document`, `file`.** Audio/video MIME types fall through to generic `file`. Dedicated `audio`/`video` canonical types are deferred to avoid overclassifying beyond Step 2 scope.
+
+4. **Chat completions API has no multimodal output shapes to normalize yet.**
 
 ### Output
 A code-level content model and provider normalizers that produce multimodal content blocks with artifact references.
@@ -119,6 +139,9 @@ A code-level content model and provider normalizers that produce multimodal cont
 
 ### Goal
 Ship the first multimodal UI surfaces.
+
+### Prerequisite from Step 2
+Step 2 canonical parts with `source: {"kind": "inline"}` do not yet have artifact references. Before rendering, Step 3 must create derived artifacts for inline base64 media during normalization/ingestion so that rendering always works through the artifact pipeline — not by reading raw provider payloads.
 
 ### v1 rich renderers
 - image renderer (`<img>` with lazy load from binary artifact endpoint)
@@ -131,6 +154,7 @@ Ship the first multimodal UI surfaces.
 - generic file (kind + MIME + size + download)
 
 ### Tasks
+- create derived artifacts for inline base64 media (image, document) during normalization, populating `artifact_id` on canonical parts
 - add image renderer component
 - add document/PDF renderer component
 - improve generic artifact viewer for typed media (MIME-type icon/badge, download action)
@@ -215,5 +239,6 @@ For the first implementation wave, do not do:
 
 Step 0 audit is complete (`docs/04-execution/multimodal-step-0-audit.md`).
 Step 1 binary artifact transport is complete.
+Step 2 canonical content parts and provider normalization is complete.
 
-Next: begin **Step 2 — Canonical content parts and provider normalization**.
+Next: begin **Step 3 — UI rendering v1**.

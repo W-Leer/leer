@@ -581,6 +581,8 @@ def _safe_enrich_error(
 # ---------------------------------------------------------------------------
 
 def _input_summary(n: NormalizedLLMCall) -> dict[str, Any]:
+    from leer.integrations.normalize import _summarize_content_for_user
+
     summary: dict[str, Any] = {}
     if n.model:
         summary["model"] = n.model
@@ -589,16 +591,7 @@ def _input_summary(n: NormalizedLLMCall) -> dict[str, Any]:
     for m in reversed(n.input.messages):
         if m.get("role") == "user":
             content = m.get("content", "")
-            if isinstance(content, str):
-                summary["user"] = content[:200]
-            elif isinstance(content, list):
-                texts = [
-                    p.get("text", "")
-                    for p in content
-                    if isinstance(p, dict) and p.get("type") in ("text", "input_text")
-                ]
-                if texts:
-                    summary["user"] = " ".join(texts)[:200]
+            summary["user"] = _summarize_content_for_user(content)
             break
     if n.input.tools:
         summary["tools"] = [
@@ -616,6 +609,15 @@ def _output_summary(n: NormalizedLLMCall) -> dict[str, Any]:
         summary["tool_calls"] = [
             {"name": tc.get("name", "?")} for tc in n.output.tool_calls
         ]
+    media_parts = [
+        b for b in n.output.content_blocks
+        if b.get("type") in ("image", "document", "audio", "video", "file")
+    ]
+    if media_parts:
+        summary["media"] = [
+            f"[{b['type']}" + (f": {b['filename']}" if b.get("filename") else "") + "]"
+            for b in media_parts
+        ]
     if n.usage.total_tokens is not None:
         summary["tokens"] = n.usage.total_tokens
     return summary
@@ -626,6 +628,8 @@ def _output_summary(n: NormalizedLLMCall) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def _request_preview(n: NormalizedLLMCall) -> str:
+    from leer.integrations.normalize import _summarize_content_for_user
+
     parts: list[str] = []
     if n.model:
         parts.append(f"model: {n.model}")
@@ -634,8 +638,7 @@ def _request_preview(n: NormalizedLLMCall) -> str:
     for m in n.input.messages:
         if m.get("role") == "user":
             content = m.get("content", "")
-            if isinstance(content, str):
-                parts.append(f"user: {content[:80]}")
+            parts.append(f"user: {_summarize_content_for_user(content)[:80]}")
             break
     return " | ".join(parts) if parts else "OpenAI request"
 
@@ -646,6 +649,10 @@ def _response_preview(n: NormalizedLLMCall) -> str:
     if n.output.tool_calls:
         names = [tc.get("name", "?") for tc in n.output.tool_calls]
         return f"tool_calls: {', '.join(names)}"
+    media = [b for b in n.output.content_blocks if b.get("type") in ("image", "document", "audio", "video", "file")]
+    if media:
+        labels = [b.get("preview_text") or b.get("type", "media") for b in media]
+        return ", ".join(labels)
     return "OpenAI response"
 
 

@@ -95,6 +95,108 @@ def _resolve_model(response: dict[str, Any], request: dict[str, Any]) -> str | N
 
 
 # ---------------------------------------------------------------------------
+# Canonical content-part helpers
+# ---------------------------------------------------------------------------
+
+_IMAGE_MIMES = frozenset({
+    "image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml",
+})
+
+_DOC_MIMES = frozenset({
+    "application/pdf",
+})
+
+
+def _canonical_type_from_mime(mime: str | None) -> str:
+    """Map MIME to a canonical part type.
+
+    Step 2 scope: only ``image``, ``document``, and ``file``.
+    Audio/video may get dedicated types in a future step; for now they
+    fall through to generic ``file``.
+    """
+    if not mime:
+        return "file"
+    if mime in _IMAGE_MIMES or mime.startswith("image/"):
+        return "image"
+    if mime in _DOC_MIMES:
+        return "document"
+    return "file"
+
+
+def _make_source(kind: str, value: str | None = None) -> dict[str, Any]:
+    return {"kind": kind, "value": value, "label": None}
+
+
+def _media_part(
+    part_type: str,
+    *,
+    mime_type: str | None = None,
+    source: dict[str, Any] | None = None,
+    provider: str | None = None,
+    provider_part_type: str | None = None,
+    filename: str | None = None,
+    preview_text: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a canonical media content part.  Omits None-valued optional fields."""
+    d: dict[str, Any] = {"type": part_type}
+    if mime_type is not None:
+        d["mime_type"] = mime_type
+    if source is not None:
+        d["source"] = source
+    if provider is not None:
+        d["provider"] = provider
+    if provider_part_type is not None:
+        d["provider_part_type"] = provider_part_type
+    if filename is not None:
+        d["filename"] = filename
+    if preview_text is not None:
+        d["preview_text"] = preview_text
+    if metadata:
+        d["metadata"] = metadata
+    return d
+
+
+def _summarize_content_for_user(content: Any) -> str:
+    """Summarize a user message content array into a readable string with media markers."""
+    if isinstance(content, str):
+        return content[:200]
+    if not isinstance(content, list):
+        return str(content)[:200]
+
+    parts: list[str] = []
+    for p in content:
+        if not isinstance(p, dict):
+            continue
+        pt = p.get("type", "")
+        if pt in ("text", "input_text"):
+            t = p.get("text", "")
+            if t:
+                parts.append(t[:120])
+        elif pt == "image_url" or pt == "image":
+            parts.append("[image]")
+        elif pt == "input_image":
+            parts.append("[image]")
+        elif pt == "document":
+            fname = p.get("filename") or p.get("name") or ""
+            label = f"[document: {fname}]" if fname else "[document]"
+            parts.append(label)
+        elif pt == "file":
+            fname = p.get("filename") or p.get("name") or ""
+            label = f"[file: {fname}]" if fname else "[file]"
+            parts.append(label)
+        elif pt == "input_file":
+            fname = p.get("filename") or ""
+            label = f"[file: {fname}]" if fname else "[file]"
+            parts.append(label)
+        elif pt == "input_pdf":
+            parts.append("[document: PDF]")
+        else:
+            parts.append(f"[{pt}]")
+    return " ".join(parts)[:200] if parts else ""
+
+
+# ---------------------------------------------------------------------------
 # OpenAI — parameter sets
 # ---------------------------------------------------------------------------
 
@@ -271,10 +373,34 @@ def _normalize_openai_responses(
             for block in (item.get("content") or []):
                 if not isinstance(block, dict):
                     continue
-                if block.get("type") == "output_text":
+                block_type = block.get("type")
+                if block_type == "output_text":
                     t = block.get("text", "")
                     text_parts.append(t)
                     content_blocks.append({"type": "text", "text": t})
+                elif block_type == "output_image":
+                    content_blocks.append(_media_part(
+                        "image",
+                        mime_type=block.get("mime_type"),
+                        source=_make_source("provider_file", block.get("file_id")),
+                        provider="openai",
+                        provider_part_type="output_image",
+                        preview_text="image output",
+                        metadata={k: v for k, v in {
+                            "file_id": block.get("file_id"),
+                            "image_url": block.get("image_url"),
+                        }.items() if v is not None},
+                    ))
+                elif block_type == "refusal":
+                    content_blocks.append({"type": "text", "text": f"[refusal] {block.get('refusal', '')}"})
+                elif block_type is not None:
+                    content_blocks.append(_media_part(
+                        "file",
+                        provider="openai",
+                        provider_part_type=block_type,
+                        preview_text=f"unknown output block: {block_type}",
+                        metadata={"raw_type": block_type},
+                    ))
 
         elif item_type == "function_call":
             tc = {
@@ -284,6 +410,26 @@ def _normalize_openai_responses(
             }
             tool_calls.append(tc)
             content_blocks.append({"type": "tool_call", **tc})
+
+        elif item_type == "image_generation_call":
+            content_blocks.append(_media_part(
+                "image",
+                provider="openai",
+                provider_part_type="image_generation_call",
+                preview_text="image generation",
+                metadata={k: v for k, v in {
+                    "result": item.get("result"),
+                }.items() if v is not None},
+            ))
+
+        elif item_type not in (None, "message", "function_call"):
+            content_blocks.append(_media_part(
+                "file",
+                provider="openai",
+                provider_part_type=item_type,
+                preview_text=f"unknown output item: {item_type}",
+                metadata={"raw_type": item_type},
+            ))
 
     text = "\n\n".join(text_parts) if text_parts else None
 
@@ -380,6 +526,50 @@ def normalize_anthropic(
             })
         elif block_type == "redacted_thinking":
             content_blocks.append({"type": "redacted_thinking"})
+        elif block_type == "image":
+            source_block = block.get("source") or {}
+            mime = source_block.get("media_type")
+            src_type = source_block.get("type", "")
+            if src_type == "url":
+                src = _make_source("url", source_block.get("url"))
+            elif src_type == "base64":
+                src = _make_source("inline")
+            else:
+                src = _make_source("inline")
+            content_blocks.append(_media_part(
+                "image",
+                mime_type=mime,
+                source=src,
+                provider="anthropic",
+                provider_part_type="image",
+                preview_text="image output",
+            ))
+        elif block_type == "document":
+            source_block = block.get("source") or {}
+            mime = source_block.get("media_type") or "application/pdf"
+            src_type = source_block.get("type", "")
+            if src_type == "url":
+                src = _make_source("url", source_block.get("url"))
+            else:
+                src = _make_source("inline")
+            content_blocks.append(_media_part(
+                "document",
+                mime_type=mime,
+                source=src,
+                provider="anthropic",
+                provider_part_type="document",
+                filename=block.get("title") or block.get("name"),
+                preview_text="document output",
+            ))
+        elif block_type is not None:
+            content_blocks.append(_media_part(
+                _canonical_type_from_mime(block.get("media_type")),
+                mime_type=block.get("media_type"),
+                provider="anthropic",
+                provider_part_type=block_type,
+                preview_text=f"unknown block: {block_type}",
+                metadata={"raw_type": block_type},
+            ))
 
     text = "\n\n".join(text_parts) if text_parts else None
 

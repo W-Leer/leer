@@ -253,8 +253,9 @@ Adapters should:
 Examples:
 - PDF becomes `document`
 - PNG becomes `image`
-- WAV becomes `audio`
-- XLSX may remain `file` with `kind_hint=spreadsheet` in v1
+- WAV becomes `file` in v1 (dedicated `audio` type deferred)
+- MP4 becomes `file` in v1 (dedicated `video` type deferred)
+- XLSX becomes `file` with `kind_hint=spreadsheet` in v1
 
 ---
 
@@ -310,9 +311,21 @@ The first multimodal milestone should explicitly avoid:
 
 These are known, accepted constraints in the current implementation. They do not block the v1 milestone but are documented here for clarity.
 
+### Step 1 — Binary artifact transport
+
 **Binary/media artifacts are blob-only.** Binary artifacts are always stored in blob storage. They never use `inline_data`. This is enforced by the SDK helper (`create_binary_artifact`) and the ingestion path. Small text/JSON artifacts may still be inline.
 
 **Binary transport uses base64-over-JSON.** The SDK encodes binary artifact content as base64 in the ingest JSON payload (`binary_data_b64` field). The API decodes and stores directly to blob. This causes ~33% payload expansion and is acceptable for small-to-medium media. Future optimization: multipart upload or signed-upload-then-reference flow.
+
+### Step 2 — Content-part normalization
+
+**Output is canonical; input is still provider-shaped.** Output `content_blocks` use the canonical content-part model. Input `LLMInput.messages` still carry raw provider shapes. Summaries reveal multimodal presence (e.g. `[image] Explain this chart`), but message payloads are not yet normalized. This asymmetry is acceptable for v1. Canonical input content parts will be needed later for diffing, replay, and provider-agnostic message rendering.
+
+**Inline base64 media has no artifact reference.** When providers return base64-encoded media (e.g. Anthropic image/document blocks), canonical parts get `source: {"kind": "inline"}` but no `artifact_id`. Step 3 must create derived artifacts for renderable media rather than rendering from raw provider payloads.
+
+**Canonical type scope is image, document, and file only.** `_canonical_type_from_mime` only produces `image`, `document`, or `file`. Audio and video MIME types fall through to generic `file` to avoid overclassifying beyond current scope. Dedicated `audio`/`video` types are deferred.
+
+### General
 
 **Rich media rendering is not part of Step 1 or Step 2.** The binary artifact pipeline and content-part normalization are plumbing-only. Image, PDF, audio, and video renderers are Step 3. Until then, binary artifacts appear as typed artifact cards with metadata (kind, MIME type, filename, size).
 
@@ -322,11 +335,11 @@ These are known, accepted constraints in the current implementation. They do not
 
 Recommended implementation order:
 
-1. spec and audit
-2. binary artifact transport (SDK helper, ingestion, serving, mime_type in refs)
-3. canonical content-part model and provider normalization
-4. image + PDF/document rendering, typed generic artifact cards
-5. compare non-regression, polish, QA
+1. ~~spec and audit~~ — done (Step 0)
+2. ~~binary artifact transport (SDK helper, ingestion, serving, mime_type in refs)~~ — done (Step 1)
+3. ~~canonical content-part model and provider normalization~~ — done (Step 2)
+4. image + PDF/document rendering, typed generic artifact cards (Step 3)
+5. compare non-regression, polish, QA (Step 4)
 6. later rich renderers for audio/video/spreadsheet
 
 Binary transport comes before normalization because normalizers need a working artifact pipeline to write media into.
