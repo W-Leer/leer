@@ -8,6 +8,8 @@ import { ExpandableTextBlock } from "@/components/expandable-text-block";
 import { ArtifactViewer } from "@/components/artifact-viewer";
 import { ContentBlockRow, InputMediaMarker } from "@/components/media-artifact";
 import { computeLatencyBreakdown, type LatencyBreakdown } from "@/lib/latency";
+import type { ToolCallLinkResult, LinkageConfidence, ToolCallLifecycle } from "@/lib/tool-linkage";
+import { deriveLifecycle } from "@/lib/tool-linkage";
 
 type Dict = Record<string, unknown>;
 
@@ -96,6 +98,7 @@ export function resolveArgs(args: unknown): unknown {
 /* Main export                                                         */
 /* ------------------------------------------------------------------ */
 
+/** @deprecated Use ToolCallLinkResult from @/lib/tool-linkage instead */
 export interface ToolCallLinkInfo {
   toolStepId: string;
   toolStepName: string;
@@ -129,7 +132,7 @@ function safeLlm(raw: LLMShape): LLMShape {
 export function LlmStepDetail({
   llm: rawLlm,
   errorSummary,
-  toolCallLinks,
+  toolCallLinkResults,
   onJumpToStep,
   durationMs,
   streamMeta,
@@ -139,7 +142,7 @@ export function LlmStepDetail({
 }: {
   llm: LLMShape;
   errorSummary?: Dict | null;
-  toolCallLinks?: Map<string, ToolCallLinkInfo>;
+  toolCallLinkResults?: Map<number, ToolCallLinkResult>;
   onJumpToStep?: (stepId: string) => void;
   durationMs?: number | null;
   streamMeta?: Dict | null;
@@ -194,7 +197,7 @@ export function LlmStepDetail({
           {hasToolCalls && (
             <ToolCallsSection
               calls={llm.output.tool_calls}
-              toolCallLinks={toolCallLinks}
+              linkResults={toolCallLinkResults}
               onJumpToStep={onJumpToStep}
             />
           )}
@@ -449,18 +452,7 @@ function truncateId(id: string, max = 20): string {
   return id.length > max ? id.slice(0, max) + "…" : id;
 }
 
-export type ToolCallLifecycleStatus = "completed" | "failed" | "unmatched";
-
-export function deriveToolCallStatus(
-  link: ToolCallLinkInfo | undefined,
-): ToolCallLifecycleStatus {
-  if (!link) return "unmatched";
-  if (link.toolStepStatus === "completed") return "completed";
-  if (link.toolStepStatus === "failed") return "failed";
-  return "unmatched";
-}
-
-const LIFECYCLE_BADGE: Record<ToolCallLifecycleStatus, { label: string; className: string }> = {
+const LIFECYCLE_BADGE: Record<ToolCallLifecycle, { label: string; className: string }> = {
   completed: {
     label: "completed",
     className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400",
@@ -475,8 +467,32 @@ const LIFECYCLE_BADGE: Record<ToolCallLifecycleStatus, { label: string; classNam
   },
 };
 
-function ToolCallStatusBadge({ status }: { status: ToolCallLifecycleStatus }) {
-  const cfg = LIFECYCLE_BADGE[status];
+const CONFIDENCE_BADGE: Record<LinkageConfidence, { label: string; className: string }> = {
+  exact: {
+    label: "exact",
+    className: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400",
+  },
+  heuristic: {
+    label: "heuristic",
+    className: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400",
+  },
+  unlinked: {
+    label: "unlinked",
+    className: "bg-neutral-100 text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500",
+  },
+};
+
+function ToolCallStatusBadge({ lifecycle }: { lifecycle: ToolCallLifecycle }) {
+  const cfg = LIFECYCLE_BADGE[lifecycle];
+  return (
+    <span className={`inline-block rounded px-1.5 py-px text-[9px] font-medium ${cfg.className}`}>
+      {cfg.label}
+    </span>
+  );
+}
+
+function ToolCallConfidenceBadge({ confidence }: { confidence: LinkageConfidence }) {
+  const cfg = CONFIDENCE_BADGE[confidence];
   return (
     <span className={`inline-block rounded px-1.5 py-px text-[9px] font-medium ${cfg.className}`}>
       {cfg.label}
@@ -486,11 +502,11 @@ function ToolCallStatusBadge({ status }: { status: ToolCallLifecycleStatus }) {
 
 function ToolCallsSection({
   calls,
-  toolCallLinks,
+  linkResults,
   onJumpToStep,
 }: {
   calls: Dict[];
-  toolCallLinks?: Map<string, ToolCallLinkInfo>;
+  linkResults?: Map<number, ToolCallLinkResult>;
   onJumpToStep?: (stepId: string) => void;
 }) {
   return (
@@ -499,9 +515,11 @@ function ToolCallsSection({
       {calls.map((tc, i) => {
         const callId = (tc.id as string) ?? null;
         const name = (tc.name as string) ?? "call";
-        const link = callId ? toolCallLinks?.get(callId) : undefined;
+        const result = linkResults?.get(i);
+        const link = result?.link ?? null;
+        const lifecycle = result?.lifecycle ?? "unmatched";
+        const confidence = result?.confidence ?? "unlinked";
         const args = resolveArgs(tc.arguments);
-        const status = deriveToolCallStatus(link);
 
         return (
           <div
@@ -516,7 +534,8 @@ function ToolCallsSection({
                     {truncateId(callId)}
                   </span>
                 )}
-                <ToolCallStatusBadge status={status} />
+                <ToolCallStatusBadge lifecycle={lifecycle} />
+                <ToolCallConfidenceBadge confidence={confidence} />
                 {link && (
                   <span className="text-[10px] font-medium tabular-nums text-neutral-400">
                     #{link.toolStepIndex}

@@ -971,3 +971,613 @@ class TestLifecycleDerivation:
     def test_linked_empty_status_is_unmatched(self):
         link = {"toolStepId": "s1", "toolStepName": "f", "toolStepIndex": 1, "toolStepStatus": ""}
         assert self._derive(link) == "unmatched"
+
+
+# ===================================================================
+# Heuristic tool-call linkage (mirrors frontend buildToolCallLinkage)
+# ===================================================================
+
+def _make_step(
+    *,
+    id: str,
+    step_type: str = "llm",
+    name: str = "step",
+    status: str = "completed",
+    sequence_index: int = 0,
+    parent_step_id: str | None = None,
+    metadata: dict | None = None,
+    tool_calls: list[dict] | None = None,
+) -> dict:
+    """Build a minimal timeline step dict matching the TimelineStep shape."""
+    llm = None
+    if step_type == "llm":
+        llm = {
+            "provider": "openai",
+            "model": "gpt-4",
+            "input": {"system": None, "messages": [], "tools": [], "params": {}},
+            "output": {
+                "text": None,
+                "tool_calls": tool_calls or [],
+                "content_blocks": [],
+            },
+            "usage": {"prompt_tokens": None, "completion_tokens": None, "total_tokens": None},
+            "meta": {"finish_reason": None, "request_id": None, "latency_ms": None},
+        }
+    return {
+        "id": id,
+        "parent_step_id": parent_step_id,
+        "sequence_index": sequence_index,
+        "name": name,
+        "step_type": step_type,
+        "status": status,
+        "started_at": None,
+        "ended_at": None,
+        "input_summary": None,
+        "output_summary": None,
+        "error_summary": None,
+        "metadata": metadata or {},
+        "model_provider": None,
+        "model_name": None,
+        "duration_ms": None,
+        "llm": llm,
+        "artifacts": [],
+    }
+
+
+def _build_tool_call_linkage(steps: list[dict]) -> dict:
+    """Python mirror of the TypeScript buildToolCallLinkage function.
+
+    Faithfully replicates the exact same algorithm so tests validate
+    the logic that runs in the frontend.
+    """
+
+    def _tool_step_name(step: dict) -> str:
+        meta_name = (step.get("metadata") or {}).get("tool_name")
+        if isinstance(meta_name, str) and meta_name:
+            return meta_name
+        return step["name"]
+
+    def _derive_lifecycle(link: dict | None) -> str:
+        if link is None:
+            return "unmatched"
+        s = link.get("toolStepStatus", "")
+        if s == "completed":
+            return "completed"
+        if s == "failed":
+            return "failed"
+        return "unmatched"
+
+    call_links: dict[str, dict] = {}
+    tool_step_to_llm: dict[str, dict] = {}
+
+    id_to_tool_step: dict[str, dict] = {}
+    tool_steps: list[dict] = []
+
+    for s in steps:
+        if s["step_type"] == "tool":
+            tool_steps.append(s)
+            tc_id = (s.get("metadata") or {}).get("tool_call_id")
+            if isinstance(tc_id, str) and tc_id:
+                id_to_tool_step[tc_id] = s
+
+    claimed: set[str] = set()
+
+    # Phase 1: exact matches
+    for llm_step in steps:
+        calls = (llm_step.get("llm") or {}).get("output", {}).get("tool_calls") or []
+        if not calls:
+            continue
+        for ci, tc in enumerate(calls):
+            call_id = tc.get("id") if isinstance(tc.get("id"), str) else None
+            key = f"{llm_step['id']}:{ci}"
+            if call_id:
+                matched = id_to_tool_step.get(call_id)
+                if matched:
+                    link = {
+                        "toolStepId": matched["id"],
+                        "toolStepName": matched["name"],
+                        "toolStepIndex": matched["sequence_index"],
+                        "toolStepStatus": matched["status"],
+                        "confidence": "exact",
+                    }
+                    call_links[key] = {
+                        "link": link,
+                        "confidence": "exact",
+                        "lifecycle": _derive_lifecycle(link),
+                    }
+                    tool_step_to_llm[matched["id"]] = {
+                        "llmStep": llm_step,
+                        "confidence": "exact",
+                    }
+                    claimed.add(matched["id"])
+
+    # Phase 2: heuristic fallback
+    for llm_step in steps:
+        calls = (llm_step.get("llm") or {}).get("output", {}).get("tool_calls") or []
+        if not calls:
+            continue
+        unresolved_indices: list[int] = []
+        unresolved_names: list[str] = []
+        for ci, tc in enumerate(calls):
+            key = f"{llm_step['id']}:{ci}"
+            if key in call_links:
+                continue
+            name = tc.get("name", "") if isinstance(tc.get("name"), str) else ""
+            unresolved_indices.append(ci)
+            unresolved_names.append(name)
+
+        if not unresolved_indices:
+            continue
+
+        tier1: list[dict] = []
+        tier2: list[dict] = []
+        for ts in tool_steps:
+            if ts["id"] in claimed:
+                continue
+            if ts.get("parent_step_id") == llm_step["id"]:
+                tier1.append(ts)
+            elif ts["sequence_index"] > llm_step["sequence_index"]:
+                tier2.append(ts)
+
+        tier1.sort(key=lambda s: s["sequence_index"])
+        tier2.sort(key=lambda s: s["sequence_index"])
+        candidates = tier1 if tier1 else tier2
+
+        cand_claimed: set[str] = set()
+        for ui in range(len(unresolved_indices)):
+            call_name = unresolved_names[ui]
+            if not call_name:
+                continue
+            best: dict | None = None
+            for cand in candidates:
+                if cand["id"] in cand_claimed:
+                    continue
+                if _tool_step_name(cand) != call_name:
+                    continue
+                best = cand
+                break
+
+            if best is None:
+                continue
+
+            ci = unresolved_indices[ui]
+            key = f"{llm_step['id']}:{ci}"
+            link = {
+                "toolStepId": best["id"],
+                "toolStepName": best["name"],
+                "toolStepIndex": best["sequence_index"],
+                "toolStepStatus": best["status"],
+                "confidence": "heuristic",
+            }
+            call_links[key] = {
+                "link": link,
+                "confidence": "heuristic",
+                "lifecycle": _derive_lifecycle(link),
+            }
+            tool_step_to_llm[best["id"]] = {
+                "llmStep": llm_step,
+                "confidence": "heuristic",
+            }
+            claimed.add(best["id"])
+            cand_claimed.add(best["id"])
+
+    # Phase 3: fill unlinked
+    for llm_step in steps:
+        calls = (llm_step.get("llm") or {}).get("output", {}).get("tool_calls") or []
+        for ci in range(len(calls)):
+            key = f"{llm_step['id']}:{ci}"
+            if key not in call_links:
+                call_links[key] = {
+                    "link": None,
+                    "confidence": "unlinked",
+                    "lifecycle": "unmatched",
+                }
+
+    return {"callLinks": call_links, "toolStepToLlm": tool_step_to_llm}
+
+
+class TestHeuristicLinkageExactMatch:
+    """Exact match behavior tests."""
+
+    def test_exact_id_match_wins_over_heuristic(self):
+        """When a tool_call_id exists and matches a tool step, exact wins."""
+        steps = [
+            _make_step(
+                id="llm1", step_type="llm", sequence_index=0,
+                tool_calls=[{"id": "tc1", "name": "search"}],
+            ),
+            _make_step(
+                id="tool1", step_type="tool", name="search", sequence_index=1,
+                parent_step_id="llm1",
+                metadata={"tool_call_id": "tc1"},
+            ),
+            _make_step(
+                id="tool2", step_type="tool", name="search", sequence_index=2,
+                parent_step_id="llm1",
+            ),
+        ]
+        result = _build_tool_call_linkage(steps)
+        r = result["callLinks"]["llm1:0"]
+        assert r["confidence"] == "exact"
+        assert r["link"]["toolStepId"] == "tool1"
+
+    def test_exact_linked_completed(self):
+        steps = [
+            _make_step(
+                id="llm1", step_type="llm", sequence_index=0,
+                tool_calls=[{"id": "tc1", "name": "search"}],
+            ),
+            _make_step(
+                id="tool1", step_type="tool", name="search", status="completed",
+                sequence_index=1, metadata={"tool_call_id": "tc1"},
+            ),
+        ]
+        result = _build_tool_call_linkage(steps)
+        r = result["callLinks"]["llm1:0"]
+        assert r["confidence"] == "exact"
+        assert r["lifecycle"] == "completed"
+
+    def test_exact_linked_failed(self):
+        steps = [
+            _make_step(
+                id="llm1", step_type="llm", sequence_index=0,
+                tool_calls=[{"id": "tc1", "name": "search"}],
+            ),
+            _make_step(
+                id="tool1", step_type="tool", name="search", status="failed",
+                sequence_index=1, metadata={"tool_call_id": "tc1"},
+            ),
+        ]
+        result = _build_tool_call_linkage(steps)
+        r = result["callLinks"]["llm1:0"]
+        assert r["confidence"] == "exact"
+        assert r["lifecycle"] == "failed"
+
+
+class TestHeuristicLinkageFallback:
+    """Heuristic fallback behavior tests."""
+
+    def test_missing_id_same_parent_same_name(self):
+        """Tool call without id heuristically matches a child tool step with same name."""
+        steps = [
+            _make_step(
+                id="llm1", step_type="llm", sequence_index=0,
+                tool_calls=[{"name": "search"}],
+            ),
+            _make_step(
+                id="tool1", step_type="tool", name="search", status="completed",
+                sequence_index=1, parent_step_id="llm1",
+            ),
+        ]
+        result = _build_tool_call_linkage(steps)
+        r = result["callLinks"]["llm1:0"]
+        assert r["confidence"] == "heuristic"
+        assert r["link"]["toolStepId"] == "tool1"
+        assert r["lifecycle"] == "completed"
+
+    def test_multiple_calls_align_by_order(self):
+        """Multiple tool calls of the same name align to same-name tool steps in order."""
+        steps = [
+            _make_step(
+                id="llm1", step_type="llm", sequence_index=0,
+                tool_calls=[
+                    {"name": "search"},
+                    {"name": "search"},
+                ],
+            ),
+            _make_step(
+                id="tool1", step_type="tool", name="search", status="completed",
+                sequence_index=1, parent_step_id="llm1",
+            ),
+            _make_step(
+                id="tool2", step_type="tool", name="search", status="failed",
+                sequence_index=2, parent_step_id="llm1",
+            ),
+        ]
+        result = _build_tool_call_linkage(steps)
+        r0 = result["callLinks"]["llm1:0"]
+        r1 = result["callLinks"]["llm1:1"]
+        assert r0["confidence"] == "heuristic"
+        assert r0["link"]["toolStepId"] == "tool1"
+        assert r1["confidence"] == "heuristic"
+        assert r1["link"]["toolStepId"] == "tool2"
+
+    def test_tool_step_before_llm_not_preferred(self):
+        """A tool step with lower sequence_index than the LLM step is not a valid heuristic candidate."""
+        steps = [
+            _make_step(
+                id="tool_early", step_type="tool", name="search", status="completed",
+                sequence_index=0,
+            ),
+            _make_step(
+                id="llm1", step_type="llm", sequence_index=1,
+                tool_calls=[{"name": "search"}],
+            ),
+            _make_step(
+                id="tool_late", step_type="tool", name="search", status="completed",
+                sequence_index=2,
+            ),
+        ]
+        result = _build_tool_call_linkage(steps)
+        r = result["callLinks"]["llm1:0"]
+        assert r["confidence"] == "heuristic"
+        assert r["link"]["toolStepId"] == "tool_late"
+
+    def test_nearest_sequence_index_breaks_ties(self):
+        """Among multiple valid candidates, the one with nearest sequence_index wins."""
+        steps = [
+            _make_step(
+                id="llm1", step_type="llm", sequence_index=0,
+                tool_calls=[{"name": "fetch"}],
+            ),
+            _make_step(
+                id="tool1", step_type="tool", name="fetch", status="completed",
+                sequence_index=1, parent_step_id="llm1",
+            ),
+            _make_step(
+                id="tool2", step_type="tool", name="fetch", status="completed",
+                sequence_index=5, parent_step_id="llm1",
+            ),
+        ]
+        result = _build_tool_call_linkage(steps)
+        r = result["callLinks"]["llm1:0"]
+        assert r["link"]["toolStepId"] == "tool1"
+
+    def test_ambiguous_candidates_remain_unlinked(self):
+        """When there are no name-matching unclaimed candidates, call remains unlinked."""
+        steps = [
+            _make_step(
+                id="llm1", step_type="llm", sequence_index=0,
+                tool_calls=[{"name": "search"}],
+            ),
+            _make_step(
+                id="tool1", step_type="tool", name="other_tool", status="completed",
+                sequence_index=1, parent_step_id="llm1",
+            ),
+        ]
+        result = _build_tool_call_linkage(steps)
+        r = result["callLinks"]["llm1:0"]
+        assert r["confidence"] == "unlinked"
+        assert r["link"] is None
+
+    def test_metadata_tool_name_preferred_over_step_name(self):
+        """metadata.tool_name takes priority over step.name for heuristic matching."""
+        steps = [
+            _make_step(
+                id="llm1", step_type="llm", sequence_index=0,
+                tool_calls=[{"name": "search"}],
+            ),
+            _make_step(
+                id="tool1", step_type="tool", name="tool_step_generic",
+                status="completed", sequence_index=1, parent_step_id="llm1",
+                metadata={"tool_name": "search"},
+            ),
+        ]
+        result = _build_tool_call_linkage(steps)
+        r = result["callLinks"]["llm1:0"]
+        assert r["confidence"] == "heuristic"
+        assert r["link"]["toolStepId"] == "tool1"
+
+    def test_tier1_preferred_over_tier2(self):
+        """Child tool steps (same parent) are preferred over nearby non-child steps."""
+        steps = [
+            _make_step(
+                id="llm1", step_type="llm", sequence_index=0,
+                tool_calls=[{"name": "search"}],
+            ),
+            _make_step(
+                id="tool_child", step_type="tool", name="search", status="completed",
+                sequence_index=2, parent_step_id="llm1",
+            ),
+            _make_step(
+                id="tool_nearby", step_type="tool", name="search", status="completed",
+                sequence_index=1,
+            ),
+        ]
+        result = _build_tool_call_linkage(steps)
+        r = result["callLinks"]["llm1:0"]
+        assert r["confidence"] == "heuristic"
+        assert r["link"]["toolStepId"] == "tool_child"
+
+
+class TestHeuristicLinkageUnlinked:
+    """Unlinked behavior tests."""
+
+    def test_no_compatible_tool_step(self):
+        steps = [
+            _make_step(
+                id="llm1", step_type="llm", sequence_index=0,
+                tool_calls=[{"name": "search"}],
+            ),
+        ]
+        result = _build_tool_call_linkage(steps)
+        r = result["callLinks"]["llm1:0"]
+        assert r["confidence"] == "unlinked"
+        assert r["lifecycle"] == "unmatched"
+
+    def test_wrong_tool_name(self):
+        steps = [
+            _make_step(
+                id="llm1", step_type="llm", sequence_index=0,
+                tool_calls=[{"name": "search"}],
+            ),
+            _make_step(
+                id="tool1", step_type="tool", name="fetch_data", status="completed",
+                sequence_index=1, parent_step_id="llm1",
+            ),
+        ]
+        result = _build_tool_call_linkage(steps)
+        r = result["callLinks"]["llm1:0"]
+        assert r["confidence"] == "unlinked"
+
+    def test_already_claimed_not_reused(self):
+        """Once a tool step is claimed by exact match, it cannot be reused heuristically."""
+        steps = [
+            _make_step(
+                id="llm1", step_type="llm", sequence_index=0,
+                tool_calls=[
+                    {"id": "tc1", "name": "search"},
+                    {"name": "search"},
+                ],
+            ),
+            _make_step(
+                id="tool1", step_type="tool", name="search", status="completed",
+                sequence_index=1, parent_step_id="llm1",
+                metadata={"tool_call_id": "tc1"},
+            ),
+        ]
+        result = _build_tool_call_linkage(steps)
+        r0 = result["callLinks"]["llm1:0"]
+        r1 = result["callLinks"]["llm1:1"]
+        assert r0["confidence"] == "exact"
+        assert r0["link"]["toolStepId"] == "tool1"
+        assert r1["confidence"] == "unlinked"
+        assert r1["link"] is None
+
+    def test_empty_tool_call_name_stays_unlinked(self):
+        """A tool call without a name cannot be heuristically matched."""
+        steps = [
+            _make_step(
+                id="llm1", step_type="llm", sequence_index=0,
+                tool_calls=[{"name": ""}],
+            ),
+            _make_step(
+                id="tool1", step_type="tool", name="search", status="completed",
+                sequence_index=1, parent_step_id="llm1",
+            ),
+        ]
+        result = _build_tool_call_linkage(steps)
+        r = result["callLinks"]["llm1:0"]
+        assert r["confidence"] == "unlinked"
+
+
+class TestHeuristicLinkageRegression:
+    """Regression tests."""
+
+    def test_exact_linkage_still_works(self):
+        """Standard exact linkage path remains functional."""
+        steps = [
+            _make_step(
+                id="llm1", step_type="llm", sequence_index=0,
+                tool_calls=[{"id": "tc1", "name": "search"}],
+            ),
+            _make_step(
+                id="tool1", step_type="tool", name="search", status="completed",
+                sequence_index=1, metadata={"tool_call_id": "tc1"},
+            ),
+        ]
+        result = _build_tool_call_linkage(steps)
+        r = result["callLinks"]["llm1:0"]
+        assert r["confidence"] == "exact"
+        assert r["link"]["toolStepId"] == "tool1"
+        assert r["lifecycle"] == "completed"
+        # back-link
+        back = result["toolStepToLlm"]["tool1"]
+        assert back["llmStep"]["id"] == "llm1"
+        assert back["confidence"] == "exact"
+
+    def test_lifecycle_strict_for_running(self):
+        """Linked step with 'running' status → unmatched lifecycle."""
+        steps = [
+            _make_step(
+                id="llm1", step_type="llm", sequence_index=0,
+                tool_calls=[{"id": "tc1", "name": "search"}],
+            ),
+            _make_step(
+                id="tool1", step_type="tool", name="search", status="running",
+                sequence_index=1, metadata={"tool_call_id": "tc1"},
+            ),
+        ]
+        result = _build_tool_call_linkage(steps)
+        r = result["callLinks"]["llm1:0"]
+        assert r["confidence"] == "exact"
+        assert r["lifecycle"] == "unmatched"
+
+    def test_lifecycle_strict_for_pending(self):
+        steps = [
+            _make_step(
+                id="llm1", step_type="llm", sequence_index=0,
+                tool_calls=[{"id": "tc1", "name": "search"}],
+            ),
+            _make_step(
+                id="tool1", step_type="tool", name="search", status="pending",
+                sequence_index=1, metadata={"tool_call_id": "tc1"},
+            ),
+        ]
+        result = _build_tool_call_linkage(steps)
+        r = result["callLinks"]["llm1:0"]
+        assert r["lifecycle"] == "unmatched"
+
+    def test_no_crash_when_metadata_missing(self):
+        """Steps without metadata don't crash the linker."""
+        steps = [
+            _make_step(
+                id="llm1", step_type="llm", sequence_index=0,
+                tool_calls=[{"name": "search"}],
+            ),
+            _make_step(
+                id="tool1", step_type="tool", name="search", status="completed",
+                sequence_index=1,
+            ),
+        ]
+        result = _build_tool_call_linkage(steps)
+        assert "llm1:0" in result["callLinks"]
+
+    def test_no_crash_when_tool_name_missing(self):
+        """Tool step with no name or metadata.tool_name doesn't crash."""
+        steps = [
+            _make_step(
+                id="llm1", step_type="llm", sequence_index=0,
+                tool_calls=[{"name": "search"}],
+            ),
+            _make_step(
+                id="tool1", step_type="tool", name="", status="completed",
+                sequence_index=1, parent_step_id="llm1",
+            ),
+        ]
+        result = _build_tool_call_linkage(steps)
+        r = result["callLinks"]["llm1:0"]
+        assert r["confidence"] == "unlinked"
+
+    def test_back_link_confidence_heuristic(self):
+        """toolStepToLlm entry has heuristic confidence for heuristic matches."""
+        steps = [
+            _make_step(
+                id="llm1", step_type="llm", sequence_index=0,
+                tool_calls=[{"name": "search"}],
+            ),
+            _make_step(
+                id="tool1", step_type="tool", name="search", status="completed",
+                sequence_index=1, parent_step_id="llm1",
+            ),
+        ]
+        result = _build_tool_call_linkage(steps)
+        back = result["toolStepToLlm"]["tool1"]
+        assert back["confidence"] == "heuristic"
+
+    def test_mixed_exact_and_heuristic(self):
+        """One call with id (exact) and one without (heuristic) in same LLM step."""
+        steps = [
+            _make_step(
+                id="llm1", step_type="llm", sequence_index=0,
+                tool_calls=[
+                    {"id": "tc1", "name": "search"},
+                    {"name": "fetch"},
+                ],
+            ),
+            _make_step(
+                id="tool1", step_type="tool", name="search", status="completed",
+                sequence_index=1, metadata={"tool_call_id": "tc1"},
+            ),
+            _make_step(
+                id="tool2", step_type="tool", name="fetch", status="completed",
+                sequence_index=2, parent_step_id="llm1",
+            ),
+        ]
+        result = _build_tool_call_linkage(steps)
+        r0 = result["callLinks"]["llm1:0"]
+        r1 = result["callLinks"]["llm1:1"]
+        assert r0["confidence"] == "exact"
+        assert r0["link"]["toolStepId"] == "tool1"
+        assert r1["confidence"] == "heuristic"
+        assert r1["link"]["toolStepId"] == "tool2"

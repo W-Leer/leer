@@ -17,8 +17,9 @@ import {
 import type { TimelineResponse, TimelineStep, TimelineEvent, StepArtifactRef } from "@/lib/types";
 import { StructuredValue } from "@/components/structured-value";
 import { LlmStepDetail } from "@/components/llm-step-detail";
-import type { ToolCallLinkInfo } from "@/components/llm-step-detail";
 import { ArtifactViewer } from "@/components/artifact-viewer";
+import { buildToolCallLinkage } from "@/lib/tool-linkage";
+import type { ToolCallLinkResult, LinkageConfidence } from "@/lib/tool-linkage";
 import { ChevronRight, GitCompareArrows } from "lucide-react";
 
 export default function RunDetailPage() {
@@ -39,26 +40,11 @@ export default function RunDetailPage() {
 
   const steps = useMemo(() => data?.steps ?? [], [data]);
 
-  // Build tool_call_id linkage maps from the timeline data
-  const { toolCallIdToToolStep, toolCallIdToLlmStep } = useMemo(() => {
-    const toTool = new Map<string, TimelineStep>();
-    const toLlm = new Map<string, TimelineStep>();
-
-    for (const s of steps) {
-      if (s.step_type === "tool" && s.metadata?.tool_call_id) {
-        toTool.set(String(s.metadata.tool_call_id), s);
-      }
-      if (s.llm?.output?.tool_calls) {
-        for (const tc of s.llm.output.tool_calls) {
-          const tcId = (tc as Record<string, unknown>).id;
-          if (typeof tcId === "string") {
-            toLlm.set(tcId, s);
-          }
-        }
-      }
-    }
-    return { toolCallIdToToolStep: toTool, toolCallIdToLlmStep: toLlm };
-  }, [steps]);
+  // Build tool-call linkage (exact + heuristic + unlinked)
+  const { callLinks, toolStepToLlm } = useMemo(
+    () => buildToolCallLinkage(steps),
+    [steps],
+  );
 
   // Parent/child hierarchy maps — derived client-side, no reordering
   const { stepById, childrenByParentId } = useMemo(() => {
@@ -159,8 +145,8 @@ export default function RunDetailPage() {
                 step={s}
                 expanded={expandedStepId === s.id}
                 onToggle={() => setExpandedStepId(expandedStepId === s.id ? null : s.id)}
-                toolCallIdToToolStep={toolCallIdToToolStep}
-                toolCallIdToLlmStep={toolCallIdToLlmStep}
+                callLinks={callLinks}
+                toolStepToLlm={toolStepToLlm}
                 stepById={stepById}
                 childrenByParentId={childrenByParentId}
                 onJumpToStep={scrollToStep}
@@ -345,8 +331,8 @@ function StepCard({
   step,
   expanded,
   onToggle,
-  toolCallIdToToolStep,
-  toolCallIdToLlmStep,
+  callLinks,
+  toolStepToLlm,
   stepById,
   childrenByParentId,
   onJumpToStep,
@@ -354,15 +340,17 @@ function StepCard({
   step: TimelineStep;
   expanded: boolean;
   onToggle: () => void;
-  toolCallIdToToolStep: Map<string, TimelineStep>;
-  toolCallIdToLlmStep: Map<string, TimelineStep>;
+  callLinks: Map<string, ToolCallLinkResult>;
+  toolStepToLlm: Map<string, { llmStep: TimelineStep; confidence: LinkageConfidence }>;
   stepById: Map<string, TimelineStep>;
   childrenByParentId: Map<string, TimelineStep[]>;
   onJumpToStep: (stepId: string) => void;
 }) {
   const isTool = step.step_type === "tool";
   const toolCallId = isTool ? String(step.metadata?.tool_call_id ?? "") : "";
-  const sourceLlmStep = toolCallId ? toolCallIdToLlmStep.get(toolCallId) : undefined;
+  const backLink = isTool ? toolStepToLlm.get(step.id) : undefined;
+  const sourceLlmStep = backLink?.llmStep;
+  const backLinkConfidence = backLink?.confidence ?? ("unlinked" as LinkageConfidence);
 
   // Parent/child hierarchy
   const isChildStep = !!step.parent_step_id;
@@ -406,26 +394,18 @@ function StepCard({
 
   const streamEvents = inlineStreamEvents ?? blobStreamEvents;
 
-  // Build tool call link map for LLM steps
-  const llmToolCallLinks = useMemo(() => {
-    if (!step.llm?.output?.tool_calls?.length) return undefined;
-    const links = new Map<string, ToolCallLinkInfo>();
-    for (const tc of step.llm.output.tool_calls) {
-      const tcId = (tc as Record<string, unknown>).id;
-      if (typeof tcId === "string") {
-        const toolStep = toolCallIdToToolStep.get(tcId);
-        if (toolStep) {
-          links.set(tcId, {
-            toolStepId: toolStep.id,
-            toolStepName: toolStep.name,
-            toolStepIndex: toolStep.sequence_index,
-            toolStepStatus: toolStep.status,
-          });
-        }
-      }
+  // Collect per-call linkage results for this LLM step
+  const llmToolCallLinkResults = useMemo(() => {
+    const calls = step.llm?.output?.tool_calls;
+    if (!calls?.length) return undefined;
+    const results = new Map<number, ToolCallLinkResult>();
+    for (let ci = 0; ci < calls.length; ci++) {
+      const key = `${step.id}:${ci}`;
+      const result = callLinks.get(key);
+      if (result) results.set(ci, result);
     }
-    return links.size > 0 ? links : undefined;
-  }, [step.llm, toolCallIdToToolStep]);
+    return results.size > 0 ? results : undefined;
+  }, [step.id, step.llm, callLinks]);
 
   const dotColor = expanded
     ? "border-neutral-500 bg-neutral-500"
@@ -508,7 +488,7 @@ function StepCard({
               <LlmStepDetail
                 llm={step.llm}
                 errorSummary={step.error_summary}
-                toolCallLinks={llmToolCallLinks}
+                toolCallLinkResults={llmToolCallLinkResults}
                 onJumpToStep={onJumpToStep}
                 durationMs={step.duration_ms}
                 streamMeta={step.metadata?.stream as Record<string, unknown> | undefined}
@@ -526,6 +506,7 @@ function StepCard({
                 step={step}
                 parentStep={parentStep}
                 sourceLlmStep={sourceLlmStep}
+                backLinkConfidence={backLinkConfidence}
                 onJumpToStep={onJumpToStep}
               />
             )}
@@ -546,11 +527,13 @@ function StepDetailPanel({
   step,
   parentStep,
   sourceLlmStep,
+  backLinkConfidence,
   onJumpToStep,
 }: {
   step: TimelineStep;
   parentStep?: TimelineStep;
   sourceLlmStep?: TimelineStep;
+  backLinkConfidence?: LinkageConfidence;
   onJumpToStep?: (stepId: string) => void;
 }) {
   const hasInput = step.input_summary && Object.keys(step.input_summary).length > 0;
@@ -591,6 +574,15 @@ function StepDetailPanel({
             >
               ← {linkTarget.name} (#{linkTarget.sequence_index})
             </button>
+          )}
+          {isTool && backLinkConfidence && backLinkConfidence !== "unlinked" && (
+            <span className={`rounded px-1.5 py-px text-[9px] font-medium ${
+              backLinkConfidence === "exact"
+                ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400"
+                : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"
+            }`}>
+              {backLinkConfidence}
+            </span>
           )}
         </div>
       )}
