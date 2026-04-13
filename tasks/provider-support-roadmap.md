@@ -92,7 +92,7 @@ Support image, audio, document, spreadsheet, and video inputs/outputs in a provi
 - store binary/media as artifacts, blob-backed when large
 - support lightweight previews + lazy loading in UI
 - add rendering strategy by mime type
-- ship in phases: images → documents/PDFs → audio → video
+- ship rich v1 support for images and documents/PDFs, with generic fallback for other media types
 
 ### Notes
 - provider APIs are not standardized enough to mirror directly
@@ -104,15 +104,39 @@ Very High
 
 ---
 
+## 7. Tool-calling lifecycle / linkage polish
+### Goal
+Model tool use as a clear lifecycle from LLM-emitted call intent to actual tool execution and result.
+
+### Tasks
+- define canonical tool-call lifecycle model
+- define linkage rules between LLM tool calls and tool steps
+-	preserve tool call / request / response / error artifacts consistently
+-	expose linkage confidence and unmatched states
+-	improve run-detail rendering for linked and unlinked tool flows
+-	improve compare behavior for tool-call and execution differences
+
+### Notes
+- exact linkage should win over heuristic linkage whenever possible
+-	unmatched calls should remain visible rather than disappearing
+-	wrong linkage is worse than incomplete linkage
+-	this is core to Leer’s agent observability story
+
+### Complexity
+High
+
+---
+
 # LATER
 
-## 7. MCP / Skills / RAG
+## 8. MCP / Skills / RAG
 ### Goal
-Trace external agent protocols and tool servers cleanly.
+Trace external agent protocols, tool servers, and retrieval flows cleanly.
 
 ### Tasks
 - protocol tracing
 - skill / server modeling
+- retrieval / context-source modeling
 - UI representation
 
 ### Complexity
@@ -138,7 +162,8 @@ High
 4. streaming
 5. blob storage
 6. multimodal
-7. MCP
+7. Tool-calling lifecycle / linkage polish
+8. MCP / Skills / RAG
 
 ---
 
