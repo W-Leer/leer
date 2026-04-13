@@ -449,6 +449,41 @@ function truncateId(id: string, max = 20): string {
   return id.length > max ? id.slice(0, max) + "…" : id;
 }
 
+export type ToolCallLifecycleStatus = "completed" | "failed" | "unmatched";
+
+export function deriveToolCallStatus(
+  link: ToolCallLinkInfo | undefined,
+): ToolCallLifecycleStatus {
+  if (!link) return "unmatched";
+  if (link.toolStepStatus === "completed") return "completed";
+  if (link.toolStepStatus === "failed") return "failed";
+  return "unmatched";
+}
+
+const LIFECYCLE_BADGE: Record<ToolCallLifecycleStatus, { label: string; className: string }> = {
+  completed: {
+    label: "completed",
+    className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400",
+  },
+  failed: {
+    label: "failed",
+    className: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400",
+  },
+  unmatched: {
+    label: "unmatched",
+    className: "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400",
+  },
+};
+
+function ToolCallStatusBadge({ status }: { status: ToolCallLifecycleStatus }) {
+  const cfg = LIFECYCLE_BADGE[status];
+  return (
+    <span className={`inline-block rounded px-1.5 py-px text-[9px] font-medium ${cfg.className}`}>
+      {cfg.label}
+    </span>
+  );
+}
+
 function ToolCallsSection({
   calls,
   toolCallLinks,
@@ -466,6 +501,7 @@ function ToolCallsSection({
         const name = (tc.name as string) ?? "call";
         const link = callId ? toolCallLinks?.get(callId) : undefined;
         const args = resolveArgs(tc.arguments);
+        const status = deriveToolCallStatus(link);
 
         return (
           <div
@@ -480,13 +516,11 @@ function ToolCallsSection({
                     {truncateId(callId)}
                   </span>
                 )}
-                {link ? (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
-                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                <ToolCallStatusBadge status={status} />
+                {link && (
+                  <span className="text-[10px] font-medium tabular-nums text-neutral-400">
                     #{link.toolStepIndex}
                   </span>
-                ) : (
-                  <span className="text-[10px] italic text-neutral-400">untraced</span>
                 )}
               </div>
               {link && onJumpToStep && (

@@ -335,7 +335,11 @@ class TestChatCompletionsInsideTrace:
         )
 
         out = run.steps[0].output_summary
-        assert out["tool_calls"] == [{"name": "get_weather"}]
+        assert len(out["tool_calls"]) == 1
+        tc = out["tool_calls"][0]
+        assert tc["name"] == "get_weather"
+        assert tc["id"] == "call_abc"
+        assert "arguments_hash" in tc
         assert out["tokens"] == 45
 
         inp = run.steps[0].input_summary
@@ -483,7 +487,11 @@ class TestResponsesAPIInsideTrace:
         _, run = self._run_in_trace(wrapped, model="gpt-4.1", input="Search for test")
 
         out = run.steps[0].output_summary
-        assert out["tool_calls"] == [{"name": "search"}]
+        assert len(out["tool_calls"]) == 1
+        tc = out["tool_calls"][0]
+        assert tc["name"] == "search"
+        assert tc["id"] == "call_xyz"
+        assert "arguments_hash" in tc
         assert out.get("text") is None
 
 

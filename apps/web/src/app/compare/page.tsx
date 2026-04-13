@@ -513,6 +513,14 @@ function StepDiffCard({ step, runIdA, runIdB }: { step: CompareStepDiff; runIdA:
           />
         )}
 
+        {/* Tool calls diff — only for LLM steps with tool calls */}
+        {isLlm && (
+          <ToolCallsDiff
+            summaryA={step.output_summary_a}
+            summaryB={step.output_summary_b}
+          />
+        )}
+
         {/* Usage — only for LLM steps */}
         {isLlm && <LlmUsageDiff a={step.llm_a} b={step.llm_b} />}
 
@@ -743,6 +751,114 @@ function LinkagePills({
       {callId && (
         <span className="font-mono text-neutral-400" title={callId}>{truncateId(callId)}</span>
       )}
+    </div>
+  );
+}
+
+// ===========================================================================
+// Tool calls diff (enriched summary comparison)
+// ===========================================================================
+
+interface ToolCallSummary {
+  name: string;
+  id?: string;
+  arguments_hash?: string;
+}
+
+function extractToolCallSummariesFromOutputSummary(
+  summary: Record<string, unknown> | null | undefined,
+): ToolCallSummary[] {
+  if (!summary) return [];
+  const calls = summary.tool_calls;
+  if (!Array.isArray(calls)) return [];
+  return calls.map((tc: Record<string, unknown>) => ({
+    name: (tc.name as string) ?? "?",
+    id: (tc.id as string) ?? undefined,
+    arguments_hash: (tc.arguments_hash as string) ?? undefined,
+  }));
+}
+
+function toolCallsAreDifferent(a: ToolCallSummary[], b: ToolCallSummary[]): boolean {
+  if (a.length !== b.length) return true;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].name !== b[i].name) return true;
+    if (a[i].id !== b[i].id) return true;
+    if (a[i].arguments_hash !== b[i].arguments_hash) return true;
+  }
+  return false;
+}
+
+function ToolCallsDiff({
+  summaryA,
+  summaryB,
+}: {
+  summaryA: Record<string, unknown> | null;
+  summaryB: Record<string, unknown> | null;
+}) {
+  const callsA = extractToolCallSummariesFromOutputSummary(summaryA);
+  const callsB = extractToolCallSummariesFromOutputSummary(summaryB);
+  if (callsA.length === 0 && callsB.length === 0) return null;
+
+  const hasDiff = toolCallsAreDifferent(callsA, callsB);
+  const countDiff = callsA.length !== callsB.length;
+  const bg = hasDiff ? "bg-[var(--tint-diff-row)]" : "bg-amber-50/30 dark:bg-amber-950/10";
+
+  return (
+    <div className={`rounded-md px-4 py-3 ${bg}`}>
+      <div className="mb-2.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+        Tool calls
+        {countDiff && (
+          <span className="rounded-full bg-amber-100 px-1.5 py-px text-[9px] font-medium text-amber-600 dark:bg-amber-900/40 dark:text-amber-400">
+            {callsA.length} → {callsB.length}
+          </span>
+        )}
+        {hasDiff && <ChangedBadge />}
+      </div>
+      <div className="grid grid-cols-2 gap-0">
+        <div className="pr-4">
+          <SideLabel side="A" />
+          <ToolCallSummaryList calls={callsA} otherCalls={callsB} />
+        </div>
+        <div className="border-l border-neutral-200 pl-4">
+          <SideLabel side="B" />
+          <ToolCallSummaryList calls={callsB} otherCalls={callsA} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ToolCallSummaryList({ calls, otherCalls }: { calls: ToolCallSummary[]; otherCalls: ToolCallSummary[] }) {
+  if (calls.length === 0) return <p className="text-xs italic text-neutral-400">No tool calls</p>;
+
+  return (
+    <div className="space-y-1">
+      {calls.map((tc, i) => {
+        const other = otherCalls[i];
+        const nameDiff = other ? tc.name !== other.name : false;
+        const idDiff = other ? tc.id !== other.id : false;
+        const argsDiff = other ? tc.arguments_hash !== other.arguments_hash : false;
+
+        return (
+          <div key={i} className="rounded bg-white/60 px-2 py-1 dark:bg-neutral-900/30">
+            <div className="flex items-center gap-2">
+              <span className={`font-mono text-[11px] font-medium ${nameDiff ? "text-amber-600" : "text-neutral-700 dark:text-neutral-300"}`}>
+                {tc.name}
+              </span>
+              {tc.id && (
+                <span className={`font-mono text-[9px] ${idDiff ? "text-amber-500" : "text-neutral-400"}`} title={tc.id}>
+                  {truncateId(tc.id, 16)}
+                </span>
+              )}
+              {argsDiff && (
+                <span className="rounded bg-amber-100 px-1 py-px text-[8px] font-medium text-amber-600 dark:bg-amber-900/30 dark:text-amber-400">
+                  args changed
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

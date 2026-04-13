@@ -667,3 +667,307 @@ class TestCrossProvider:
             assert set(tc.keys()) == {"id", "name", "arguments"}
             assert tc["name"] == "f"
             assert tc["arguments"] == {"x": 1}
+
+
+# ===================================================================
+# Tool call summary helpers
+# ===================================================================
+
+class TestSummarizeToolCall:
+
+    def test_basic_shape(self):
+        from leer.integrations.normalize import summarize_tool_call
+        tc = {"id": "call_1", "name": "get_weather", "arguments": {"city": "Paris"}}
+        s = summarize_tool_call(tc)
+
+        assert s["name"] == "get_weather"
+        assert s["id"] == "call_1"
+        assert "arguments_hash" in s
+        assert isinstance(s["arguments_hash"], str)
+        assert len(s["arguments_hash"]) == 12
+
+    def test_no_id_when_absent(self):
+        from leer.integrations.normalize import summarize_tool_call
+        tc = {"name": "search", "arguments": {"q": "test"}}
+        s = summarize_tool_call(tc)
+
+        assert s["name"] == "search"
+        assert "id" not in s
+        assert "arguments_hash" in s
+
+    def test_no_arguments_hash_when_none(self):
+        from leer.integrations.normalize import summarize_tool_call
+        tc = {"id": "c1", "name": "noop", "arguments": None}
+        s = summarize_tool_call(tc)
+
+        assert s["name"] == "noop"
+        assert s["id"] == "c1"
+        assert "arguments_hash" not in s
+
+    def test_deterministic_hash(self):
+        from leer.integrations.normalize import summarize_tool_call
+        tc1 = {"name": "f", "arguments": {"a": 1, "b": 2}}
+        tc2 = {"name": "f", "arguments": {"b": 2, "a": 1}}
+        assert summarize_tool_call(tc1)["arguments_hash"] == summarize_tool_call(tc2)["arguments_hash"]
+
+    def test_different_args_different_hash(self):
+        from leer.integrations.normalize import summarize_tool_call
+        tc1 = {"name": "f", "arguments": {"x": 1}}
+        tc2 = {"name": "f", "arguments": {"x": 2}}
+        assert summarize_tool_call(tc1)["arguments_hash"] != summarize_tool_call(tc2)["arguments_hash"]
+
+    def test_string_arguments_hashed(self):
+        from leer.integrations.normalize import summarize_tool_call
+        tc = {"name": "f", "arguments": "some raw string"}
+        s = summarize_tool_call(tc)
+        assert "arguments_hash" in s
+
+
+class TestArgumentsHash:
+
+    def test_none_returns_none(self):
+        from leer.integrations.normalize import _arguments_hash
+        assert _arguments_hash(None) is None
+
+    def test_empty_dict(self):
+        from leer.integrations.normalize import _arguments_hash
+        h = _arguments_hash({})
+        assert isinstance(h, str)
+        assert len(h) == 12
+
+    def test_key_order_independent(self):
+        from leer.integrations.normalize import _arguments_hash
+        assert _arguments_hash({"a": 1, "b": 2}) == _arguments_hash({"b": 2, "a": 1})
+
+    def test_nested_key_order_independent(self):
+        from leer.integrations.normalize import _arguments_hash
+        h1 = _arguments_hash({"outer": {"b": 2, "a": 1}})
+        h2 = _arguments_hash({"outer": {"a": 1, "b": 2}})
+        assert h1 == h2
+
+
+# ===================================================================
+# Enriched output_summary.tool_calls
+# ===================================================================
+
+class TestEnrichedOutputSummary:
+    """Verify output summaries now include id and arguments_hash."""
+
+    def test_openai_chat_summary_enriched(self):
+        from leer.integrations.openai import _output_summary
+        resp = _openai_chat_response()
+        resp["choices"][0]["message"]["content"] = None
+        resp["choices"][0]["message"]["tool_calls"] = [
+            {"id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": '{"city": "Paris"}'}},
+        ]
+        n = normalize_openai(_openai_chat_request(), resp)
+        summary = _output_summary(n)
+
+        assert len(summary["tool_calls"]) == 1
+        tc = summary["tool_calls"][0]
+        assert tc["name"] == "get_weather"
+        assert tc["id"] == "call_1"
+        assert "arguments_hash" in tc
+
+    def test_anthropic_summary_enriched(self):
+        from leer.integrations.anthropic import _output_summary
+        resp = _anthropic_response()
+        resp["content"] = [
+            {"type": "tool_use", "id": "toolu_1", "name": "search", "input": {"q": "test"}},
+        ]
+        n = normalize_anthropic(_anthropic_request(), resp)
+        summary = _output_summary(n)
+
+        assert len(summary["tool_calls"]) == 1
+        tc = summary["tool_calls"][0]
+        assert tc["name"] == "search"
+        assert tc["id"] == "toolu_1"
+        assert "arguments_hash" in tc
+
+    def test_multiple_tool_calls_all_enriched(self):
+        from leer.integrations.openai import _output_summary
+        resp = _openai_chat_response()
+        resp["choices"][0]["message"]["content"] = None
+        resp["choices"][0]["message"]["tool_calls"] = [
+            {"id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": '{"city": "Paris"}'}},
+            {"id": "call_2", "type": "function", "function": {"name": "search", "arguments": '{"q": "rain"}'}},
+        ]
+        n = normalize_openai(_openai_chat_request(), resp)
+        summary = _output_summary(n)
+
+        assert len(summary["tool_calls"]) == 2
+        for tc in summary["tool_calls"]:
+            assert "name" in tc
+            assert "id" in tc
+            assert "arguments_hash" in tc
+
+    def test_summary_backward_compatible(self):
+        """Existing name field is still present and unchanged."""
+        from leer.integrations.openai import _output_summary
+        resp = _openai_chat_response()
+        resp["choices"][0]["message"]["content"] = None
+        resp["choices"][0]["message"]["tool_calls"] = [
+            {"id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": '{"city": "Paris"}'}},
+        ]
+        n = normalize_openai(_openai_chat_request(), resp)
+        summary = _output_summary(n)
+
+        assert summary["tool_calls"][0]["name"] == "get_weather"
+
+    def test_no_tool_calls_no_key(self):
+        """When no tool calls, the summary has no tool_calls key."""
+        from leer.integrations.openai import _output_summary
+        n = normalize_openai(_openai_chat_request(), _openai_chat_response())
+        summary = _output_summary(n)
+        assert "tool_calls" not in summary
+
+    def test_same_args_same_hash_across_providers(self):
+        """Same arguments produce the same hash regardless of provider."""
+        from leer.integrations.openai import _output_summary as oai_summary
+        from leer.integrations.anthropic import _output_summary as ant_summary
+
+        resp_oai = _openai_chat_response()
+        resp_oai["choices"][0]["message"]["content"] = None
+        resp_oai["choices"][0]["message"]["tool_calls"] = [
+            {"id": "c1", "type": "function", "function": {"name": "f", "arguments": '{"x": 1}'}},
+        ]
+        n_oai = normalize_openai(_openai_chat_request(), resp_oai)
+
+        resp_ant = _anthropic_response()
+        resp_ant["content"] = [
+            {"type": "tool_use", "id": "t1", "name": "f", "input": {"x": 1}},
+        ]
+        n_ant = normalize_anthropic(_anthropic_request(), resp_ant)
+
+        hash_oai = oai_summary(n_oai)["tool_calls"][0]["arguments_hash"]
+        hash_ant = ant_summary(n_ant)["tool_calls"][0]["arguments_hash"]
+        assert hash_oai == hash_ant
+
+
+# ===================================================================
+# Compare-level args-hash diff detection
+# ===================================================================
+
+class TestCompareArgsHashDiff:
+    """Prove that the enriched output_summary.tool_calls shape enables
+    reliable args-diff detection at the compare level."""
+
+    def _make_summary_with_tool_calls(self, tool_calls_data: list[dict]) -> dict:
+        """Build an output_summary dict with enriched tool_calls."""
+        from leer.integrations.normalize import summarize_tool_call
+        return {"tool_calls": [summarize_tool_call(tc) for tc in tool_calls_data]}
+
+    def test_identical_args_no_diff(self):
+        tc = {"id": "c1", "name": "f", "arguments": {"x": 1}}
+        s_a = self._make_summary_with_tool_calls([tc])
+        s_b = self._make_summary_with_tool_calls([tc])
+        assert s_a["tool_calls"][0]["arguments_hash"] == s_b["tool_calls"][0]["arguments_hash"]
+
+    def test_different_args_detected(self):
+        tc_a = {"id": "c1", "name": "f", "arguments": {"x": 1}}
+        tc_b = {"id": "c1", "name": "f", "arguments": {"x": 2}}
+        s_a = self._make_summary_with_tool_calls([tc_a])
+        s_b = self._make_summary_with_tool_calls([tc_b])
+        assert s_a["tool_calls"][0]["arguments_hash"] != s_b["tool_calls"][0]["arguments_hash"]
+
+    def test_different_call_ids_detected(self):
+        tc_a = {"id": "c1", "name": "f", "arguments": {"x": 1}}
+        tc_b = {"id": "c2", "name": "f", "arguments": {"x": 1}}
+        s_a = self._make_summary_with_tool_calls([tc_a])
+        s_b = self._make_summary_with_tool_calls([tc_b])
+        assert s_a["tool_calls"][0]["id"] != s_b["tool_calls"][0]["id"]
+        assert s_a["tool_calls"][0]["arguments_hash"] == s_b["tool_calls"][0]["arguments_hash"]
+
+    def test_different_call_count_detected(self):
+        tc = {"id": "c1", "name": "f", "arguments": {"x": 1}}
+        s_a = self._make_summary_with_tool_calls([tc])
+        s_b = self._make_summary_with_tool_calls([tc, tc])
+        assert len(s_a["tool_calls"]) != len(s_b["tool_calls"])
+
+    def test_different_name_detected(self):
+        tc_a = {"id": "c1", "name": "get_weather", "arguments": {"city": "Paris"}}
+        tc_b = {"id": "c1", "name": "search",      "arguments": {"city": "Paris"}}
+        s_a = self._make_summary_with_tool_calls([tc_a])
+        s_b = self._make_summary_with_tool_calls([tc_b])
+        assert s_a["tool_calls"][0]["name"] != s_b["tool_calls"][0]["name"]
+
+    def test_end_to_end_openai(self):
+        """Full pipeline: OpenAI normalize → output_summary → diff detection."""
+        from leer.integrations.openai import _output_summary
+
+        resp_a = _openai_chat_response()
+        resp_a["choices"][0]["message"]["content"] = None
+        resp_a["choices"][0]["message"]["tool_calls"] = [
+            {"id": "c1", "type": "function", "function": {"name": "f", "arguments": '{"x": 1}'}},
+        ]
+        resp_b = _openai_chat_response()
+        resp_b["choices"][0]["message"]["content"] = None
+        resp_b["choices"][0]["message"]["tool_calls"] = [
+            {"id": "c1", "type": "function", "function": {"name": "f", "arguments": '{"x": 99}'}},
+        ]
+
+        n_a = normalize_openai(_openai_chat_request(), resp_a)
+        n_b = normalize_openai(_openai_chat_request(), resp_b)
+
+        s_a = _output_summary(n_a)
+        s_b = _output_summary(n_b)
+
+        assert s_a["tool_calls"][0]["name"] == s_b["tool_calls"][0]["name"]
+        assert s_a["tool_calls"][0]["id"] == s_b["tool_calls"][0]["id"]
+        assert s_a["tool_calls"][0]["arguments_hash"] != s_b["tool_calls"][0]["arguments_hash"]
+
+
+# ===================================================================
+# Lifecycle derivation rules (mirrors frontend deriveToolCallStatus)
+# ===================================================================
+
+class TestLifecycleDerivation:
+    """Test the derivation rules that the frontend applies.
+    These are pure-logic tests mirroring the TypeScript function."""
+
+    @staticmethod
+    def _derive(link: dict | None) -> str:
+        """Python mirror of deriveToolCallStatus."""
+        if link is None:
+            return "unmatched"
+        status = link.get("toolStepStatus", "")
+        if status == "completed":
+            return "completed"
+        if status == "failed":
+            return "failed"
+        return "unmatched"
+
+    def test_no_link_is_unmatched(self):
+        assert self._derive(None) == "unmatched"
+
+    def test_linked_completed(self):
+        link = {"toolStepId": "s1", "toolStepName": "f", "toolStepIndex": 1, "toolStepStatus": "completed"}
+        assert self._derive(link) == "completed"
+
+    def test_linked_failed(self):
+        link = {"toolStepId": "s1", "toolStepName": "f", "toolStepIndex": 1, "toolStepStatus": "failed"}
+        assert self._derive(link) == "failed"
+
+    def test_linked_running_is_unmatched(self):
+        link = {"toolStepId": "s1", "toolStepName": "f", "toolStepIndex": 1, "toolStepStatus": "running"}
+        assert self._derive(link) == "unmatched"
+
+    def test_linked_pending_is_unmatched(self):
+        link = {"toolStepId": "s1", "toolStepName": "f", "toolStepIndex": 1, "toolStepStatus": "pending"}
+        assert self._derive(link) == "unmatched"
+
+    def test_linked_paused_is_unmatched(self):
+        link = {"toolStepId": "s1", "toolStepName": "f", "toolStepIndex": 1, "toolStepStatus": "paused"}
+        assert self._derive(link) == "unmatched"
+
+    def test_linked_cancelled_is_unmatched(self):
+        link = {"toolStepId": "s1", "toolStepName": "f", "toolStepIndex": 1, "toolStepStatus": "cancelled"}
+        assert self._derive(link) == "unmatched"
+
+    def test_linked_skipped_is_unmatched(self):
+        link = {"toolStepId": "s1", "toolStepName": "f", "toolStepIndex": 1, "toolStepStatus": "skipped"}
+        assert self._derive(link) == "unmatched"
+
+    def test_linked_empty_status_is_unmatched(self):
+        link = {"toolStepId": "s1", "toolStepName": "f", "toolStepIndex": 1, "toolStepStatus": ""}
+        assert self._derive(link) == "unmatched"

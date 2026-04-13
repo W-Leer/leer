@@ -355,7 +355,11 @@ class TestMessagesInsideTrace:
         )
 
         out = run.steps[0].output_summary
-        assert out["tool_calls"] == [{"name": "get_weather"}]
+        assert len(out["tool_calls"]) == 1
+        tc = out["tool_calls"][0]
+        assert tc["name"] == "get_weather"
+        assert tc["id"] == "toolu_abc"
+        assert "arguments_hash" in tc
         assert out["tokens"] == 45
 
         inp = run.steps[0].input_summary
@@ -374,7 +378,11 @@ class TestMessagesInsideTrace:
 
         out = run.steps[0].output_summary
         assert out["text"] == "Let me check the weather for you."
-        assert out["tool_calls"] == [{"name": "get_weather"}]
+        assert len(out["tool_calls"]) == 1
+        tc = out["tool_calls"][0]
+        assert tc["name"] == "get_weather"
+        assert tc["id"] == "toolu_xyz"
+        assert "arguments_hash" in tc
 
         llm = run.steps[0].metadata["llm"]
         assert len(llm["output"]["content_blocks"]) == 2

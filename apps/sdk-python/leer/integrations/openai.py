@@ -608,12 +608,14 @@ def _input_summary(n: NormalizedLLMCall) -> dict[str, Any]:
 
 
 def _output_summary(n: NormalizedLLMCall) -> dict[str, Any]:
+    from leer.integrations.normalize import summarize_tool_call
+
     summary: dict[str, Any] = {}
     if n.output.text:
         summary["text"] = n.output.text[:500]
     if n.output.tool_calls:
         summary["tool_calls"] = [
-            {"name": tc.get("name", "?")} for tc in n.output.tool_calls
+            summarize_tool_call(tc) for tc in n.output.tool_calls
         ]
     media_parts = [
         b for b in n.output.content_blocks

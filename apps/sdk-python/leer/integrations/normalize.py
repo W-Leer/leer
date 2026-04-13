@@ -12,6 +12,7 @@ them here.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -93,6 +94,35 @@ def _parse_arguments(raw: Any) -> Any:
 
 def _resolve_model(response: dict[str, Any], request: dict[str, Any]) -> str | None:
     return response.get("model") or request.get("model") or None
+
+
+def _arguments_hash(args: Any) -> str | None:
+    """Deterministic short hash of tool-call arguments for compact comparison."""
+    if args is None:
+        return None
+    try:
+        canonical = json.dumps(args, sort_keys=True, separators=(",", ":"))
+    except (TypeError, ValueError):
+        canonical = str(args)
+    return hashlib.sha256(canonical.encode()).hexdigest()[:12]
+
+
+def summarize_tool_call(tc: dict[str, Any]) -> dict[str, Any]:
+    """Build a compact summary dict for one normalized tool call.
+
+    Shape: ``{name, id?, arguments_hash?}``
+    Always includes ``name``; ``id`` and ``arguments_hash`` are present only
+    when the source tool call provides them.
+    """
+    summary: dict[str, Any] = {"name": tc.get("name", "?")}
+    call_id = tc.get("id")
+    if call_id is not None:
+        summary["id"] = call_id
+    args = tc.get("arguments")
+    h = _arguments_hash(args)
+    if h is not None:
+        summary["arguments_hash"] = h
+    return summary
 
 
 # ---------------------------------------------------------------------------

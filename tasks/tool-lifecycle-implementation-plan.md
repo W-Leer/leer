@@ -71,21 +71,36 @@ That means:
 
 ## Recommended Delivery Order
 
-### Step 0 — Audit
+### Step 0 — Audit ✅
 Output:
 - `docs/04-execution/tool-lifecycle-step-0-audit.md`
 
-Questions to answer:
-- what already exists?
-- where is linkage already happening?
-- what is deterministic vs heuristic today?
-- what is missing in run detail and compare?
+Questions answered:
+- what already exists
+- where linkage already happens (tool_call_id matching, frontend-only)
+- what is deterministic vs heuristic (id-only, no fallback)
+- what is missing in run detail and compare
 
-### Step 1 — Canonical lifecycle/linkage shape
+### Step 1 — Enrich summaries + derived lifecycle status ✅
 Output:
-- minimal backend-facing linkage model
-- confidence vocabulary
-- status vocabulary
+- `output_summary.tool_calls` enriched with `id`, `arguments_hash` (SDK)
+- `summarize_tool_call()` and `_arguments_hash()` helpers in `normalize.py`
+- Frontend `deriveToolCallStatus()` → completed / failed / unmatched
+- `ToolCallStatusBadge` in run-detail `ToolCallsSection`
+- `ToolCallsDiff` component on compare page (count, name, id, args-hash diffs)
+- 16 new tests in `test_normalize.py`
+
+No schema changes. No new API endpoints. No DB migration.
+
+### Step 1 — v1 decisions
+- Lifecycle status is **derived at render time**, not stored. Derivation:
+  - `completed` = linked tool step exists, tool step status == completed
+  - `failed` = linked tool step exists, tool step status == failed
+  - `unmatched` = no linked tool step found
+- `planned` / `dispatched` statuses deferred (require richer data than exists today)
+- Arguments hash uses sha256[:12] of canonicalized JSON (sort_keys, compact separators)
+- Compare shows per-call diffs via `ToolCallsDiff`; full semantic diffing of args deferred
+- `output_summary.tool_calls` shape is backward compatible: `name` field always present
 
 ### Step 2 — Backend linkage improvements
 Output:
