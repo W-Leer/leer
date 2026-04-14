@@ -1867,3 +1867,242 @@ class TestToolCallArtifactIntegration:
 
         tc_arts = [a for a in run.artifacts if a.artifact_type == "tool_call"]
         assert len(tc_arts) == 0
+
+
+# ============================================================================
+# Compare-side tool-call alignment and lifecycle derivation (Python mirrors)
+# ============================================================================
+
+# These mirror the TS functions in apps/web/src/app/compare/page.tsx to provide
+# strong logic coverage for the alignment algorithm and lifecycle derivation.
+
+class _ToolCallSummary:
+    def __init__(self, name: str, id: str | None = None, arguments_hash: str | None = None):
+        self.name = name
+        self.id = id
+        self.arguments_hash = arguments_hash
+
+
+class _AlignedPair:
+    def __init__(self, a: _ToolCallSummary | None, b: _ToolCallSummary | None):
+        self.a = a
+        self.b = b
+
+
+def _align_tool_calls(calls_a: list[_ToolCallSummary], calls_b: list[_ToolCallSummary]) -> list[_AlignedPair]:
+    """Python mirror of alignToolCalls() in compare/page.tsx."""
+    used_b: set[int] = set()
+
+    id_to_b: dict[str, int] = {}
+    for bi, tc in enumerate(calls_b):
+        if tc.id:
+            id_to_b[tc.id] = bi
+
+    resolved_a: list[int | None] = [None] * len(calls_a)
+    for ai, tc in enumerate(calls_a):
+        if tc.id:
+            bi = id_to_b.get(tc.id)
+            if bi is not None and bi not in used_b:
+                resolved_a[ai] = bi
+                used_b.add(bi)
+
+    for ai, tc in enumerate(calls_a):
+        if resolved_a[ai] is not None:
+            continue
+        if ai < len(calls_b) and ai not in used_b and tc.name == calls_b[ai].name:
+            resolved_a[ai] = ai
+            used_b.add(ai)
+
+    pairs: list[_AlignedPair] = []
+    for ai in range(len(calls_a)):
+        bi = resolved_a[ai]
+        pairs.append(_AlignedPair(a=calls_a[ai], b=calls_b[bi] if bi is not None else None))
+
+    for bi in range(len(calls_b)):
+        if bi not in used_b:
+            pairs.append(_AlignedPair(a=None, b=calls_b[bi]))
+
+    return pairs
+
+
+class _CompareStep:
+    def __init__(self, step_type: str, exists: bool, status: str | None = None,
+                 tool_call_id: str | None = None, tool_name: str | None = None,
+                 name: str | None = None):
+        self.step_type = step_type
+        self.exists = exists
+        self.status = status
+        self.tool_call_id = tool_call_id
+        self.tool_name = tool_name
+        self.name = name
+
+
+def _derive_compare_lifecycle(
+    tc: _ToolCallSummary,
+    steps: list[_CompareStep],
+) -> str:
+    """Python mirror of deriveCompareCallLifecycle() for one side."""
+    for s in steps:
+        if s.step_type != "tool" or not s.exists:
+            continue
+        if tc.id and s.tool_call_id and tc.id == s.tool_call_id:
+            if s.status == "completed":
+                return "completed"
+            if s.status == "failed":
+                return "failed"
+            return "unmatched"
+        if not tc.id and not s.tool_call_id and s.tool_name and s.tool_name == tc.name:
+            if s.status == "completed":
+                return "completed"
+            if s.status == "failed":
+                return "failed"
+            return "unmatched"
+    return "unmatched"
+
+
+class TestAlignToolCalls:
+    """Tests for the alignment algorithm (Python mirror of TS alignToolCalls)."""
+
+    def test_identical_calls_align_positionally(self):
+        a = [_ToolCallSummary("get_weather", "id1"), _ToolCallSummary("get_time", "id2")]
+        b = [_ToolCallSummary("get_weather", "id1"), _ToolCallSummary("get_time", "id2")]
+        pairs = _align_tool_calls(a, b)
+        assert len(pairs) == 2
+        assert pairs[0].a and pairs[0].b and pairs[0].a.id == pairs[0].b.id == "id1"
+        assert pairs[1].a and pairs[1].b and pairs[1].a.id == pairs[1].b.id == "id2"
+
+    def test_different_ids_same_name_aligns_positionally(self):
+        """Same name at same position aligns even when ids differ."""
+        a = [_ToolCallSummary("get_weather", "id_a")]
+        b = [_ToolCallSummary("get_weather", "id_b")]
+        pairs = _align_tool_calls(a, b)
+        assert len(pairs) == 1
+        assert pairs[0].a is not None and pairs[0].b is not None
+        assert pairs[0].a.id == "id_a" and pairs[0].b.id == "id_b"
+
+    def test_different_ids_different_names_unmatched(self):
+        """Different name + different id → each side appears alone."""
+        a = [_ToolCallSummary("get_weather", "id_a")]
+        b = [_ToolCallSummary("get_time", "id_b")]
+        pairs = _align_tool_calls(a, b)
+        assert len(pairs) == 2
+        assert pairs[0].a is not None and pairs[0].b is None
+        assert pairs[1].a is None and pairs[1].b is not None
+
+    def test_reordered_calls_aligned_by_id(self):
+        a = [_ToolCallSummary("get_weather", "id1"), _ToolCallSummary("get_time", "id2")]
+        b = [_ToolCallSummary("get_time", "id2"), _ToolCallSummary("get_weather", "id1")]
+        pairs = _align_tool_calls(a, b)
+        assert len(pairs) == 2
+        assert pairs[0].a and pairs[0].b and pairs[0].a.name == "get_weather" and pairs[0].b.name == "get_weather"
+        assert pairs[1].a and pairs[1].b and pairs[1].a.name == "get_time" and pairs[1].b.name == "get_time"
+
+    def test_extra_call_in_b_shows_as_only_in_b(self):
+        a = [_ToolCallSummary("get_weather", "id1")]
+        b = [_ToolCallSummary("get_weather", "id1"), _ToolCallSummary("get_time", "id2")]
+        pairs = _align_tool_calls(a, b)
+        assert len(pairs) == 2
+        assert pairs[0].a is not None and pairs[0].b is not None
+        assert pairs[1].a is None and pairs[1].b is not None and pairs[1].b.name == "get_time"
+
+    def test_extra_call_in_a_shows_as_only_in_a(self):
+        a = [_ToolCallSummary("get_weather", "id1"), _ToolCallSummary("get_time", "id2")]
+        b = [_ToolCallSummary("get_weather", "id1")]
+        pairs = _align_tool_calls(a, b)
+        assert len(pairs) == 2
+        assert pairs[0].a is not None and pairs[0].b is not None
+        assert pairs[1].a is not None and pairs[1].b is None and pairs[1].a.name == "get_time"
+
+    def test_no_ids_falls_back_to_positional_name(self):
+        a = [_ToolCallSummary("get_weather"), _ToolCallSummary("get_time")]
+        b = [_ToolCallSummary("get_weather"), _ToolCallSummary("get_time")]
+        pairs = _align_tool_calls(a, b)
+        assert len(pairs) == 2
+        assert pairs[0].a is not None and pairs[0].b is not None
+        assert pairs[1].a is not None and pairs[1].b is not None
+
+    def test_no_ids_different_names_remain_unmatched(self):
+        a = [_ToolCallSummary("get_weather")]
+        b = [_ToolCallSummary("get_time")]
+        pairs = _align_tool_calls(a, b)
+        assert len(pairs) == 2
+        assert pairs[0].a is not None and pairs[0].b is None
+        assert pairs[1].a is None and pairs[1].b is not None
+
+    def test_empty_both_sides(self):
+        pairs = _align_tool_calls([], [])
+        assert pairs == []
+
+    def test_empty_a_side(self):
+        b = [_ToolCallSummary("get_weather", "id1")]
+        pairs = _align_tool_calls([], b)
+        assert len(pairs) == 1
+        assert pairs[0].a is None and pairs[0].b is not None
+
+    def test_empty_b_side(self):
+        a = [_ToolCallSummary("get_weather", "id1")]
+        pairs = _align_tool_calls(a, [])
+        assert len(pairs) == 1
+        assert pairs[0].a is not None and pairs[0].b is None
+
+    def test_args_hash_preserved_in_alignment(self):
+        a = [_ToolCallSummary("get_weather", "id1", "aaa")]
+        b = [_ToolCallSummary("get_weather", "id1", "bbb")]
+        pairs = _align_tool_calls(a, b)
+        assert len(pairs) == 1
+        assert pairs[0].a and pairs[0].b
+        assert pairs[0].a.arguments_hash == "aaa"
+        assert pairs[0].b.arguments_hash == "bbb"
+
+
+class TestCompareCallLifecycle:
+    """Tests for compare-side lifecycle derivation (Python mirror of TS deriveCompareCallLifecycle)."""
+
+    def test_completed_via_exact_id_match(self):
+        tc = _ToolCallSummary("get_weather", "call_1")
+        steps = [_CompareStep("tool", True, "completed", "call_1", "get_weather")]
+        assert _derive_compare_lifecycle(tc, steps) == "completed"
+
+    def test_failed_via_exact_id_match(self):
+        tc = _ToolCallSummary("get_weather", "call_1")
+        steps = [_CompareStep("tool", True, "failed", "call_1", "get_weather")]
+        assert _derive_compare_lifecycle(tc, steps) == "failed"
+
+    def test_running_step_gives_unmatched(self):
+        tc = _ToolCallSummary("get_weather", "call_1")
+        steps = [_CompareStep("tool", True, "running", "call_1", "get_weather")]
+        assert _derive_compare_lifecycle(tc, steps) == "unmatched"
+
+    def test_no_matching_step_gives_unmatched(self):
+        tc = _ToolCallSummary("get_weather", "call_1")
+        steps = [_CompareStep("tool", True, "completed", "call_2", "other_tool")]
+        assert _derive_compare_lifecycle(tc, steps) == "unmatched"
+
+    def test_name_fallback_when_no_ids(self):
+        tc = _ToolCallSummary("get_weather")
+        steps = [_CompareStep("tool", True, "completed", None, "get_weather")]
+        assert _derive_compare_lifecycle(tc, steps) == "completed"
+
+    def test_name_fallback_failed(self):
+        tc = _ToolCallSummary("get_weather")
+        steps = [_CompareStep("tool", True, "failed", None, "get_weather")]
+        assert _derive_compare_lifecycle(tc, steps) == "failed"
+
+    def test_step_not_exists_ignored(self):
+        tc = _ToolCallSummary("get_weather", "call_1")
+        steps = [_CompareStep("tool", False, "completed", "call_1", "get_weather")]
+        assert _derive_compare_lifecycle(tc, steps) == "unmatched"
+
+    def test_non_tool_step_ignored(self):
+        tc = _ToolCallSummary("get_weather", "call_1")
+        steps = [_CompareStep("llm", True, "completed", "call_1", "get_weather")]
+        assert _derive_compare_lifecycle(tc, steps) == "unmatched"
+
+    def test_empty_steps_gives_unmatched(self):
+        tc = _ToolCallSummary("get_weather", "call_1")
+        assert _derive_compare_lifecycle(tc, []) == "unmatched"
+
+    def test_missing_metadata_gives_unmatched(self):
+        tc = _ToolCallSummary("get_weather")
+        steps = [_CompareStep("tool", True, "completed", None, None, "get_weather")]
+        assert _derive_compare_lifecycle(tc, steps) == "unmatched"

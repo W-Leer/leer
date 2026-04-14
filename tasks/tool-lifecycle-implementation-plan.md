@@ -149,10 +149,21 @@ Output:
 
 No schema changes. No DB migration. No new API endpoints.
 
-### Step 4 — Compare support
+### Step 4 — Compare support ✅
 Output:
-- compare sections for tool-call/linkage differences
-- no regressions with blob-backed tool artifacts
+- Tool-call alignment upgraded from naive positional to id-based + positional-name fallback
+- `alignToolCalls()` produces `AlignedCallPair[]` for side-by-side rendering
+- Aligned rows show per-pair diffs: name, id, args hash, one-sided presence
+- Compare-side lifecycle derivation: scans tool steps for matching `tool_call_id` or `tool_name`,
+  derives `completed | failed | unmatched` per side, renders lifecycle badges per call
+- Lifecycle badge differences highlighted when they diverge across runs
+- Tool-step linkage confidence shown in compare: `exact | heuristic | unlinked` badge
+  derived from step metadata (`tool_call_id` present → exact, `tool_name` only → heuristic)
+- Insight block extended: detects tool failure divergence and tool call count differences
+- 22 new tests in `test_normalize.py` (Python mirrors of TS alignment + lifecycle logic)
+- TypeScript compiles clean; all 425 Python tests pass
+- Blob safety preserved: compare reads `output_summary` and `metadata`, not raw artifacts
+- No schema changes. No backend changes. No DB migration.
 
 ### Step 5 — Demo + QA signoff
 Output:

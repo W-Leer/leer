@@ -334,7 +334,7 @@ function CompareResults({ data }: { data: CompareResponse }) {
         ) : (
           <div className="space-y-5">
             {data.steps.map((step) => (
-              <StepDiffCard key={stepDiffKey(step)} step={step} runIdA={data.run_a.id} runIdB={data.run_b.id} />
+              <StepDiffCard key={stepDiffKey(step)} step={step} allSteps={data.steps} runIdA={data.run_a.id} runIdB={data.run_b.id} />
             ))}
           </div>
         )}
@@ -417,7 +417,7 @@ function RunDiffSection({ diff }: { diff: CompareRunDiff }) {
 // Step diff card — switches between generic and LLM-aware rendering
 // ===========================================================================
 
-function StepDiffCard({ step, runIdA, runIdB }: { step: CompareStepDiff; runIdA: string; runIdB: string }) {
+function StepDiffCard({ step, allSteps, runIdA, runIdB }: { step: CompareStepDiff; allSteps: CompareStepDiff[]; runIdA: string; runIdB: string }) {
   const hasDiff = step.status_diff || step.output_diff || step.error_diff || step.input_diff;
   const missing = step.match_kind === "missing";
   const isFallback = step.match_kind === "fallback_type_index";
@@ -518,6 +518,7 @@ function StepDiffCard({ step, runIdA, runIdB }: { step: CompareStepDiff; runIdA:
           <ToolCallsDiff
             summaryA={step.output_summary_a}
             summaryB={step.output_summary_b}
+            allSteps={allSteps}
           />
         )}
 
@@ -675,6 +676,21 @@ function truncateId(id: string, max = 20): string {
   return id.length > max ? id.slice(0, max) + "…" : id;
 }
 
+type ToolStepConfidence = "exact" | "heuristic" | "unlinked";
+
+function deriveToolStepConfidence(meta: Record<string, unknown> | null): ToolStepConfidence {
+  if (!meta) return "unlinked";
+  if (meta.tool_call_id) return "exact";
+  if (meta.tool_name) return "heuristic";
+  return "unlinked";
+}
+
+const CONFIDENCE_BADGE_COMPARE: Record<ToolStepConfidence, { label: string; className: string }> = {
+  exact: { label: "exact", className: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400" },
+  heuristic: { label: "heuristic", className: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400" },
+  unlinked: { label: "unlinked", className: "bg-neutral-100 text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500" },
+};
+
 function ToolLinkageDiff({
   step,
   absentA,
@@ -694,13 +710,25 @@ function ToolLinkageDiff({
   const callIdA = (metaA?.tool_call_id as string) ?? null;
   const callIdB = (metaB?.tool_call_id as string) ?? null;
 
-  const hasAny = provA || provB || modelA || modelB || callIdA || callIdB;
+  const toolNameA = (metaA?.tool_name as string) ?? null;
+  const toolNameB = (metaB?.tool_name as string) ?? null;
+
+  const confA = absentA ? "unlinked" as ToolStepConfidence : deriveToolStepConfidence(metaA);
+  const confB = absentB ? "unlinked" as ToolStepConfidence : deriveToolStepConfidence(metaB);
+
+  const hasAny =
+    provA || provB ||
+    modelA || modelB ||
+    callIdA || callIdB ||
+    toolNameA || toolNameB ||
+    confA !== "unlinked" || confB !== "unlinked";
   if (!hasAny) return null;
 
   const provDiff = provA !== provB;
   const modelDiff = modelA !== modelB;
   const callIdDiff = callIdA !== callIdB;
-  const hasDiff = provDiff || modelDiff || callIdDiff;
+  const confDiff = confA !== confB;
+  const hasDiff = provDiff || modelDiff || callIdDiff || confDiff;
 
   const bg = hasDiff ? "bg-[var(--tint-diff-row)]" : "bg-neutral-50/50";
 
@@ -713,11 +741,11 @@ function ToolLinkageDiff({
       <div className="grid grid-cols-2 gap-0">
         <div className="pr-4">
           <SideLabel side="A" />
-          <LinkagePills provider={provA} model={modelA} callId={callIdA} absent={absentA} />
+          <LinkagePills provider={provA} model={modelA} callId={callIdA} confidence={confA} absent={absentA} />
         </div>
         <div className="border-l border-neutral-200 pl-4">
           <SideLabel side="B" />
-          <LinkagePills provider={provB} model={modelB} callId={callIdB} absent={absentB} />
+          <LinkagePills provider={provB} model={modelB} callId={callIdB} confidence={confB} absent={absentB} />
         </div>
       </div>
     </div>
@@ -728,15 +756,18 @@ function LinkagePills({
   provider,
   model,
   callId,
+  confidence,
   absent,
 }: {
   provider: string | null;
   model: string | null;
   callId: string | null;
+  confidence: ToolStepConfidence;
   absent?: boolean;
 }) {
   if (absent) return <p className="text-[11px] italic text-neutral-300">Not present</p>;
-  if (!provider && !model && !callId) return <p className="text-xs italic text-neutral-400">—</p>;
+
+  const confCfg = CONFIDENCE_BADGE_COMPARE[confidence];
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
@@ -751,12 +782,15 @@ function LinkagePills({
       {callId && (
         <span className="font-mono text-neutral-400" title={callId}>{truncateId(callId)}</span>
       )}
+      <span className={`rounded px-1.5 py-px text-[9px] font-medium ${confCfg.className}`}>
+        {confCfg.label}
+      </span>
     </div>
   );
 }
 
 // ===========================================================================
-// Tool calls diff (enriched summary comparison)
+// Tool calls diff (enriched summary comparison with id-based alignment)
 // ===========================================================================
 
 interface ToolCallSummary {
@@ -778,22 +812,129 @@ function extractToolCallSummariesFromOutputSummary(
   }));
 }
 
+type AlignedCallPair = {
+  a: ToolCallSummary | null;
+  b: ToolCallSummary | null;
+};
+
+/**
+ * Align tool calls between two sides using:
+ *   1. Exact id match (strongest)
+ *   2. Same name at same position (fallback)
+ *   3. Unmatched remainder
+ */
+function alignToolCalls(callsA: ToolCallSummary[], callsB: ToolCallSummary[]): AlignedCallPair[] {
+  const pairs: AlignedCallPair[] = [];
+  const usedB = new Set<number>();
+
+  // Phase 1: exact id match
+  const idToB = new Map<string, number>();
+  for (let bi = 0; bi < callsB.length; bi++) {
+    if (callsB[bi].id) idToB.set(callsB[bi].id!, bi);
+  }
+
+  const resolvedA = new Array<number | null>(callsA.length).fill(null);
+  for (let ai = 0; ai < callsA.length; ai++) {
+    if (callsA[ai].id) {
+      const bi = idToB.get(callsA[ai].id!);
+      if (bi !== undefined && !usedB.has(bi)) {
+        resolvedA[ai] = bi;
+        usedB.add(bi);
+      }
+    }
+  }
+
+  // Phase 2: positional name match for unresolved
+  for (let ai = 0; ai < callsA.length; ai++) {
+    if (resolvedA[ai] !== null) continue;
+    if (ai < callsB.length && !usedB.has(ai) && callsA[ai].name === callsB[ai].name) {
+      resolvedA[ai] = ai;
+      usedB.add(ai);
+    }
+  }
+
+  // Build pairs: matched A entries
+  for (let ai = 0; ai < callsA.length; ai++) {
+    const bi = resolvedA[ai];
+    pairs.push({ a: callsA[ai], b: bi !== null ? callsB[bi] : null });
+  }
+
+  // Unmatched B entries
+  for (let bi = 0; bi < callsB.length; bi++) {
+    if (!usedB.has(bi)) {
+      pairs.push({ a: null, b: callsB[bi] });
+    }
+  }
+
+  return pairs;
+}
+
 function toolCallsAreDifferent(a: ToolCallSummary[], b: ToolCallSummary[]): boolean {
   if (a.length !== b.length) return true;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i].name !== b[i].name) return true;
-    if (a[i].id !== b[i].id) return true;
-    if (a[i].arguments_hash !== b[i].arguments_hash) return true;
-  }
-  return false;
+  const pairs = alignToolCalls(a, b);
+  return pairs.some((p) => {
+    if (!p.a || !p.b) return true;
+    return p.a.name !== p.b.name || p.a.id !== p.b.id || p.a.arguments_hash !== p.b.arguments_hash;
+  });
 }
+
+type CompareCallLifecycle = "completed" | "failed" | "unmatched";
+
+interface CompareCallMeta {
+  lifecycle: CompareCallLifecycle;
+  toolStepStatus: string | null;
+}
+
+/**
+ * Derive lifecycle for a tool call on a single side of compare by scanning
+ * the compare steps for a matching tool step (via tool_call_id or tool_name).
+ */
+function deriveCompareCallLifecycle(
+  tc: ToolCallSummary,
+  side: "a" | "b",
+  allSteps: CompareStepDiff[],
+): CompareCallMeta {
+  for (const s of allSteps) {
+    const stepType = side === "a" ? s.step_type_a : s.step_type_b;
+    if (stepType !== "tool") continue;
+    const exists = side === "a" ? s.exists_in_a : s.exists_in_b;
+    if (!exists) continue;
+
+    const meta = side === "a" ? s.metadata_a : s.metadata_b;
+    const callId = (meta?.tool_call_id as string) ?? null;
+
+    if (tc.id && callId && tc.id === callId) {
+      const status = (side === "a" ? s.status_a : s.status_b) ?? "";
+      if (status === "completed") return { lifecycle: "completed", toolStepStatus: status };
+      if (status === "failed") return { lifecycle: "failed", toolStepStatus: status };
+      return { lifecycle: "unmatched", toolStepStatus: status };
+    }
+
+    const toolName = (meta?.tool_name as string) ?? (side === "a" ? s.name_a : s.name_b) ?? null;
+    if (!tc.id && !callId && toolName && toolName === tc.name) {
+      const status = (side === "a" ? s.status_a : s.status_b) ?? "";
+      if (status === "completed") return { lifecycle: "completed", toolStepStatus: status };
+      if (status === "failed") return { lifecycle: "failed", toolStepStatus: status };
+      return { lifecycle: "unmatched", toolStepStatus: status };
+    }
+  }
+  return { lifecycle: "unmatched", toolStepStatus: null };
+}
+
+const LIFECYCLE_BADGE_COMPARE: Record<CompareCallLifecycle, { label: string; className: string }> = {
+  completed: { label: "completed", className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400" },
+  failed: { label: "failed", className: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400" },
+  unmatched: { label: "unmatched", className: "bg-neutral-100 text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500" },
+};
 
 function ToolCallsDiff({
   summaryA,
   summaryB,
+  allSteps,
 }: {
   summaryA: Record<string, unknown> | null;
   summaryB: Record<string, unknown> | null;
+  allSteps: CompareStepDiff[];
 }) {
   const callsA = extractToolCallSummariesFromOutputSummary(summaryA);
   const callsB = extractToolCallSummariesFromOutputSummary(summaryB);
@@ -801,6 +942,7 @@ function ToolCallsDiff({
 
   const hasDiff = toolCallsAreDifferent(callsA, callsB);
   const countDiff = callsA.length !== callsB.length;
+  const pairs = alignToolCalls(callsA, callsB);
   const bg = hasDiff ? "bg-[var(--tint-diff-row)]" : "bg-amber-50/30 dark:bg-amber-950/10";
 
   return (
@@ -814,51 +956,82 @@ function ToolCallsDiff({
         )}
         {hasDiff && <ChangedBadge />}
       </div>
-      <div className="grid grid-cols-2 gap-0">
-        <div className="pr-4">
-          <SideLabel side="A" />
-          <ToolCallSummaryList calls={callsA} otherCalls={callsB} />
-        </div>
-        <div className="border-l border-neutral-200 pl-4">
-          <SideLabel side="B" />
-          <ToolCallSummaryList calls={callsB} otherCalls={callsA} />
-        </div>
+      <div className="space-y-1.5">
+        {pairs.map((pair, i) => (
+          <AlignedCallRow key={i} pair={pair} allSteps={allSteps} />
+        ))}
       </div>
     </div>
   );
 }
 
-function ToolCallSummaryList({ calls, otherCalls }: { calls: ToolCallSummary[]; otherCalls: ToolCallSummary[] }) {
-  if (calls.length === 0) return <p className="text-xs italic text-neutral-400">No tool calls</p>;
+function AlignedCallRow({ pair, allSteps }: { pair: AlignedCallPair; allSteps: CompareStepDiff[] }) {
+  const { a, b } = pair;
+  const nameDiff = (a?.name ?? null) !== (b?.name ?? null);
+  const idDiff = (a?.id ?? null) !== (b?.id ?? null);
+  const argsDiff = a && b && a.arguments_hash !== b.arguments_hash;
+  const oneSided = !a || !b;
+
+  const lcA = a ? deriveCompareCallLifecycle(a, "a", allSteps) : null;
+  const lcB = b ? deriveCompareCallLifecycle(b, "b", allSteps) : null;
+  const lcDiff = (lcA?.lifecycle ?? null) !== (lcB?.lifecycle ?? null);
 
   return (
-    <div className="space-y-1">
-      {calls.map((tc, i) => {
-        const other = otherCalls[i];
-        const nameDiff = other ? tc.name !== other.name : false;
-        const idDiff = other ? tc.id !== other.id : false;
-        const argsDiff = other ? tc.arguments_hash !== other.arguments_hash : false;
+    <div className="grid grid-cols-2 gap-0 rounded bg-white/60 px-2 py-1.5 dark:bg-neutral-900/30">
+      <div className="pr-4">
+        {a ? (
+          <CallPill tc={a} diff={nameDiff} idDiff={idDiff} argsDiff={!!argsDiff} lifecycle={lcA?.lifecycle} lcDiff={lcDiff} />
+        ) : (
+          <span className="text-[10px] italic text-neutral-300">—</span>
+        )}
+      </div>
+      <div className="border-l border-neutral-200 pl-4">
+        {b ? (
+          <CallPill tc={b} diff={nameDiff} idDiff={idDiff} argsDiff={!!argsDiff} lifecycle={lcB?.lifecycle} lcDiff={lcDiff} />
+        ) : (
+          <span className="text-[10px] italic text-neutral-300">—</span>
+        )}
+      </div>
+      {oneSided && (
+        <div className="col-span-2 mt-0.5">
+          <span className="rounded bg-amber-100 px-1 py-px text-[8px] font-medium text-amber-600 dark:bg-amber-900/30 dark:text-amber-400">
+            {!a ? "only in B" : "only in A"}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
 
-        return (
-          <div key={i} className="rounded bg-white/60 px-2 py-1 dark:bg-neutral-900/30">
-            <div className="flex items-center gap-2">
-              <span className={`font-mono text-[11px] font-medium ${nameDiff ? "text-amber-600" : "text-neutral-700 dark:text-neutral-300"}`}>
-                {tc.name}
-              </span>
-              {tc.id && (
-                <span className={`font-mono text-[9px] ${idDiff ? "text-amber-500" : "text-neutral-400"}`} title={tc.id}>
-                  {truncateId(tc.id, 16)}
-                </span>
-              )}
-              {argsDiff && (
-                <span className="rounded bg-amber-100 px-1 py-px text-[8px] font-medium text-amber-600 dark:bg-amber-900/30 dark:text-amber-400">
-                  args changed
-                </span>
-              )}
-            </div>
-          </div>
-        );
-      })}
+function CallPill({ tc, diff, idDiff, argsDiff, lifecycle, lcDiff }: {
+  tc: ToolCallSummary;
+  diff: boolean;
+  idDiff: boolean;
+  argsDiff: boolean;
+  lifecycle?: CompareCallLifecycle;
+  lcDiff?: boolean;
+}) {
+  const lcCfg = lifecycle ? LIFECYCLE_BADGE_COMPARE[lifecycle] : null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className={`font-mono text-[11px] font-medium ${diff ? "text-amber-600" : "text-neutral-700 dark:text-neutral-300"}`}>
+        {tc.name}
+      </span>
+      {tc.id && (
+        <span className={`font-mono text-[9px] ${idDiff ? "text-amber-500" : "text-neutral-400"}`} title={tc.id}>
+          {truncateId(tc.id, 16)}
+        </span>
+      )}
+      {argsDiff && (
+        <span className="rounded bg-amber-100 px-1 py-px text-[8px] font-medium text-amber-600 dark:bg-amber-900/30 dark:text-amber-400">
+          args changed
+        </span>
+      )}
+      {lcCfg && (
+        <span className={`rounded px-1 py-px text-[8px] font-medium ${lcDiff ? "ring-1 ring-amber-400/50 " : ""}${lcCfg.className}`}>
+          {lcCfg.label}
+        </span>
+      )}
     </div>
   );
 }
@@ -1652,6 +1825,8 @@ function computeInsight(data: CompareResponse): string | null {
 
   let streamDiffFound = false;
   let tokenDiffFound = false;
+  let toolCallCountDiff = false;
+  let toolFailureDiff = false;
 
   for (const step of steps) {
     const sA = streamVal(step.metadata_a);
@@ -1667,6 +1842,27 @@ function computeInsight(data: CompareResponse): string | null {
     if (uA?.total_tokens != null && uB?.total_tokens != null && uA.total_tokens !== uB.total_tokens) {
       tokenDiffFound = true;
     }
+
+    const tcA = extractToolCallSummariesFromOutputSummary(step.output_summary_a);
+    const tcB = extractToolCallSummariesFromOutputSummary(step.output_summary_b);
+    if (tcA.length !== tcB.length && (tcA.length > 0 || tcB.length > 0)) {
+      toolCallCountDiff = true;
+    }
+
+    const isTool = (step.step_type_a ?? step.step_type_b) === "tool";
+    if (isTool) {
+      const stA = step.status_a ?? "";
+      const stB = step.status_b ?? "";
+      if ((stA === "failed") !== (stB === "failed")) toolFailureDiff = true;
+    }
+  }
+
+  if (toolFailureDiff) {
+    return "Tool execution divergence — a tool step failed in one run but not the other.";
+  }
+
+  if (toolCallCountDiff) {
+    return "Different tool call count — the LLM emitted a different number of tool calls across runs.";
   }
 
   if (streamDiffFound) {
