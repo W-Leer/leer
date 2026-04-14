@@ -165,11 +165,25 @@ Output:
 - Blob safety preserved: compare reads `output_summary` and `metadata`, not raw artifacts
 - No schema changes. No backend changes. No DB migration.
 
-### Step 5 — Demo + QA signoff
+### Step 5 — Demo + QA signoff ✅
 Output:
-- demo script(s) if useful
-- QA checklist
-- status update in roadmap/specs
+- `examples/demo_tool_lifecycle.py` — deterministic provider-free demo covering:
+  - exact linkage (completed + failed)
+  - heuristic linkage (completed, args variation)
+  - unmatched tool call (no tool step)
+  - two runs (A and B) designed for meaningful compare
+  - tool_call artifacts emitted on LLM steps
+  - tool_request / tool_response / tool_error artifacts on tool steps
+  - printed inspection guide with expected outcomes
+- `docs/04-execution/tool-lifecycle-qa.md` — structured QA checklist with:
+  - setup instructions
+  - run detail checks: exact, heuristic, unmatched, failed
+  - tool artifact inspection
+  - compare page checks: alignment, args diff, lifecycle diff, confidence, insight
+  - explicit check for heuristic-only linkage visibility (known subtle failure)
+  - regression checks
+  - sign-off table
+- Demo verified: provider-free, all trace/step/artifact logic clean (requires local API for ingest)
 
 ---
 
