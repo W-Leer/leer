@@ -42,6 +42,36 @@ Typical contents:
 
 Usually JSON.
 
+#### v1 shape
+
+Created by `create_tool_call_artifacts()` in `normalize.py`. One artifact per emitted tool call, attached to the LLM step.
+
+Payload (`inline_data`):
+```json
+{
+  "tool_name": "get_weather",
+  "arguments": {"city": "Paris"},
+  "tool_call_id": "call_123",
+  "arguments_hash": "6e1e312d537b",
+  "call_index": 0
+}
+```
+
+Metadata:
+```json
+{
+  "tool_name": "get_weather",
+  "tool_call_id": "call_123",
+  "call_index": 0,
+  "provider": "openai",
+  "model": "gpt-4.1"
+}
+```
+
+`tool_call_id`, `arguments_hash`, `provider`, and `model` are present only when available. `tool_call` artifacts are always inline JSON (never blob-backed).
+
+Both OpenAI and Anthropic wrappers produce these automatically.
+
 ### `tool_request`
 
 Represents the payload actually sent into the tool execution.
@@ -52,6 +82,19 @@ Typical contents:
 - execution context subset if relevant
 
 Usually JSON.
+
+#### v1 shape
+
+Created automatically by the `tool_step` context manager from `step.input`. Metadata includes linkage fields:
+```json
+{
+  "tool_name": "get_weather",
+  "tool_call_id": "call_123",
+  "parent_llm_step_id": "step_abc"
+}
+```
+
+Fields are present only when available in the tool step's metadata.
 
 ### `tool_response`
 
@@ -64,6 +107,10 @@ Typical contents:
 
 May be JSON or binary-backed via related file/media artifacts.
 
+#### v1 shape
+
+Created automatically by the `tool_step` context manager from `step.output`. Same linkage metadata as `tool_request`. May be blob-backed for large payloads.
+
 ### `tool_error`
 
 Represents a failed tool execution.
@@ -75,6 +122,10 @@ Typical contents:
 - traceback or stack summary when available
 
 Usually JSON or text.
+
+#### v1 shape
+
+Created automatically by the `tool_step` context manager when the tool raises. Payload contains `error_type`, `message`, and `traceback`. Same linkage metadata as `tool_request`.
 
 ---
 
@@ -150,6 +201,17 @@ Recommended metadata fields when available:
 
 These fields do not replace lifecycle modeling, but they strengthen deterministic linking.
 
+### v1 implementation
+
+All four tool artifact types (`tool_call`, `tool_request`, `tool_response`, `tool_error`) carry linkage metadata when available:
+- `tool_name` — always present
+- `tool_call_id` — present when the source call has an id
+- `parent_llm_step_id` — present on tool-step artifacts when the tool step has a parent
+
+`tool_call` artifacts additionally carry `provider`, `model`, and `call_index`.
+
+`tool_step_id` and `provider_call_id` are not yet used as distinct artifact metadata fields.
+
 ---
 
 ## UI Expectations
@@ -179,10 +241,19 @@ It should still remain stable when any of these artifacts are blob-backed.
 
 ---
 
-## v1 Delivery Target
+## v1 Status
 
-Tool artifacts are considered good enough when:
-- tool call, request, response, and error payloads are preserved consistently
-- large tool outputs can be blob-backed safely
-- media/file outputs can be represented as first-class artifacts
-- run detail can inspect them without ambiguity
+Tool artifacts v1 is shipped. Current state:
+
+- `tool_call` artifacts created automatically by OpenAI and Anthropic wrappers (one per emitted call)
+- `tool_request`, `tool_response`, `tool_error` artifacts created automatically by `tool_step` context manager
+- All carry linkage metadata for debugging and future backend linkage
+- `tool_call` artifacts are always inline JSON; `tool_request`/`tool_response`/`tool_error` may be blob-backed for large payloads
+- Run detail and compare remain stable with any mix of inline and blob-backed tool artifacts
+- Compare does not read tool artifact payloads directly — it uses `output_summary` for tool call comparison
+
+### v1 Limitations
+
+- Compare does not provide artifact-level diff for tool payloads (uses summary-level comparison only)
+- No automatic redaction of sensitive tool arguments
+- `tool_step_id` not yet carried as explicit artifact metadata (linkage uses `step_id` on the artifact record itself)

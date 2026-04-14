@@ -124,6 +124,18 @@ A complete tool lifecycle consists of up to four conceptual stages:
 
 Not every trace will contain every stage.
 
+### v1 implementation
+
+v1 implements a 3-status subset derived at render time in the frontend:
+
+- **completed** — a linked tool step exists with `status == "completed"`
+- **failed** — a linked tool step exists with `status == "failed"`
+- **unmatched** — no linked tool step found, or linked step has a non-terminal status
+
+`planned` and `dispatched` are deferred. They would require richer orchestration data than exists today (e.g. explicit dispatch events, framework-level intent tracking).
+
+`consumed` is deferred. Tracking which later LLM turn incorporated a tool result requires message-level provenance that is not modeled yet.
+
 ---
 
 ## Canonical Entities
@@ -132,7 +144,7 @@ Not every trace will contain every stage.
 
 Represents an LLM-emitted tool call.
 
-Minimum conceptual fields:
+Conceptual fields:
 - `tool_name`
 - `call_id` nullable
 - `sequence_index`
@@ -144,11 +156,20 @@ Minimum conceptual fields:
 - `tool_step_id` nullable
 - `linkage_confidence` (`exact`, `high`, `heuristic`, `unlinked`)
 
+#### v1 implementation
+
+Tool call records are not a dedicated database entity. They exist in two forms:
+
+1. **`output_summary.tool_calls`** on the LLM step — compact array with `{name, id?, arguments_hash?}`. This is the primary source for compare and summary rendering.
+2. **`tool_call` artifacts** on the LLM step — one JSON artifact per emitted call, with full `arguments`, `tool_call_id`, `arguments_hash`, `call_index`, `provider`, and `model` in payload and metadata.
+
+Lifecycle status and linkage confidence are derived at render time in the frontend, not stored.
+
 ### Tool step record
 
 Represents the actual tool execution.
 
-Minimum conceptual fields:
+Conceptual fields:
 - `tool_step_id`
 - `tool_name`
 - `status`
@@ -158,6 +179,16 @@ Minimum conceptual fields:
 - `output_artifact_ids`
 - `error_artifact_ids`
 - `linked_call_id` nullable
+
+#### v1 implementation
+
+Tool steps are standard `TraceStep` records with `step_type="tool"`. Key metadata fields:
+- `metadata.tool_name` — canonical tool name
+- `metadata.tool_call_id` — when available, enables exact linkage
+- `metadata.provider` / `metadata.model` — source LLM context
+- `parent_step_id` — when set to the LLM step id, strengthens heuristic linkage
+
+Artifacts (`tool_request`, `tool_response`, `tool_error`) are created automatically by the `tool_step` context manager and carry linkage metadata (`tool_name`, `tool_call_id`, `parent_llm_step_id`).
 
 ---
 
@@ -214,7 +245,7 @@ Requirements:
 
 ## Compare Implications
 
-In compare, Leer should first support:
+In compare, Leer should support:
 - presence/absence of tool calls
 - tool name changes
 - argument shape changes
@@ -223,6 +254,18 @@ In compare, Leer should first support:
 - timing differences between linked executions
 
 v1 compare does not require full semantic diffing of arbitrary tool outputs.
+
+### v1 implementation
+
+Compare uses `output_summary.tool_calls` as the source of truth. Tool calls are aligned across runs using id-based matching first, then positional-name fallback. The compare page surfaces:
+- tool call count differences
+- per-call name, id, and `arguments_hash` diffs
+- one-sided calls ("only in A" / "only in B")
+- lifecycle badges per call per side (derived by scanning compare tool steps)
+- tool-step confidence badges (`exact` / `heuristic` / `unlinked`)
+- insight block for tool failure divergence and call-count divergence
+
+Compare-side lifecycle derivation is best-effort: it scans the compare step list, not the full run timeline. When the compare API cannot structurally match a tool step, lifecycle may report `unmatched` even if the step exists in the full timeline.
 
 ---
 
@@ -235,6 +278,12 @@ Run detail should make the lifecycle obvious:
 - which tool step executed it
 - whether it succeeded or failed
 - where the result is stored
+
+#### v1 implementation
+
+Run detail renders per-call badges for lifecycle (`completed` / `failed` / `unmatched`) and confidence (`exact` / `heuristic` / `unlinked`). Jump navigation works bidirectionally: LLM tool call → tool step, and tool step back-link → source LLM step.
+
+Linkage is computed entirely in the frontend via `buildToolCallLinkage()` in `apps/web/src/lib/tool-linkage.ts`, using the timeline step data from the existing API.
 
 ### Compare
 
@@ -252,31 +301,47 @@ If linkage was heuristic rather than exact, the UI should be able to show that.
 
 ## Non-Goals for v1
 
-The first lifecycle milestone should explicitly avoid:
+The first lifecycle milestone explicitly avoids:
 - perfect consumption tracking into every later LLM turn
 - semantic diffing of arbitrary tool outputs
 - framework-specific orchestration trees
 - provider-specific UI branches unless unavoidable
 - full DAG visualization
+- backend-computed linkage (all linkage is frontend-derived in v1)
+- stored lifecycle status (derived at render time)
 
 ---
 
-## v1 Delivery Target
+## v1 Status
 
-Tool lifecycle / linkage polish is considered done enough when:
-- LLM-emitted tool calls are normalized consistently
-- each tool call can be represented as its own lifecycle item
-- tool steps can be linked back to tool calls deterministically when data exists
-- unmatched calls remain visible rather than disappearing
-- run detail shows the relationship clearly
-- compare does not break and can highlight linkage/state differences
+Tool lifecycle v1 is shipped. Current state:
+
+- LLM-emitted tool calls normalized via `output_summary.tool_calls` with `{name, id?, arguments_hash?}`
+- Each tool call preserved as a `tool_call` artifact on the LLM step
+- Tool steps linked to calls via exact `tool_call_id` or heuristic name/parent/order matching
+- Unmatched calls visible with `unmatched` / `unlinked` badges
+- Run detail shows lifecycle and confidence badges, bidirectional jump navigation
+- Compare shows aligned tool calls with per-field diffs, lifecycle badges, confidence badges, and insight detection
+- No schema changes were needed — all behavior is additive
+
+### v1 Limitations
+
+- **3-status lifecycle**: only `completed`, `failed`, `unmatched`. No `planned` / `dispatched` / `consumed`.
+- **Frontend-derived linkage**: linkage and lifecycle are computed at render time from timeline data, not stored or backend-computed. This means linkage is recomputed on every page load.
+- **Heuristic matching is conservative**: uses parent preference + ordered alignment + first compatible candidate. Does not perform dedicated ambiguity detection. When multiple same-name candidates exist, ordered matching may not pick the "best" one in all cases.
+- **Compare lifecycle is best-effort**: scans compare step rows, not full run timelines. May report `unmatched` when the compare API couldn't structurally match a tool step.
+- **No full artifact-level compare**: compare reads `output_summary` data, not `tool_call` artifact payloads.
+- **`high` confidence level not implemented**: the spec defines `exact | high | heuristic | unlinked` but v1 only uses `exact | heuristic | unlinked`. `high` would require explicit parent/child metadata that isn't a shared id, which no current provider produces distinctly from exact.
 
 ---
 
 ## What Comes Later
 
 Beyond v1:
+- `planned` / `dispatched` / `consumed` lifecycle stages
 - result-consumption tracking into later LLM turns
+- backend-computed linkage for stronger guarantees
 - richer compare diff for arguments and outputs
 - orchestration graphs
 - framework-specific adapters for MCP, LangGraph, OpenAI Agents SDK, etc.
+- `high` confidence level if a distinct use case emerges

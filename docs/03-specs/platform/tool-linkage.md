@@ -98,6 +98,20 @@ When exact ids are unavailable, safe linkage should consider:
 
 No single heuristic dimension should be treated as sufficient by itself except an explicit identifier.
 
+### v1 implementation
+
+The heuristic fallback (`buildToolCallLinkage()` in `apps/web/src/lib/tool-linkage.ts`) uses:
+
+1. **Exact `tool_call_id` match** — always wins, confidence = `exact`
+2. **Tier 1 candidates**: unclaimed child tool steps (`parent_step_id === llmStep.id`) with same tool name
+3. **Tier 2 candidates**: unclaimed tool steps after the LLM step (by `sequence_index`) with same tool name
+4. **Ordered alignment**: nth unresolved call → nth name-compatible candidate
+5. If no compatible candidate exists, the call remains `unlinked`
+
+Tool-step name resolution: `metadata.tool_name` > `step.name`. Empty tool-call name → always unlinked.
+
+The heuristic is intentionally conservative. It does not use argument fingerprinting or temporal proximity for matching — only name, parent/child relationship, and order. This avoids false positives at the cost of occasional missed links in complex multi-call scenarios.
+
 ---
 
 ## Linkage Confidence
@@ -110,6 +124,12 @@ Every linked pair should conceptually carry a confidence level:
 - `unlinked`
 
 This confidence should be available to the UI layer even if the first UI only uses it lightly.
+
+### v1 implementation
+
+v1 uses a 3-level confidence model: `exact | heuristic | unlinked`.
+
+`high` is not implemented. It would require explicit parent/child metadata that is not a shared id — no current provider produces this distinctly from exact id matching. If a use case emerges, it can be added without breaking existing behavior.
 
 ---
 
@@ -162,6 +182,17 @@ Compare should be able to ask:
 
 Full graph diffing is out of scope for v1.
 
+### v1 implementation
+
+Compare aligns tool calls across runs using:
+1. Id-based matching (same `tool_call_id` on both sides)
+2. Positional-name fallback (same name at same array index)
+3. Unmatched remainder shown as one-sided ("only in A" / "only in B")
+
+Per-call diffs surface: name, id, `arguments_hash`, lifecycle badges, and one-sided presence. Tool-step compare cards show confidence badges derived from step metadata.
+
+Compare-side lifecycle derivation is best-effort — it scans the compare step list for matching tool steps, not the full run timeline. This is a known limitation.
+
 ---
 
 ## UI Expectations
@@ -188,14 +219,37 @@ Badges, summaries, and linkage-state sections are sufficient.
 - branching orchestration visualizations
 - retry lineage modeling beyond basic visibility
 - framework-specific graph semantics
+- backend-computed linkage
+- argument-fingerprint or temporal-proximity matching in heuristics
 
 ---
 
-## v1 Delivery Target
+## v1 Status
 
-Tool linkage is considered done enough when:
-- exact matches work when ids exist
-- ordered fallback linking works for common cases
-- unmatched calls remain visible
-- run detail and compare both stay stable
-- the UI can distinguish exact vs heuristic vs unlinked states
+Tool linkage v1 is shipped. Current state:
+
+- Exact id matching works when `tool_call_id` exists on both LLM call and tool step
+- Heuristic fallback uses parent/child + same name + ordered alignment
+- Unmatched calls visible with `unmatched` / `unlinked` badges
+- Run detail shows bidirectional jump navigation (LLM call ↔ tool step)
+- Compare shows aligned tool calls with lifecycle and confidence badges
+- All linkage is frontend-derived from existing timeline API data
+
+### v1 Limitations
+
+- **No backend linkage**: computed at render time on every page load. Backend-computed linkage would be more efficient and could support richer confidence signals.
+- **No `high` confidence level**: only `exact | heuristic | unlinked` implemented.
+- **Conservative heuristics**: no argument fingerprinting, no temporal proximity. May miss links when multiple same-name tool steps exist without parent/child context.
+- **No ambiguity detection**: when multiple candidates exist, ordered matching picks the first compatible one rather than explicitly surfacing ambiguity.
+- **Compare lifecycle is best-effort**: derived from compare step rows, not full timelines.
+
+---
+
+## What Comes Later
+
+Beyond v1:
+- backend-computed linkage for stronger guarantees and performance
+- `high` confidence level for explicit parent/child metadata
+- argument-fingerprint assisted matching
+- retry lineage modeling
+- framework-specific adapters
