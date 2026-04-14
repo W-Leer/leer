@@ -125,6 +125,59 @@ def summarize_tool_call(tc: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
+def create_tool_call_artifacts(
+    normalized: "NormalizedLLMCall",
+    *,
+    step_id: str | None = None,
+) -> list[Any]:
+    """Create one ``tool_call`` artifact per emitted tool call.
+
+    Each artifact is a lightweight JSON record attached to the LLM step,
+    giving every tool-call intent its own addressable, inspectable record.
+
+    Returns a list of ``TraceArtifact`` ready to be attached.
+    """
+    from leer.artifacts import create_json_artifact
+
+    artifacts: list[Any] = []
+    for i, tc in enumerate(normalized.output.tool_calls):
+        call_id = tc.get("id")
+        name = tc.get("name", "?")
+        args = tc.get("arguments")
+        args_hash = _arguments_hash(args)
+
+        data: dict[str, Any] = {
+            "tool_name": name,
+            "arguments": args,
+        }
+        if call_id is not None:
+            data["tool_call_id"] = call_id
+        if args_hash is not None:
+            data["arguments_hash"] = args_hash
+        data["call_index"] = i
+
+        meta: dict[str, Any] = {"tool_name": name, "call_index": i}
+        if call_id is not None:
+            meta["tool_call_id"] = call_id
+        if normalized.provider:
+            meta["provider"] = normalized.provider
+        if normalized.model:
+            meta["model"] = normalized.model
+
+        preview = f"{name}({call_id or ''})" if call_id else name
+        art = create_json_artifact(
+            artifact_type="tool_call",
+            role="output",
+            data=data,
+            preview_text=preview[:200],
+            metadata=meta,
+            step_id=step_id,
+        )
+        artifacts.append(art)
+
+    return artifacts
+
+
 # ---------------------------------------------------------------------------
 # Canonical content-part helpers
 # ---------------------------------------------------------------------------

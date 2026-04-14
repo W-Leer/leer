@@ -132,11 +132,22 @@ Frontend-derived linkage only, using existing timeline data.
   ordered alignment + first compatible nearest-sequence candidate.
   It does not perform a dedicated ambiguity detection pass.
 
-### Step 3 — Artifact alignment
+### Step 3 — Artifact alignment ✅
 Output:
-- ensure tool-call / request / response / error artifacts are consistent
-- ensure artifact metadata supports linkage
-- confirm blob-backed tool outputs remain safe in run detail and compare
+- `tool_call` artifact type added — one per emitted tool call, attached to LLM step
+- `create_tool_call_artifacts()` shared helper in `normalize.py`
+- Both OpenAI and Anthropic wrappers produce `tool_call` artifacts automatically
+- `tool_request`, `tool_response`, `tool_error` artifacts now carry linkage metadata
+- Metadata fields: `tool_name`, `tool_call_id`, `parent_llm_step_id` (when available)
+- `tool_call` artifact metadata also includes `provider`, `model`, `call_index`
+- 15 new tests in `test_normalize.py` (artifact creation, metadata, integration)
+- Existing wrapper tests updated to be artifact-order-agnostic
+- Blob safety verified: `tool_call` artifacts are always inline JSON; existing blob-backed
+  `tool_request/response/error` behavior unchanged; `ArtifactViewer` handles both
+- Compare non-regression verified: compare page reads `output_summary`/`llm` data,
+  not tool artifacts directly; no changes needed
+
+No schema changes. No DB migration. No new API endpoints.
 
 ### Step 4 — Compare support
 Output:

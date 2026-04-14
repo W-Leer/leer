@@ -582,8 +582,8 @@ class TestArtifactDetails:
             max_tokens=100,
         )
 
-        resp_preview = run.artifacts[1].preview_text
-        assert "get_weather" in resp_preview
+        resp_art = next(a for a in run.artifacts if a.artifact_type == "llm_response")
+        assert "get_weather" in resp_art.preview_text
 
     def test_artifacts_linked_to_step(self):
         wrapped = wrap_anthropic_client(_fake_anthropic_client())

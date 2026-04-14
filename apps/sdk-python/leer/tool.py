@@ -138,6 +138,21 @@ def _step_has_artifact(s: TraceStep, artifact_type: str) -> bool:
     )
 
 
+def _linkage_metadata(s: TraceStep) -> dict[str, Any]:
+    """Extract linkage-relevant metadata from the tool step for artifact metadata."""
+    meta: dict[str, Any] = {}
+    tool_name = s.metadata.get("tool_name")
+    if tool_name:
+        meta["tool_name"] = tool_name
+    call_id = s.metadata.get("tool_call_id")
+    if call_id:
+        meta["tool_call_id"] = call_id
+    parent = s.parent_step_id
+    if parent:
+        meta["parent_llm_step_id"] = parent
+    return meta
+
+
 def _safe_attach_input_artifact(s: TraceStep) -> None:
     """Attach a tool_request artifact from the step's input. Never raises.
 
@@ -155,6 +170,7 @@ def _safe_attach_input_artifact(s: TraceStep) -> None:
             role="input",
             data=safe,
             preview_text=_dict_preview(safe),
+            metadata=_linkage_metadata(s),
             step_id=s.id,
         ))
     except Exception:
@@ -178,6 +194,7 @@ def _safe_attach_output_artifact(s: TraceStep) -> None:
             role="output",
             data=safe,
             preview_text=_dict_preview(safe),
+            metadata=_linkage_metadata(s),
             step_id=s.id,
         ))
     except Exception:
@@ -199,6 +216,7 @@ def _safe_attach_error_artifact(s: TraceStep) -> None:
             role="error",
             data=s.error_summary,
             preview_text=_error_preview(s.error_summary),
+            metadata=_linkage_metadata(s),
             step_id=s.id,
         ))
     except Exception:

@@ -1581,3 +1581,289 @@ class TestHeuristicLinkageRegression:
         assert r0["link"]["toolStepId"] == "tool1"
         assert r1["confidence"] == "heuristic"
         assert r1["link"]["toolStepId"] == "tool2"
+
+
+# ===================================================================
+# tool_call artifact creation (mirrors create_tool_call_artifacts)
+# ===================================================================
+
+from pathlib import Path
+
+
+class TestToolCallArtifactCreation:
+    """Test that create_tool_call_artifacts produces correct artifacts."""
+
+    def test_one_artifact_per_tool_call(self):
+        from leer.integrations.normalize import NormalizedLLMCall, LLMInput, LLMOutput, LLMUsage, LLMMeta
+        from leer.integrations.normalize import create_tool_call_artifacts
+
+        n = NormalizedLLMCall(
+            provider="openai", model="gpt-4",
+            input=LLMInput(), usage=LLMUsage(), meta=LLMMeta(),
+            output=LLMOutput(tool_calls=[
+                {"id": "tc1", "name": "search", "arguments": {"q": "hello"}},
+                {"id": "tc2", "name": "fetch", "arguments": {"url": "https://x.com"}},
+            ]),
+        )
+        arts = create_tool_call_artifacts(n, step_id="step-abc")
+        assert len(arts) == 2
+
+    def test_zero_artifacts_when_no_tool_calls(self):
+        from leer.integrations.normalize import NormalizedLLMCall, LLMInput, LLMOutput, LLMUsage, LLMMeta
+        from leer.integrations.normalize import create_tool_call_artifacts
+
+        n = NormalizedLLMCall(
+            provider="openai", model="gpt-4",
+            input=LLMInput(), usage=LLMUsage(), meta=LLMMeta(),
+            output=LLMOutput(tool_calls=[]),
+        )
+        arts = create_tool_call_artifacts(n, step_id="step-abc")
+        assert len(arts) == 0
+
+    def test_artifact_type_and_role(self):
+        from leer.integrations.normalize import NormalizedLLMCall, LLMInput, LLMOutput, LLMUsage, LLMMeta
+        from leer.integrations.normalize import create_tool_call_artifacts
+
+        n = NormalizedLLMCall(
+            provider="openai", model="gpt-4",
+            input=LLMInput(), usage=LLMUsage(), meta=LLMMeta(),
+            output=LLMOutput(tool_calls=[
+                {"id": "tc1", "name": "search", "arguments": {"q": "hi"}},
+            ]),
+        )
+        art = create_tool_call_artifacts(n, step_id="s1")[0]
+        assert art.artifact_type == "tool_call"
+        assert art.role == "output"
+        assert art.step_id == "s1"
+
+    def test_artifact_payload_shape(self):
+        from leer.integrations.normalize import NormalizedLLMCall, LLMInput, LLMOutput, LLMUsage, LLMMeta
+        from leer.integrations.normalize import create_tool_call_artifacts
+
+        n = NormalizedLLMCall(
+            provider="openai", model="gpt-4",
+            input=LLMInput(), usage=LLMUsage(), meta=LLMMeta(),
+            output=LLMOutput(tool_calls=[
+                {"id": "tc1", "name": "search", "arguments": {"q": "hello"}},
+            ]),
+        )
+        art = create_tool_call_artifacts(n, step_id="s1")[0]
+        data = art.inline_data
+        assert data["tool_name"] == "search"
+        assert data["tool_call_id"] == "tc1"
+        assert data["arguments"] == {"q": "hello"}
+        assert "arguments_hash" in data
+        assert data["call_index"] == 0
+
+    def test_artifact_metadata_shape(self):
+        from leer.integrations.normalize import NormalizedLLMCall, LLMInput, LLMOutput, LLMUsage, LLMMeta
+        from leer.integrations.normalize import create_tool_call_artifacts
+
+        n = NormalizedLLMCall(
+            provider="anthropic", model="claude-sonnet",
+            input=LLMInput(), usage=LLMUsage(), meta=LLMMeta(),
+            output=LLMOutput(tool_calls=[
+                {"id": "tc1", "name": "search", "arguments": {}},
+            ]),
+        )
+        art = create_tool_call_artifacts(n, step_id="s1")[0]
+        meta = art.metadata
+        assert meta["tool_name"] == "search"
+        assert meta["tool_call_id"] == "tc1"
+        assert meta["provider"] == "anthropic"
+        assert meta["model"] == "claude-sonnet"
+        assert meta["call_index"] == 0
+
+    def test_artifact_without_call_id(self):
+        from leer.integrations.normalize import NormalizedLLMCall, LLMInput, LLMOutput, LLMUsage, LLMMeta
+        from leer.integrations.normalize import create_tool_call_artifacts
+
+        n = NormalizedLLMCall(
+            provider="openai", model="gpt-4",
+            input=LLMInput(), usage=LLMUsage(), meta=LLMMeta(),
+            output=LLMOutput(tool_calls=[
+                {"name": "search", "arguments": {"q": "hi"}},
+            ]),
+        )
+        art = create_tool_call_artifacts(n, step_id="s1")[0]
+        assert "tool_call_id" not in art.inline_data
+        assert "tool_call_id" not in art.metadata
+
+    def test_preview_text(self):
+        from leer.integrations.normalize import NormalizedLLMCall, LLMInput, LLMOutput, LLMUsage, LLMMeta
+        from leer.integrations.normalize import create_tool_call_artifacts
+
+        n = NormalizedLLMCall(
+            provider="openai", model="gpt-4",
+            input=LLMInput(), usage=LLMUsage(), meta=LLMMeta(),
+            output=LLMOutput(tool_calls=[
+                {"id": "tc1", "name": "get_weather", "arguments": {}},
+            ]),
+        )
+        art = create_tool_call_artifacts(n, step_id="s1")[0]
+        assert "get_weather" in art.preview_text
+        assert "tc1" in art.preview_text
+
+    def test_multiple_calls_preserve_order(self):
+        from leer.integrations.normalize import NormalizedLLMCall, LLMInput, LLMOutput, LLMUsage, LLMMeta
+        from leer.integrations.normalize import create_tool_call_artifacts
+
+        n = NormalizedLLMCall(
+            provider="openai", model="gpt-4",
+            input=LLMInput(), usage=LLMUsage(), meta=LLMMeta(),
+            output=LLMOutput(tool_calls=[
+                {"id": "tc1", "name": "alpha", "arguments": {}},
+                {"id": "tc2", "name": "beta", "arguments": {}},
+                {"id": "tc3", "name": "gamma", "arguments": {}},
+            ]),
+        )
+        arts = create_tool_call_artifacts(n, step_id="s1")
+        assert [a.inline_data["tool_name"] for a in arts] == ["alpha", "beta", "gamma"]
+        assert [a.inline_data["call_index"] for a in arts] == [0, 1, 2]
+
+
+# ===================================================================
+# Tool-step artifact linkage metadata alignment
+# ===================================================================
+
+class TestToolStepArtifactMetadata:
+    """Test that tool_request/response/error artifacts carry linkage metadata."""
+
+    def _run_tool_step(self, *, tool_name="search", tool_call_id="tc1",
+                       succeed=True, has_input=True, has_output=True):
+        from leer.context import set_current_run
+        from leer.models import TraceRun
+        from leer.tool import tool_step
+
+        run = TraceRun(workflow_name="test")
+        run.status = "running"
+        set_current_run(run)
+        try:
+            with tool_step(tool_name, tool_call_id=tool_call_id) as s:
+                if has_input:
+                    s.input = {"q": "hello"}
+                if succeed:
+                    if has_output:
+                        s.output = {"result": "world"}
+                else:
+                    raise ValueError("tool failed")
+        except ValueError:
+            pass
+        finally:
+            set_current_run(None)
+        return run
+
+    def test_tool_request_has_linkage_metadata(self):
+        run = self._run_tool_step()
+        req_arts = [a for a in run.artifacts if a.artifact_type == "tool_request"]
+        assert len(req_arts) == 1
+        meta = req_arts[0].metadata
+        assert meta["tool_name"] == "search"
+        assert meta["tool_call_id"] == "tc1"
+
+    def test_tool_response_has_linkage_metadata(self):
+        run = self._run_tool_step()
+        resp_arts = [a for a in run.artifacts if a.artifact_type == "tool_response"]
+        assert len(resp_arts) == 1
+        meta = resp_arts[0].metadata
+        assert meta["tool_name"] == "search"
+        assert meta["tool_call_id"] == "tc1"
+
+    def test_tool_error_has_linkage_metadata(self):
+        run = self._run_tool_step(succeed=False)
+        err_arts = [a for a in run.artifacts if a.artifact_type == "tool_error"]
+        assert len(err_arts) == 1
+        meta = err_arts[0].metadata
+        assert meta["tool_name"] == "search"
+        assert meta["tool_call_id"] == "tc1"
+
+    def test_metadata_without_tool_call_id(self):
+        from leer.context import set_current_run
+        from leer.models import TraceRun
+        from leer.tool import tool_step
+
+        run = TraceRun(workflow_name="test")
+        run.status = "running"
+        set_current_run(run)
+        try:
+            with tool_step("custom_tool") as s:
+                s.input = {"x": 1}
+                s.output = {"y": 2}
+        finally:
+            set_current_run(None)
+
+        req_art = next(a for a in run.artifacts if a.artifact_type == "tool_request")
+        assert req_art.metadata["tool_name"] == "custom_tool"
+        assert "tool_call_id" not in req_art.metadata
+
+
+# ===================================================================
+# OpenAI/Anthropic tool_call artifact integration
+# ===================================================================
+
+class TestToolCallArtifactIntegration:
+    """End-to-end: wrappers produce tool_call artifacts alongside llm_request/response."""
+
+    def test_openai_tool_call_artifacts_created(self):
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from test_openai_wrapper import _fake_openai_client, _make_tool_call_response
+        from leer.context import set_current_run
+        from leer.integrations.openai import wrap_openai_client
+        from leer.models import TraceRun
+
+        run = TraceRun(workflow_name="test")
+        run.status = "running"
+        set_current_run(run)
+        try:
+            client = wrap_openai_client(_fake_openai_client(chat_response=_make_tool_call_response()))
+            client.chat.completions.create(model="gpt-4.1", messages=[])
+        finally:
+            set_current_run(None)
+
+        tc_arts = [a for a in run.artifacts if a.artifact_type == "tool_call"]
+        assert len(tc_arts) == 1
+        assert tc_arts[0].inline_data["tool_name"] == "get_weather"
+        assert tc_arts[0].metadata["provider"] == "openai"
+
+    def test_anthropic_tool_call_artifacts_created(self):
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from test_anthropic_wrapper import _fake_anthropic_client, _make_tool_use_response
+        from leer.context import set_current_run
+        from leer.integrations.anthropic import wrap_anthropic_client
+        from leer.models import TraceRun
+
+        run = TraceRun(workflow_name="test")
+        run.status = "running"
+        set_current_run(run)
+        try:
+            client = wrap_anthropic_client(_fake_anthropic_client(response=_make_tool_use_response()))
+            client.messages.create(model="claude-sonnet-4-20250514", messages=[], max_tokens=100)
+        finally:
+            set_current_run(None)
+
+        tc_arts = [a for a in run.artifacts if a.artifact_type == "tool_call"]
+        assert len(tc_arts) == 1
+        assert tc_arts[0].inline_data["tool_name"] == "get_weather"
+        assert tc_arts[0].metadata["provider"] == "anthropic"
+
+    def test_no_tool_call_artifacts_when_no_calls(self):
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from test_openai_wrapper import _fake_openai_client
+        from leer.context import set_current_run
+        from leer.integrations.openai import wrap_openai_client
+        from leer.models import TraceRun
+
+        run = TraceRun(workflow_name="test")
+        run.status = "running"
+        set_current_run(run)
+        try:
+            client = wrap_openai_client(_fake_openai_client())
+            client.chat.completions.create(model="gpt-4.1", messages=[])
+        finally:
+            set_current_run(None)
+
+        tc_arts = [a for a in run.artifacts if a.artifact_type == "tool_call"]
+        assert len(tc_arts) == 0

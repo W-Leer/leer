@@ -718,8 +718,8 @@ class TestArtifactDetails:
             wrapped, model="gpt-4.1", messages=[{"role": "user", "content": "weather"}]
         )
 
-        resp_preview = run.artifacts[1].preview_text
-        assert "get_weather" in resp_preview
+        resp_art = next(a for a in run.artifacts if a.artifact_type == "llm_response")
+        assert "get_weather" in resp_art.preview_text
 
     def test_artifacts_linked_to_step(self):
         wrapped = wrap_openai_client(_fake_openai_client())
