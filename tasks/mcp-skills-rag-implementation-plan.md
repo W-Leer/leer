@@ -178,16 +178,52 @@ Insight block extended:
 
 No schema changes. No backend changes. No artifact viewer changes.
 
-### Step 5 — Demo + QA signoff
-Output:
-- demo scripts
-- QA checklist
-- status update in specs/tasks
+### Step 5 — Demo + QA signoff ✅
 
-Possible demo files:
-- `examples/demo_mcp_tracing.py`
-- `examples/demo_rag_tracing.py`
-- or one combined demo if cleaner
+Output:
+- `examples/demo_mcp_tracing.py` — deterministic MCP demo (2 runs)
+- `examples/demo_rag_tracing.py` — deterministic RAG demo (2 runs)
+- `docs/04-execution/mcp-skills-rag-qa.md` — full QA checklist with signoff table
+
+MCP demo coverage:
+- Two runs: `mcp-tracing-demo-a` (filesystem-server, stdio) and `mcp-tracing-demo-b` (database-server, http)
+- Each MCP tool step carries **both** MCP metadata AND tool_call_id linkage (coexistence regression check)
+- Artifacts: `mcp_request`, `mcp_response`, `mcp_error` alongside auto-generated `tool_request` / `tool_response`
+- Capability metadata: `capability_kind="mcp_tool"` on all MCP steps
+- Run B includes a failed MCP call (`run_query`) with `mcp_error` artifact
+- Compare surfaces: server divergence, transport divergence, operation matching, tool lifecycle diffs
+- Exact linkage confidence on all steps — bidirectional LLM ↔ tool navigation testable
+
+RAG demo coverage:
+- Two runs: `rag-tracing-demo-a` (pgvector, docs-v2, 50→5) and `rag-tracing-demo-b` (pinecone, docs-v3, 120→8)
+- Full retrieval pipeline per run: all 5 artifact phases (request, candidates, rerank, selected, context)
+- `retrieval_context` stored as plain text via `create_text_artifact()` path
+- `output_summary` with `kind="retrieval"` on retrieval steps for structured compare
+- Compare surfaces: backend divergence, index divergence, candidate/selected/token count diffs, latency diff
+- Identity/count field split tested: metadata section shows identity, output section shows counts (no duplication)
+
+QA checklist coverage:
+- A: Setup (7 items)
+- B: MCP run-detail (14 items across 2 runs)
+- C: Retrieval run-detail (14 items across 2 runs)
+- D: Compare — MCP (11 items) and retrieval (15 items)
+- E: Regression (10 items)
+- F: Signoff table (6 areas)
+
+Decisions:
+- Two separate demo scripts (not combined) — MCP and retrieval are different mental models
+- No schema changes, no migrations, no new backend routes
+- No new UI widgets — existing ArtifactViewer handles all artifact types
+- Both demos fully deterministic — no network dependency beyond local API
+
+**This completes the MCP / Skills / RAG tracing v1 workstream.**
+
+All five steps delivered without schema migrations:
+1. Canonical metadata models (SDK helpers + TypeScript types)
+2. Artifact capture plumbing (MCP + retrieval artifact helpers)
+3. Run-detail UI (badges, metadata rows, detection helpers)
+4. Compare support (MCP/capability/retrieval sections, insights, output diff)
+5. Demo + QA signoff (deterministic demos, full checklist)
 
 ---
 
