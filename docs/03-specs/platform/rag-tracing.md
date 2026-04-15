@@ -184,3 +184,44 @@ RAG tracing v1 is complete when Leer can:
 - blob-store large candidate/context payloads safely
 - show retrieval metadata cleanly in run detail
 - compare retrieval-rich runs without crashing
+
+---
+
+## v1 Implementation Status
+
+All v1 targets are met. No schema migrations were required.
+
+### SDK helpers
+
+- `retrieval_metadata()` in `leer/metadata.py` — canonical builder; always sets `capability_kind="retrieval"` (overridable); accepts `retrieval_stage`, `retrieval_backend`, `index_name`, `query_text`, `query_count`, `candidate_count`, `selected_count`, `context_token_estimate`, `latency_ms`, `parent_llm_step_id`
+- `retrieval_output_summary()` in `leer/metadata.py` — compact compare-friendly summary with `kind="retrieval"` plus counts, stage, backend, latency; designed for `step.output_summary`
+- TypeScript interfaces `RetrievalMetadata`, `RetrievalOutputSummary` in `apps/web/src/lib/types.ts`
+- Retrieval artifact helpers in `leer/retrieval_artifacts.py` (see `retrieval-artifacts.md` for details)
+
+All exported from top-level `leer` package.
+
+### Step representation
+
+Retrieval steps use `step_type="tool"` with retrieval metadata merged in via `retrieval_metadata()`. Capability identity is added via `capability_metadata(capability_kind="retrieval")`. Both can coexist on the same step.
+
+### Frontend — run detail
+
+- `apps/web/src/lib/step-metadata.ts`: `isRetrievalMeta()`, `getRetrievalStageFromMeta()` detect retrieval from raw metadata
+- `apps/web/src/app/runs/[id]/page.tsx`: retrieval badge (teal) and stage badge in step header; dedicated metadata rows for backend, index, query, queries, candidates, selected, tokens, latency
+
+### Frontend — compare
+
+- `apps/web/src/app/compare/page.tsx`:
+  - `RetrievalCompareDiff` — side-by-side grid for identity fields (stage, backend, index, query, queries); shows count fields only when no `RetrievalOutputDiff` is present
+  - `RetrievalOutputDiff` — structured diff for `output_summary` when `kind="retrieval"`; shows candidates, selected, tokens, latency, query; Raw/Structured toggle
+  - Field-split deduplication: when both sections render, identity fields appear only in the metadata section and count/result fields only in the output section
+- `computeInsight()` includes "retrieval backend divergence" and "retrieval count divergence" insights
+
+### Summary fields — additions to spec
+
+The `context_token_estimate` field is used in practice alongside the fields listed in the Summary Fields table above. The `retrieval_output_summary()` builder produces a dict with `kind="retrieval"` that includes all summary fields, enabling structured compare without artifact inspection.
+
+### Demo and QA
+
+- `examples/demo_rag_tracing.py` — deterministic demo creating two runs with different backends, indexes, and counts
+- `docs/04-execution/mcp-skills-rag-qa.md` — manual QA checklist covering run-detail, compare, and regression

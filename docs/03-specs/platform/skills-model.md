@@ -167,3 +167,32 @@ Skills/server modeling v1 is complete when Leer can:
 - show capability metadata in run detail
 - show capability/server differences in compare
 - do all of the above without schema migrations
+
+---
+
+## v1 Implementation Status
+
+All v1 targets are met. No schema migrations were required.
+
+### SDK helper
+
+- `capability_metadata()` in `leer/metadata.py` — canonical builder accepting `capability_kind` (required), plus optional `capability_name`, `capability_label`, `capability_namespace`, `server_name`, `server_id`, `skill_name`, `skill_label`; omits `None`-valued keys
+- TypeScript interface `CapabilityMetadata` and type `CapabilityKind` in `apps/web/src/lib/types.ts`
+
+Exported from top-level `leer` package.
+
+### Frontend — run detail
+
+- `apps/web/src/lib/step-metadata.ts`: `getCapabilityKindFromMeta()` detects capability kind from raw metadata; `getCapabilityKind()` step-wrapper delegates
+- `apps/web/src/app/runs/[id]/page.tsx`: capability badge in step header, color-coded by kind (violet for `mcp_tool`, teal for `retrieval`, indigo for `skill`, amber for `tool`); dedicated metadata rows for name, label, namespace, skill, skill_label
+
+### Frontend — compare
+
+- `apps/web/src/app/compare/page.tsx`: `CapabilityCompareDiff` component shows side-by-side grid for kind, name, label, namespace, skill, skill_label, server, server_id; diff highlighting per field
+- Capability badge in compare step header with diff coloring and A→B label for divergence
+
+### v1 decisions that refined this spec
+
+- Capability metadata is independent from MCP metadata — both can coexist on the same step (`capability_kind="mcp_tool"` + `protocol_kind="mcp"`)
+- No dedicated capability registry table was needed — JSONB metadata is sufficient
+- The UI does not override `step.name` with `capability_label` — both are visible; `step.name` remains the primary display name, capability label appears in metadata rows

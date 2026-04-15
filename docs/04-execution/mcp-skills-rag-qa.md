@@ -144,4 +144,4 @@ Navigate to compare page: select `rag-tracing-demo-a` as Run A and `rag-tracing-
 - Demo scripts print a full inspection guide with expected badges, rows, and sections
 - Compare outcomes are predictable: exact field values listed in demo output
 - If any check fails, note the failure in the signoff table and file a follow-up issue
-- This checklist covers the v1 scope defined in `tasks/mcp-skills-rag-implementation-plan.md`
+- This checklist covers the v1 scope defined in the MCP / Skills / RAG specs under `docs/03-specs/platform/`

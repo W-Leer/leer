@@ -303,6 +303,52 @@ MCP tracing v1 is complete when Leer can:
 
 ---
 
+## v1 Implementation Status
+
+All v1 targets are met. No schema migrations were required.
+
+### SDK helpers
+
+- `mcp_metadata()` in `leer/metadata.py` — canonical metadata builder; always sets `protocol_kind="mcp"`; omits `None`-valued keys
+- `create_mcp_request_artifact()` in `leer/mcp_artifacts.py` — `artifact_type="mcp_request"`, `role="input"`; artifact metadata delegates to `mcp_metadata()` for key consistency
+- `create_mcp_response_artifact()` — `artifact_type="mcp_response"`, `role="output"`
+- `create_mcp_error_artifact()` — `artifact_type="mcp_error"`, `role="error"`; payload always contains `error_type` (defaults to `"UnknownError"`) and `message` (defaults to `""`); `details` and `error_code` are optional
+
+All exported from top-level `leer` package.
+
+### Step representation
+
+MCP interactions use `step_type="tool"` with MCP metadata merged in. The `tool_step()` context manager accepts arbitrary `metadata` dict, so MCP metadata coexists with standard tool fields (`tool_name`, `tool_call_id`, `provider`, `model`).
+
+This preserves existing tool lifecycle: exact/heuristic linkage, confidence badges, bidirectional LLM ↔ tool navigation.
+
+### Frontend — run detail
+
+- `apps/web/src/lib/step-metadata.ts`: `isMcpMeta()`, `getMcpDisplayInfoFromMeta()` detect MCP from raw metadata; step-wrapper `isMcpStep()` delegates
+- `apps/web/src/app/runs/[id]/page.tsx`: MCP badge (violet) in step header; dedicated metadata rows for server, operation, target, transport, server_id
+- MCP artifacts render through existing `ArtifactViewer` as generic JSON
+
+### Frontend — compare
+
+- `apps/web/src/app/compare/page.tsx`: `McpCompareDiff` component shows side-by-side grid for operation, target, server, server_id, transport; diff highlighting per field; one-sided "A only" / "B only" labels
+- MCP badge in compare step header with diff coloring
+- `computeInsight()` includes "MCP server divergence" insight (priority above retrieval, below tool failure)
+- `McpCompareDiff` renders alongside `ToolLinkageDiff` — both appear for MCP tool steps
+
+### v1 decisions that refined this spec
+
+- `mcp_error` payload shape is stable: `error_type` and `message` are always present, not optional
+- Artifact metadata is built by delegating to `mcp_metadata()`, never hand-rolled — prevents key drift
+- `_INLINE_DATA_ARTIFACT_TYPES` was not expanded — MCP artifact content is fetched via artifact endpoint, keeping timeline responses lightweight
+- No convenience wrapper (`mcp_tool_step()`) was added — `tool_step()` + `mcp_metadata()` is sufficient for v1
+
+### Demo and QA
+
+- `examples/demo_mcp_tracing.py` — deterministic demo creating two runs with different MCP servers, exercising coexistence with tool linkage
+- `docs/04-execution/mcp-skills-rag-qa.md` — manual QA checklist covering run-detail, compare, and regression
+
+---
+
 ## Beyond v1
 
 - dedicated `mcp` step type if warranted

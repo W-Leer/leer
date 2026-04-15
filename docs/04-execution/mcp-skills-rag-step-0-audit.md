@@ -7,7 +7,6 @@ Specs audited:
 - `docs/03-specs/platform/skills-model.md`
 - `docs/03-specs/platform/rag-tracing.md`
 - `docs/03-specs/platform/retrieval-artifacts.md`
-- `tasks/mcp-skills-rag-implementation-plan.md`
 
 ---
 
