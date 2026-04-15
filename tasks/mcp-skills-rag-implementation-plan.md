@@ -65,17 +65,32 @@ All helpers exported from `leer` package `__init__.py`.
 
 No schema changes. No new step types. No artifact plumbing yet.
 
-### Step 2 — Artifact capture plumbing
-Output:
-- MCP artifacts (`mcp_request`, `mcp_response`, `mcp_error`)
-- retrieval artifacts (`retrieval_request`, `retrieval_candidates`, `retrieval_rerank`, `retrieval_selected`, `retrieval_context`)
-- linkage metadata on those artifacts
-- artifact creation helpers that use the Step 1 metadata conventions
+### Step 2 — Artifact capture plumbing ✅
 
-Target:
-- reuse current artifact model and blob plumbing
-- no migration if possible
-- use `mcp_metadata()` / `capability_metadata()` / `retrieval_metadata()` for artifact metadata
+Output:
+- `apps/sdk-python/leer/mcp_artifacts.py` — MCP artifact creation helpers
+- `apps/sdk-python/leer/retrieval_artifacts.py` — retrieval artifact creation helpers
+- `apps/sdk-python/tests/test_mcp_artifacts.py` — 19 focused tests
+- `apps/sdk-python/tests/test_retrieval_artifacts.py` — 22 focused tests
+
+MCP artifact helpers added:
+- `create_mcp_request_artifact()` — `artifact_type="mcp_request"`, `role="input"`, metadata carries `protocol_kind="mcp"` + MCP canonical fields
+- `create_mcp_response_artifact()` — `artifact_type="mcp_response"`, `role="output"`, same metadata shape
+- `create_mcp_error_artifact()` — `artifact_type="mcp_error"`, `role="error"`, structured payload with `error_type`, `message`, `details`, `error_code`; metadata includes `error_type` and `error_code` for surface-level inspection
+
+Retrieval artifact helpers added:
+- `create_retrieval_request_artifact()` — `artifact_type="retrieval_request"`, `role="input"`, metadata: `capability_kind="retrieval"`, `retrieval_stage="request"`, plus backend/index/query
+- `create_retrieval_candidates_artifact()` — `artifact_type="retrieval_candidates"`, `role="output"`, stage `"candidates"`, human-readable preview with count
+- `create_retrieval_rerank_artifact()` — `artifact_type="retrieval_rerank"`, `role="output"`, stage `"rerank"`, carries candidate_count + selected_count
+- `create_retrieval_selected_artifact()` — `artifact_type="retrieval_selected"`, `role="output"`, stage `"selected"`
+- `create_retrieval_context_artifact()` — `artifact_type="retrieval_context"`, `role="output"`, stage `"context"`, supports both JSON and plain-text payloads
+
+All helpers exported from `leer` package `__init__.py`.
+
+Decisions:
+- No convenience wrappers (`mcp_tool_step` / `retrieval_step`) — premature; `tool_step()` + metadata is sufficient
+- `_INLINE_DATA_ARTIFACT_TYPES` unchanged — MCP/retrieval payloads can be large; timeline stays lightweight; content fetched via artifact endpoint
+- No schema changes, no migration, no new step types
 
 ### Step 3 — Run-detail UI
 Output:
