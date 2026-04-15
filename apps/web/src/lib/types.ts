@@ -213,3 +213,60 @@ export interface CompareResponse {
   run_diff: CompareRunDiff;
   steps: CompareStepDiff[];
 }
+
+// ---------------------------------------------------------------------------
+// MCP / Capability / Retrieval metadata shapes
+// ---------------------------------------------------------------------------
+
+export type CapabilityKind = "tool" | "mcp_tool" | "retrieval" | "skill" | "unknown";
+
+export interface McpMetadata {
+  protocol_kind: "mcp";
+  operation_kind: string;
+  target_name?: string;
+  server_name?: string;
+  server_id?: string;
+  transport_kind?: string;
+  tool_call_id?: string;
+  parent_llm_step_id?: string;
+  parent_tool_step_id?: string;
+  latency_ms?: number;
+  status?: string;
+}
+
+export interface CapabilityMetadata {
+  capability_kind: CapabilityKind;
+  capability_name?: string;
+  capability_label?: string;
+  capability_namespace?: string;
+  server_name?: string;
+  server_id?: string;
+  skill_name?: string;
+  skill_label?: string;
+}
+
+export interface RetrievalMetadata {
+  capability_kind?: "retrieval";
+  retrieval_stage?: string;
+  retrieval_backend?: string;
+  index_name?: string;
+  query_text?: string;
+  query_count?: number;
+  candidate_count?: number;
+  selected_count?: number;
+  context_token_estimate?: number;
+  latency_ms?: number;
+  parent_llm_step_id?: string;
+}
+
+export interface RetrievalOutputSummary {
+  kind: "retrieval";
+  retrieval_stage?: string;
+  retrieval_backend?: string;
+  index_name?: string;
+  query_text?: string;
+  candidate_count?: number;
+  selected_count?: number;
+  context_token_estimate?: number;
+  latency_ms?: number;
+}

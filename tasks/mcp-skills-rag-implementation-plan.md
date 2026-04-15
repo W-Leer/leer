@@ -35,41 +35,47 @@ Use the same pattern as previous workstreams:
 
 ## Recommended Delivery Order
 
-### Step 0 — Audit
+### Step 0 — Audit ✅
+
 Output:
 - `docs/04-execution/mcp-skills-rag-step-0-audit.md`
 
-Questions to answer:
-- what already exists in artifacts / metadata / UI / compare
-- what can be done metadata-only
-- whether MCP v1 needs a new step type
-- whether retrieval v1 can reuse existing artifact plumbing cleanly
-- whether Step 1 can begin without schema changes
+Key findings:
+- `artifact_type` is free-form in DB — new types require no migration
+- `step_type` has a CHECK constraint — `step_type="mcp"` would need migration, so v1 uses `step_type="tool"` with metadata
+- `metadata` is JSONB — all new keys work without changes
+- Step 1 can proceed with zero schema changes
 
-### Step 1 — Canonical metadata models
+### Step 1 — Canonical metadata models ✅
+
 Output:
-- canonical metadata conventions for MCP steps
-- canonical capability/skill fields
-- canonical retrieval summary fields
+- `apps/sdk-python/leer/metadata.py` — canonical metadata builder helpers
+- `apps/web/src/lib/types.ts` — TypeScript interfaces for new metadata shapes
+- `apps/sdk-python/tests/test_metadata.py` — 29 focused tests
 
-Target:
-- add metadata helpers / conventions first
-- no schema changes
+Helpers added:
+- `mcp_metadata()` — canonical keys: `protocol_kind="mcp"`, `operation_kind`, `target_name`, `server_name`, `server_id`, `transport_kind`, `tool_call_id`, `parent_llm_step_id`, `parent_tool_step_id`, `latency_ms`, `status`
+- `capability_metadata()` — canonical keys: `capability_kind` (`tool` | `mcp_tool` | `retrieval` | `skill` | `unknown`), `capability_name`, `capability_label`, `capability_namespace`, `server_name`, `server_id`, `skill_name`, `skill_label`
+- `retrieval_metadata()` — canonical keys: `capability_kind="retrieval"`, `retrieval_stage`, `retrieval_backend`, `index_name`, `query_text`, `query_count`, `candidate_count`, `selected_count`, `context_token_estimate`, `latency_ms`, `parent_llm_step_id`
+- `retrieval_output_summary()` — compact compare-friendly summary with `kind="retrieval"` plus counts/stage/backend
 
-Deliverables likely include:
-- shared metadata helpers
-- lightweight summary enrichment
-- typed frontend interfaces where needed
+TypeScript types added: `McpMetadata`, `CapabilityMetadata`, `RetrievalMetadata`, `RetrievalOutputSummary`, `CapabilityKind`
+
+All helpers exported from `leer` package `__init__.py`.
+
+No schema changes. No new step types. No artifact plumbing yet.
 
 ### Step 2 — Artifact capture plumbing
 Output:
 - MCP artifacts (`mcp_request`, `mcp_response`, `mcp_error`)
 - retrieval artifacts (`retrieval_request`, `retrieval_candidates`, `retrieval_rerank`, `retrieval_selected`, `retrieval_context`)
 - linkage metadata on those artifacts
+- artifact creation helpers that use the Step 1 metadata conventions
 
 Target:
 - reuse current artifact model and blob plumbing
 - no migration if possible
+- use `mcp_metadata()` / `capability_metadata()` / `retrieval_metadata()` for artifact metadata
 
 ### Step 3 — Run-detail UI
 Output:

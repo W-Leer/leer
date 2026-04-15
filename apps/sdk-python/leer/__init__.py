@@ -6,6 +6,12 @@ from leer.artifacts import (
 )
 from leer.client import configure
 from leer.decorators import trace
+from leer.metadata import (
+    capability_metadata,
+    mcp_metadata,
+    retrieval_metadata,
+    retrieval_output_summary,
+)
 from leer.step import step
 from leer.tool import tool_step
 
@@ -18,4 +24,8 @@ __all__ = [
     "create_text_artifact",
     "create_binary_artifact",
     "attach_artifact",
+    "mcp_metadata",
+    "capability_metadata",
+    "retrieval_metadata",
+    "retrieval_output_summary",
 ]
