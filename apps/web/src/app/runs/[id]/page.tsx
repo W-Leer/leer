@@ -20,6 +20,17 @@ import { LlmStepDetail } from "@/components/llm-step-detail";
 import { ArtifactViewer } from "@/components/artifact-viewer";
 import { buildToolCallLinkage } from "@/lib/tool-linkage";
 import type { ToolCallLinkResult, LinkageConfidence } from "@/lib/tool-linkage";
+import {
+  isMcpStep,
+  getCapabilityKind,
+  isRetrievalStep,
+  getRetrievalStage,
+  getMcpDisplayInfo,
+  extraMetadataEntries,
+  CAPABILITY_BADGE,
+  MCP_BADGE,
+  RETRIEVAL_STAGE_BADGE,
+} from "@/lib/step-metadata";
 import { ChevronRight, GitCompareArrows } from "lucide-react";
 
 export default function RunDetailPage() {
@@ -436,8 +447,8 @@ function StepCard({
       >
         {/* Clickable header */}
         <button onClick={onToggle} className="w-full cursor-pointer px-5 py-3.5 text-left">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2 gap-y-1.5">
               <span className={`text-[10px] transition-transform duration-150 ${expanded ? "rotate-90" : ""} text-neutral-400`}>▶</span>
               <span className="text-[13px] font-semibold tracking-tight text-neutral-900">{step.name}</span>
               <span className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${stepTypeBadge(step.step_type)}`}>
@@ -451,13 +462,30 @@ function StepCard({
                   stream
                 </span>
               )}
+              {isMcpStep(step) && (
+                <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${MCP_BADGE}`}>MCP</span>
+              )}
+              {(() => {
+                const ck = getCapabilityKind(step);
+                return ck && ck !== "unknown" ? (
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${CAPABILITY_BADGE[ck] ?? CAPABILITY_BADGE.unknown}`}>
+                    {ck}
+                  </span>
+                ) : null;
+              })()}
+              {(() => {
+                const rs = getRetrievalStage(step);
+                return rs ? (
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${RETRIEVAL_STAGE_BADGE}`}>{rs}</span>
+                ) : null;
+              })()}
               {childCount > 0 && (
                 <span className="text-[10px] text-neutral-400">
                   {childCount} {allChildrenAreTools ? `tool call${childCount !== 1 ? "s" : ""}` : `child${childCount !== 1 ? "ren" : ""}`}
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-4 text-[11px] text-neutral-400">
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-4 gap-y-1 text-[11px] text-neutral-400">
               {step.model_name && (
                 <span className="font-mono text-neutral-500">{step.model_name}</span>
               )}
@@ -521,8 +549,6 @@ function StepCard({
 // Step detail panel
 // ---------------------------------------------------------------------------
 
-const TOOL_META_KEYS = new Set(["tool_name", "tool_call_id", "provider", "model"]);
-
 function StepDetailPanel({
   step,
   parentStep,
@@ -542,10 +568,14 @@ function StepDetailPanel({
 
   const isTool = step.step_type === "tool";
   const meta = step.metadata ?? {};
-  const extraEntries = Object.entries(meta).filter(([k]) => !isTool || !TOOL_META_KEYS.has(k));
 
-  // The "from step" link should point to the sourceLlmStep (tool_call_id match)
-  // or fall back to the parentStep (parent_step_id hierarchy)
+  const mcpInfo = getMcpDisplayInfo(step);
+  const capKind = getCapabilityKind(step);
+  const retrievalStage = getRetrievalStage(step);
+  const isRetrieval = isRetrievalStep(step);
+
+  const extras = extraMetadataEntries(step.metadata, isTool);
+
   const linkTarget = sourceLlmStep ?? parentStep;
 
   return (
@@ -613,10 +643,58 @@ function StepDetailPanel({
         </div>
       )}
 
+      {/* MCP metadata rows */}
+      {mcpInfo && (
+        <MetadataRows
+          label="MCP"
+          badgeClass={MCP_BADGE}
+          entries={[
+            ["server", mcpInfo.serverName],
+            ["operation", mcpInfo.operationKind],
+            ["target", mcpInfo.targetName],
+            ["transport", mcpInfo.transportKind],
+            ["server_id", mcpInfo.serverId],
+          ]}
+        />
+      )}
+
+      {/* Capability / skill metadata rows */}
+      {capKind && (
+        <MetadataRows
+          label={capKind}
+          badgeClass={CAPABILITY_BADGE[capKind] ?? CAPABILITY_BADGE.unknown}
+          entries={[
+            ["name", _strMeta(meta.capability_name)],
+            ["label", _strMeta(meta.capability_label)],
+            ["namespace", _strMeta(meta.capability_namespace)],
+            ["skill", _strMeta(meta.skill_name)],
+            ["skill_label", _strMeta(meta.skill_label)],
+          ]}
+        />
+      )}
+
+      {/* Retrieval metadata rows */}
+      {isRetrieval && (
+        <MetadataRows
+          label={retrievalStage ?? "retrieval"}
+          badgeClass={RETRIEVAL_STAGE_BADGE}
+          entries={[
+            ["backend", _strMeta(meta.retrieval_backend)],
+            ["index", _strMeta(meta.index_name)],
+            ["query", _strMeta(meta.query_text)],
+            ["queries", _numMeta(meta.query_count)],
+            ["candidates", _numMeta(meta.candidate_count)],
+            ["selected", _numMeta(meta.selected_count)],
+            ["tokens", _numMeta(meta.context_token_estimate)],
+            ["latency", _numMeta(meta.latency_ms) != null ? `${_numMeta(meta.latency_ms)}ms` : null],
+          ]}
+        />
+      )}
+
       {/* Extra metadata */}
-      {extraEntries.length > 0 && (
+      {extras.length > 0 && (
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-neutral-400">
-          {extraEntries.map(([k, v]) => (
+          {extras.map(([k, v]) => (
             <span key={k}>{k} <span className="font-medium text-neutral-600">{String(v)}</span></span>
           ))}
         </div>
@@ -653,6 +731,42 @@ function StepDetailPanel({
       )}
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Metadata rows component — renders labeled key/value pairs with a badge
+// ---------------------------------------------------------------------------
+
+function MetadataRows({
+  label,
+  badgeClass,
+  entries,
+}: {
+  label: string;
+  badgeClass: string;
+  entries: [string, string | number | null | undefined][];
+}) {
+  const visible = entries.filter(([, v]) => v != null && v !== "");
+  if (visible.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-[14px] gap-y-1.5 text-[11px]">
+      <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${badgeClass}`}>{label}</span>
+      {visible.map(([k, v]) => (
+        <span key={k} className="text-neutral-400">
+          {k} <span className="font-medium text-neutral-600">{String(v)}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function _strMeta(v: unknown): string | null {
+  return typeof v === "string" && v ? v : null;
+}
+
+function _numMeta(v: unknown): number | null {
+  return typeof v === "number" ? v : null;
 }
 
 // ---------------------------------------------------------------------------

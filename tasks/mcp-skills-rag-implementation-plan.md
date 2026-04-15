@@ -92,15 +92,49 @@ Decisions:
 - `_INLINE_DATA_ARTIFACT_TYPES` unchanged — MCP/retrieval payloads can be large; timeline stays lightweight; content fetched via artifact endpoint
 - No schema changes, no migration, no new step types
 
-### Step 3 — Run-detail UI
-Output:
-- MCP metadata rows / badges in step detail
-- capability/server labeling
-- retrieval metadata rows / badges
-- safe artifact inspection paths
+### Step 3 — Run-detail UI ✅
 
-Target:
-- readable run detail without dedicated complex widgets yet
+Output:
+- `apps/web/src/lib/step-metadata.ts` — detection helpers, exclusion sets, badge constants, compare-ready API
+- `apps/web/src/app/runs/[id]/page.tsx` — badges in step header + metadata rows in StepDetailPanel
+- `apps/sdk-python/tests/test_step_metadata_detection.py` — 30 Python-mirror tests for detection logic + key-set parity
+
+Detection helpers (two API layers):
+- **Raw-metadata functions** (for reuse in compare page): `isMcpMeta(meta)`, `getCapabilityKindFromMeta(meta)`, `isRetrievalMeta(meta)`, `getRetrievalStageFromMeta(meta)`, `getMcpDisplayInfoFromMeta(meta)`
+- **Step-wrapper conveniences** (for run-detail ergonomics): `isMcpStep(step)`, `getCapabilityKind(step)`, `isRetrievalStep(step)`, `getRetrievalStage(step)`, `getMcpDisplayInfo(step)` — these delegate to the raw functions
+- `extraMetadataEntries(meta, isTool)` — returns entries after excluding promoted keys; shared by run-detail and compare
+
+Step header badges added:
+- MCP badge (violet) when `protocol_kind === "mcp"`
+- Capability badge (color per kind: violet for mcp_tool, teal for retrieval, indigo for skill, amber for tool)
+- Retrieval stage badge (teal) when `retrieval_stage` exists
+- All additive — existing `step_type`, `status`, `stream`, and child-count badges unchanged
+- Header uses `flex-wrap` to handle crowded badge combinations gracefully
+
+StepDetailPanel metadata rows added:
+- MCP rows: server, operation, target, transport, server_id — shown with MCP badge
+- Capability/skill rows: name, label, namespace, skill, skill_label — shown with capability-kind badge
+- Retrieval rows: backend, index, query, queries, candidates, selected, tokens, latency — shown with retrieval stage badge
+
+Exclusion logic:
+- Centralized constants: `TOOL_META_KEYS`, `MCP_META_KEYS`, `CAPABILITY_META_KEYS`, `RETRIEVAL_META_KEYS`, `LINKAGE_META_KEYS`
+- `extraMetadataEntries()` excludes promoted keys so they don't render twice — single source of truth for both run-detail and compare
+- `LINKAGE_META_KEYS` (`parent_llm_step_id`, `parent_tool_step_id`) always excluded — defined once, not duplicated
+
+Compare readiness (for Step 4):
+- `RETRIEVAL_DIFF_KEYS` — load-bearing retrieval fields for compare diffing: `retrieval_stage`, `retrieval_backend`, `index_name`, `candidate_count`, `selected_count`, `context_token_estimate`
+- Raw-metadata detection functions accept `Meta` dict directly — compare page can call `isMcpMeta(step.metadata_a)` without wrapping
+- All exclusion/detection logic defined in `step-metadata.ts` — compare must import from there, not reimplement
+
+MCP coexistence with tool lifecycle:
+- MCP steps remain `step_type="tool"` — tool linkage row, exact/heuristic confidence badges, lifecycle badges, and LLM ↔ tool jump navigation all work unchanged
+- MCP badges/rows layer on top of existing tool-step UI
+
+Artifact behavior:
+- No special MCP or retrieval artifact viewers — existing `ArtifactViewer` handles all artifact types
+- `_INLINE_DATA_ARTIFACT_TYPES` unchanged — timeline stays lightweight
+
+No schema changes. No backend changes. No compare-page changes.
 
 ### Step 4 — Compare support
 Output:
