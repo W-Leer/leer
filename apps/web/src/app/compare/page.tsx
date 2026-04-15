@@ -12,6 +12,15 @@ import { CompareMediaBadge } from "@/components/media-artifact";
 import { ExpandableTextBlock } from "@/components/expandable-text-block";
 import { RunSelector, type SelectedRun } from "@/components/run-selector";
 import { GitCompareArrows, Lightbulb } from "lucide-react";
+import {
+  isMcpMeta,
+  getCapabilityKindFromMeta,
+  isRetrievalMeta,
+  getRetrievalStageFromMeta,
+  CAPABILITY_BADGE,
+  MCP_BADGE,
+  RETRIEVAL_STAGE_BADGE,
+} from "@/lib/step-metadata";
 import type {
   CompareResponse,
   CompareRunDiff,
@@ -464,6 +473,21 @@ function StepDiffCard({ step, allSteps, runIdA, runIdB }: { step: CompareStepDif
         {/* Tool linkage diff */}
         {isTool && <ToolLinkageDiff step={step} absentA={absentA} absentB={absentB} />}
 
+        {/* MCP metadata diff */}
+        <McpCompareDiff metaA={step.metadata_a} metaB={step.metadata_b} absentA={absentA} absentB={absentB} />
+
+        {/* Capability / skill diff */}
+        <CapabilityCompareDiff metaA={step.metadata_a} metaB={step.metadata_b} absentA={absentA} absentB={absentB} />
+
+        {/* Retrieval metadata diff — identity-only when output section also renders */}
+        <RetrievalCompareDiff
+          metaA={step.metadata_a}
+          metaB={step.metadata_b}
+          absentA={absentA}
+          absentB={absentB}
+          identityOnly={_isRetrievalOutput(step.output_summary_a) || _isRetrievalOutput(step.output_summary_b)}
+        />
+
         {/* Status — always shown */}
         <DiffRow label="Status" diff={step.status_diff}>
           <DiffCellText side="A" value={step.status_a} absent={absentA} />
@@ -486,9 +510,17 @@ function StepDiffCard({ step, allSteps, runIdA, runIdB }: { step: CompareStepDif
           )
         )}
 
-        {/* Output — LLM-aware or generic */}
+        {/* Output — LLM-aware, retrieval-aware, or generic */}
         {isLlm ? (
           <LlmOutputDiff a={step.llm_a} b={step.llm_b} diff={step.output_diff} />
+        ) : _isRetrievalOutput(step.output_summary_a) || _isRetrievalOutput(step.output_summary_b) ? (
+          <RetrievalOutputDiff
+            dataA={step.output_summary_a}
+            dataB={step.output_summary_b}
+            diff={step.output_diff}
+            absentA={absentA}
+            absentB={absentB}
+          />
         ) : (
           <DataDiffRow
             label="Output"
@@ -627,6 +659,51 @@ function StepDiffHeader({
             {isStreamA && isStreamB ? "stream" : isStreamA ? "stream A only" : "stream B only"}
           </span>
         )}
+
+        {(() => {
+          const mcpA = isMcpMeta(step.metadata_a);
+          const mcpB = isMcpMeta(step.metadata_b);
+          if (!mcpA && !mcpB) return null;
+          const differs = mcpA !== mcpB;
+          return (
+            <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${differs ? "bg-[var(--diff-badge-bg)] text-[var(--diff-badge-text)]" : MCP_BADGE}`}>
+              {mcpA && mcpB ? "MCP" : mcpA ? "MCP A only" : "MCP B only"}
+            </span>
+          );
+        })()}
+
+        {(() => {
+          const capA = getCapabilityKindFromMeta(step.metadata_a);
+          const capB = getCapabilityKindFromMeta(step.metadata_b);
+          if (!capA && !capB) return null;
+          if (capA === "unknown" && capB === "unknown") return null;
+          const differs = capA !== capB;
+          const label = capA && capB && capA === capB
+            ? capA
+            : capA && capB
+              ? `${capA} → ${capB}`
+              : capA ? `${capA} A only` : `${capB} B only`;
+          const cls = differs
+            ? "bg-[var(--diff-badge-bg)] text-[var(--diff-badge-text)]"
+            : (CAPABILITY_BADGE[capA ?? capB ?? "unknown"] ?? CAPABILITY_BADGE.unknown);
+          return <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${cls}`}>{label}</span>;
+        })()}
+
+        {(() => {
+          const stA = getRetrievalStageFromMeta(step.metadata_a);
+          const stB = getRetrievalStageFromMeta(step.metadata_b);
+          if (!stA && !stB) return null;
+          const differs = stA !== stB;
+          const label = stA && stB && stA === stB
+            ? stA
+            : stA && stB
+              ? `${stA} → ${stB}`
+              : stA ? `${stA} A only` : `${stB} B only`;
+          const cls = differs
+            ? "bg-[var(--diff-badge-bg)] text-[var(--diff-badge-text)]"
+            : RETRIEVAL_STAGE_BADGE;
+          return <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${cls}`}>{label}</span>;
+        })()}
 
         {isChild && (
           <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
@@ -1031,6 +1108,271 @@ function CallPill({ tc, diff, idDiff, argsDiff, lifecycle, lcDiff }: {
         <span className={`rounded px-1 py-px text-[8px] font-medium ${lcDiff ? "ring-1 ring-amber-400/50 " : ""}${lcCfg.className}`}>
           {lcCfg.label}
         </span>
+      )}
+    </div>
+  );
+}
+
+// ===========================================================================
+// MCP / Capability / Retrieval compare sections
+// ===========================================================================
+
+function _metaStr(v: unknown): string | null {
+  return typeof v === "string" && v ? v : null;
+}
+
+function _metaNum(v: unknown): number | null {
+  return typeof v === "number" ? v : null;
+}
+
+function _isRetrievalOutput(data: Dict | null): boolean {
+  return data?.kind === "retrieval";
+}
+
+function CompareFieldGrid({
+  fields,
+  absentA,
+  absentB,
+}: {
+  fields: [string, string | number | null, string | number | null][];
+  absentA?: boolean;
+  absentB?: boolean;
+}) {
+  return (
+    <div className="space-y-0.5">
+      <div className="grid grid-cols-[90px_1fr_1fr] text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+        <span />
+        <span>A</span>
+        <span>B</span>
+      </div>
+      {fields.map(([label, a, b]) => {
+        const diff = String(a ?? "") !== String(b ?? "");
+        return (
+          <div key={label} className="grid grid-cols-[90px_1fr_1fr] items-baseline gap-0 text-[11px]">
+            <span className="text-neutral-400">{label}</span>
+            <span className={`${absentA ? "italic text-neutral-300" : diff ? "font-medium text-[var(--diff-badge-text)]" : "text-neutral-700"}`}>
+              {absentA ? "—" : a != null ? String(a) : "—"}
+            </span>
+            <span className={`${absentB ? "italic text-neutral-300" : diff ? "font-medium text-[var(--diff-badge-text)]" : "text-neutral-700"}`}>
+              {absentB ? "—" : b != null ? String(b) : "—"}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function McpCompareDiff({
+  metaA,
+  metaB,
+  absentA,
+  absentB,
+}: {
+  metaA: Dict | null;
+  metaB: Dict | null;
+  absentA: boolean;
+  absentB: boolean;
+}) {
+  const isMcpA = !absentA && isMcpMeta(metaA);
+  const isMcpB = !absentB && isMcpMeta(metaB);
+  if (!isMcpA && !isMcpB) return null;
+
+  const fields: [string, string | null, string | null][] = [
+    ["operation", _metaStr(metaA?.operation_kind), _metaStr(metaB?.operation_kind)],
+    ["target", _metaStr(metaA?.target_name), _metaStr(metaB?.target_name)],
+    ["server", _metaStr(metaA?.server_name), _metaStr(metaB?.server_name)],
+    ["server_id", _metaStr(metaA?.server_id), _metaStr(metaB?.server_id)],
+    ["transport", _metaStr(metaA?.transport_kind), _metaStr(metaB?.transport_kind)],
+  ];
+
+  const visible = fields.filter(([, a, b]) => a != null || b != null);
+  if (visible.length === 0 && isMcpA === isMcpB) return null;
+
+  const anyDiff = visible.some(([, a, b]) => a !== b) || isMcpA !== isMcpB;
+  const bg = anyDiff ? "bg-[var(--tint-diff-row)]" : "bg-violet-50/30 dark:bg-violet-950/25";
+
+  return (
+    <div className={`rounded-md px-4 py-3 ${bg}`}>
+      <div className="mb-2.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+        <span className={`rounded px-1.5 py-0.5 font-medium ${MCP_BADGE}`}>MCP</span>
+        {isMcpA !== isMcpB && (
+          <span className="text-[9px] text-neutral-400">{isMcpA ? "A only" : "B only"}</span>
+        )}
+        {anyDiff && <ChangedBadge />}
+      </div>
+      {visible.length > 0 && (
+        <CompareFieldGrid fields={visible} absentA={absentA} absentB={absentB} />
+      )}
+    </div>
+  );
+}
+
+function CapabilityCompareDiff({
+  metaA,
+  metaB,
+  absentA,
+  absentB,
+}: {
+  metaA: Dict | null;
+  metaB: Dict | null;
+  absentA: boolean;
+  absentB: boolean;
+}) {
+  const capA = absentA ? null : getCapabilityKindFromMeta(metaA);
+  const capB = absentB ? null : getCapabilityKindFromMeta(metaB);
+  if (!capA && !capB) return null;
+
+  const fields: [string, string | null, string | null][] = [
+    ["kind", capA, capB],
+    ["name", _metaStr(metaA?.capability_name), _metaStr(metaB?.capability_name)],
+    ["label", _metaStr(metaA?.capability_label), _metaStr(metaB?.capability_label)],
+    ["namespace", _metaStr(metaA?.capability_namespace), _metaStr(metaB?.capability_namespace)],
+    ["skill", _metaStr(metaA?.skill_name), _metaStr(metaB?.skill_name)],
+    ["skill_label", _metaStr(metaA?.skill_label), _metaStr(metaB?.skill_label)],
+    ["server", _metaStr(metaA?.server_name), _metaStr(metaB?.server_name)],
+    ["server_id", _metaStr(metaA?.server_id), _metaStr(metaB?.server_id)],
+  ];
+
+  const visible = fields.filter(([, a, b]) => a != null || b != null);
+  if (visible.length === 0) return null;
+
+  const anyDiff = visible.some(([, a, b]) => a !== b);
+  const badgeCls = CAPABILITY_BADGE[capA ?? capB ?? "unknown"] ?? CAPABILITY_BADGE.unknown;
+  const bg = anyDiff ? "bg-[var(--tint-diff-row)]" : "bg-neutral-50/50";
+
+  return (
+    <div className={`rounded-md px-4 py-3 ${bg}`}>
+      <div className="mb-2.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+        <span className={`rounded px-1.5 py-0.5 font-medium ${badgeCls}`}>{capA ?? capB}</span>
+        Capability
+        {anyDiff && <ChangedBadge />}
+      </div>
+      <CompareFieldGrid fields={visible} absentA={absentA} absentB={absentB} />
+    </div>
+  );
+}
+
+function RetrievalCompareDiff({
+  metaA,
+  metaB,
+  absentA,
+  absentB,
+  identityOnly,
+}: {
+  metaA: Dict | null;
+  metaB: Dict | null;
+  absentA: boolean;
+  absentB: boolean;
+  identityOnly?: boolean;
+}) {
+  const isRetA = !absentA && isRetrievalMeta(metaA);
+  const isRetB = !absentB && isRetrievalMeta(metaB);
+  if (!isRetA && !isRetB) return null;
+
+  const identity: [string, string | number | null, string | number | null][] = [
+    ["stage", _metaStr(metaA?.retrieval_stage), _metaStr(metaB?.retrieval_stage)],
+    ["backend", _metaStr(metaA?.retrieval_backend), _metaStr(metaB?.retrieval_backend)],
+    ["index", _metaStr(metaA?.index_name), _metaStr(metaB?.index_name)],
+    ["query", _metaStr(metaA?.query_text), _metaStr(metaB?.query_text)],
+    ["queries", _metaNum(metaA?.query_count), _metaNum(metaB?.query_count)],
+  ];
+
+  const counts: [string, string | number | null, string | number | null][] = [
+    ["candidates", _metaNum(metaA?.candidate_count), _metaNum(metaB?.candidate_count)],
+    ["selected", _metaNum(metaA?.selected_count), _metaNum(metaB?.selected_count)],
+    ["tokens", _metaNum(metaA?.context_token_estimate), _metaNum(metaB?.context_token_estimate)],
+    ["latency", _metaNum(metaA?.latency_ms), _metaNum(metaB?.latency_ms)],
+  ];
+
+  const fields = identityOnly ? identity : [...identity, ...counts];
+
+  const visible = fields.filter(([, a, b]) => a != null || b != null);
+  if (visible.length === 0 && isRetA === isRetB) return null;
+
+  const anyDiff = visible.some(([, a, b]) => String(a ?? "") !== String(b ?? "")) || isRetA !== isRetB;
+  const bg = anyDiff ? "bg-[var(--tint-diff-row)]" : "bg-teal-50/30 dark:bg-teal-950/25";
+
+  return (
+    <div className={`rounded-md px-4 py-3 ${bg}`}>
+      <div className="mb-2.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+        <span className={`rounded px-1.5 py-0.5 font-medium ${RETRIEVAL_STAGE_BADGE}`}>
+          {_metaStr(metaA?.retrieval_stage) ?? _metaStr(metaB?.retrieval_stage) ?? "retrieval"}
+        </span>
+        Retrieval
+        {isRetA !== isRetB && (
+          <span className="text-[9px] text-neutral-400">{isRetA ? "A only" : "B only"}</span>
+        )}
+        {anyDiff && <ChangedBadge />}
+      </div>
+      {visible.length > 0 && (
+        <CompareFieldGrid fields={visible} absentA={absentA} absentB={absentB} />
+      )}
+    </div>
+  );
+}
+
+function RetrievalOutputDiff({
+  dataA,
+  dataB,
+  diff,
+  absentA,
+  absentB,
+}: {
+  dataA: Dict | null;
+  dataB: Dict | null;
+  diff: boolean;
+  absentA?: boolean;
+  absentB?: boolean;
+}) {
+  const [raw, setRaw] = useState(false);
+
+  const fields: [string, string | number | null, string | number | null][] = [
+    ["candidates", _metaNum(dataA?.candidate_count), _metaNum(dataB?.candidate_count)],
+    ["selected", _metaNum(dataA?.selected_count), _metaNum(dataB?.selected_count)],
+    ["tokens", _metaNum(dataA?.context_token_estimate), _metaNum(dataB?.context_token_estimate)],
+    ["latency", _metaNum(dataA?.latency_ms), _metaNum(dataB?.latency_ms)],
+    ["query", _metaStr(dataA?.query_text), _metaStr(dataB?.query_text)],
+  ];
+
+  const visible = fields.filter(([, a, b]) => a != null || b != null);
+  const bg = diff ? "bg-[var(--tint-diff-row)]" : "bg-[var(--tint-output)]";
+
+  return (
+    <div className={`rounded-md px-4 py-3 ${bg}`}>
+      <div className="mb-2.5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-neutral-400">
+        <span className="flex items-center gap-2">
+          <span className={`rounded px-1.5 py-0.5 font-medium ${RETRIEVAL_STAGE_BADGE}`}>retrieval</span>
+          Output
+          {diff && <ChangedBadge />}
+        </span>
+        <button
+          onClick={() => setRaw(!raw)}
+          className="ml-auto rounded px-1.5 py-0.5 text-[10px] font-medium text-neutral-400 transition-colors hover:bg-neutral-200 hover:text-neutral-600"
+        >
+          {raw ? "Structured" : "Raw"}
+        </button>
+      </div>
+      {raw ? (
+        <div className="grid grid-cols-2 gap-0">
+          <div className="pr-4">
+            <DataCell side="A" data={dataA} raw absent={absentA} />
+          </div>
+          <div className="border-l border-neutral-200 pl-4">
+            <DataCell side="B" data={dataB} raw absent={absentB} />
+          </div>
+        </div>
+      ) : visible.length > 0 ? (
+        <CompareFieldGrid fields={visible} absentA={absentA} absentB={absentB} />
+      ) : (
+        <div className="grid grid-cols-2 gap-0">
+          <div className="pr-4">
+            <DataCell side="A" data={dataA} raw={false} absent={absentA} />
+          </div>
+          <div className="border-l border-neutral-200 pl-4">
+            <DataCell side="B" data={dataB} raw={false} absent={absentB} />
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1827,6 +2169,9 @@ function computeInsight(data: CompareResponse): string | null {
   let tokenDiffFound = false;
   let toolCallCountDiff = false;
   let toolFailureDiff = false;
+  let retrievalCountDiff = false;
+  let retrievalBackendDiff = false;
+  let mcpServerDiff = false;
 
   for (const step of steps) {
     const sA = streamVal(step.metadata_a);
@@ -1855,10 +2200,52 @@ function computeInsight(data: CompareResponse): string | null {
       const stB = step.status_b ?? "";
       if ((stA === "failed") !== (stB === "failed")) toolFailureDiff = true;
     }
+
+    const mA = step.metadata_a;
+    const mB = step.metadata_b;
+
+    if (isRetrievalMeta(mA) && isRetrievalMeta(mB)) {
+      const candA = _metaNum(mA?.candidate_count);
+      const candB = _metaNum(mB?.candidate_count);
+      const selA = _metaNum(mA?.selected_count);
+      const selB = _metaNum(mB?.selected_count);
+      if ((candA != null && candB != null && candA !== candB) || (selA != null && selB != null && selA !== selB)) {
+        retrievalCountDiff = true;
+      }
+      const beA = _metaStr(mA?.retrieval_backend);
+      const beB = _metaStr(mB?.retrieval_backend);
+      const ixA = _metaStr(mA?.index_name);
+      const ixB = _metaStr(mB?.index_name);
+      if ((beA && beB && beA !== beB) || (ixA && ixB && ixA !== ixB)) {
+        retrievalBackendDiff = true;
+      }
+    }
+
+    if (isMcpMeta(mA) && isMcpMeta(mB)) {
+      const srvA = _metaStr(mA?.server_name);
+      const srvB = _metaStr(mB?.server_name);
+      const opA = _metaStr(mA?.operation_kind);
+      const opB = _metaStr(mB?.operation_kind);
+      if ((srvA && srvB && srvA !== srvB) || (opA && opB && opA !== opB)) {
+        mcpServerDiff = true;
+      }
+    }
   }
 
   if (toolFailureDiff) {
     return "Tool execution divergence — a tool step failed in one run but not the other.";
+  }
+
+  if (mcpServerDiff) {
+    return "MCP server divergence — an MCP step targeted a different server or operation across runs.";
+  }
+
+  if (retrievalBackendDiff) {
+    return "Retrieval backend divergence — retrieval used a different backend or index across runs.";
+  }
+
+  if (retrievalCountDiff) {
+    return "Retrieval count divergence — candidate or selected counts differ between the runs.";
   }
 
   if (toolCallCountDiff) {

@@ -136,15 +136,47 @@ Artifact behavior:
 
 No schema changes. No backend changes. No compare-page changes.
 
-### Step 4 — Compare support
-Output:
-- compare support for MCP/skills/retrieval metadata differences
-- server / operation / stage / count differences
-- no crashes on blob-backed payloads
+### Step 4 — Compare support ✅
 
-Target:
-- metadata-aware compare first
-- rich artifact diffing later
+Output:
+- `apps/web/src/app/compare/page.tsx` — MCP/capability/retrieval compare sections, header badges, retrieval output diff, extended insights
+- `apps/sdk-python/tests/test_compare_metadata_detection.py` — 30 Python-mirror tests for compare detection logic
+
+Detection reuse:
+- All detection uses raw-metadata functions from `step-metadata.ts`: `isMcpMeta`, `getCapabilityKindFromMeta`, `isRetrievalMeta`, `getRetrievalStageFromMeta`
+- Zero detection logic duplicated between run-detail and compare — same functions, same key sets
+
+Header badges added:
+- MCP badge: shows "MCP" (both sides), "MCP A only" / "MCP B only" (one-sided), with diff coloring when sides differ
+- Capability badge: shows capability_kind with diff coloring when kinds differ, A→B label for divergence
+- Retrieval stage badge: shows stage with diff coloring when stages differ, A→B label for divergence
+- All additive — existing step_type, stream, child, parent, duration, missing, approx-match badges unchanged
+
+Compare sections added:
+- `McpCompareDiff` — side-by-side grid for operation, target, server, server_id, transport; diff highlighting per field; one-sided "A only"/"B only" label; violet tint
+- `CapabilityCompareDiff` — side-by-side grid for kind, name, label, namespace, skill, skill_label, server, server_id; diff highlighting; capability-kind badge
+- `RetrievalCompareDiff` — side-by-side grid for stage, backend, index, query, queries, candidates, selected, tokens, latency; diff highlighting; teal tint
+- `RetrievalOutputDiff` — structured retrieval output_summary diff when `output_summary.kind === "retrieval"` on either side; shows candidates, selected, tokens, stage, backend, index, latency, query in scannable grid; Raw/Structured toggle; falls through to generic `DataDiffRow` for non-retrieval output
+- `CompareFieldGrid` — shared 3-column grid component (label / A / B) with diff highlighting and absent handling
+
+MCP + tool lifecycle coexistence:
+- `McpCompareDiff` renders as a separate section alongside `ToolLinkageDiff` — both appear for MCP tool steps
+- `ToolLinkageDiff`, `ToolCallsDiff`, lifecycle badges, and confidence badges all work unchanged
+- MCP sections layer on top, never replace existing tool compare behavior
+
+One-sided and fallback handling:
+- All new sections handle `absentA` / `absentB` with "—" / italic rendering
+- Null metadata returns early from each section (no crash)
+- Badges show "A only" / "B only" labels for one-sided cases
+- Mixed metadata (MCP on one side, non-MCP on other) renders cleanly
+
+Insight block extended:
+- MCP server divergence: "MCP server divergence — an MCP step targeted a different server or operation across runs."
+- Retrieval backend divergence: "Retrieval backend divergence — retrieval used a different backend or index across runs."
+- Retrieval count divergence: "Retrieval count divergence — candidate or selected counts differ between the runs."
+- Priority: tool failure > MCP server > retrieval backend > retrieval count > tool call count > stream > tokens
+
+No schema changes. No backend changes. No artifact viewer changes.
 
 ### Step 5 — Demo + QA signoff
 Output:
