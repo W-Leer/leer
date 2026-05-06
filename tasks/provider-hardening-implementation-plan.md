@@ -103,6 +103,45 @@ Schema-additive surface: `LLMMeta` gains an optional `refusal: str | None`
 field (defaults to `None`). All existing parity tests pass with the
 updated key set.
 
+#### Stable contracts introduced by Step 1
+
+These are small but load-bearing rules that consumers (run-detail,
+compare, future replay, demos) can rely on. They are intentionally
+called out so later steps do not drift them.
+
+- **`metadata.capture = "partial"`** — set on an LLM step when the
+  wrapper successfully captured the raw request and response, but
+  canonical normalization (or summary generation) could not complete.
+  Consumers should read it as **degraded observability, not failed
+  model execution**: the underlying provider call may have succeeded
+  exactly as the user requested, and the user-visible result is
+  unchanged. The flag exists only so observability surfaces (compare,
+  run-detail, exports) can render the step as "raw payloads
+  preserved, canonical view incomplete" rather than as a clean
+  success.
+  - When the flag is set: `metadata.provider`, `metadata.model`, and
+    `metadata.latency_ms` are populated; `llm_request` is always
+    attached; `llm_response` is attached whenever a response payload
+    was reachable.
+  - When the flag is absent: the step has gone through the full
+    `_enrich_step` path (canonical `metadata.llm`, summaries, all
+    artifacts).
+  - The flag is **never** set on a step that raised the original
+    provider call — those steps are already marked `status="failed"`
+    with an `error_summary`, and `_safe_enrich_error` runs instead.
+
+- **Refusal dual-representation** — when a provider explicitly signals
+  a refusal (OpenAI chat-completions `message.refusal` or Responses
+  API `refusal` block), the refusal text is intentionally surfaced in
+  **both** `output.text` (with `[refusal] ` prefix, for back-compat
+  with existing renderers and full-text search) and
+  `meta.refusal` (raw refusal string, for structured detection in
+  compare and run-detail). This duplication is the rule, not an
+  oversight — `output.text` keeps human-friendly rendering working
+  unchanged, while `meta.refusal` gives consumers a typed flag they
+  do not have to parse a prefix to detect. Future code should keep
+  both in sync rather than collapse to one.
+
 #### Files changed
 
 - `apps/sdk-python/leer/integrations/normalize.py`
@@ -157,13 +196,22 @@ Full SDK suite: 597 passed (288 covered by the focused slice above).
 - **Stream interruption mid-tool-call deeper hardening** — current
   partial-failure behavior is correct; deeper assertions can wait for
   evidence of regression in real workloads.
+- **Partial-capture path duplication between OpenAI and Anthropic** —
+  `_safe_partial_enrich` is currently implemented twice (one per
+  wrapper) because the provider tag and the streaming-only
+  `response_model` argument differ. The shapes are very close. We are
+  intentionally **not** refactoring this into a shared helper yet —
+  Step 2 will add more wrapper/runtime hardening, and if a second
+  shared concern surfaces we will extract a small shared helper then,
+  rather than guess at the right shape now.
 - **Duplicate artifact prevention** — there is a small theoretical
   risk that an `_enrich_step` failure that occurred *after*
   `llm_request` was already attached could result in two
   `llm_request` artifacts on the partial path. The most likely
   failure modes (normalize, media materialization, tool-call
   artifact creation) all run *before* artifact attachment, so this is
-  not observed in practice. Worth a guard if it ever surfaces.
+  not observed in practice. Deferred until evidence; do not
+  prematurely harden the theoretical path.
 - **Compare / run-detail UI hardening** for the new
   `metadata.capture = "partial"` flag and the new `meta.refusal`
   field — Step 3 by the plan's structure.
