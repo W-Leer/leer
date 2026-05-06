@@ -49,6 +49,11 @@ class LLMMeta:
     latency_ms: int | None = None
     finish_reason: str | None = None
     request_id: str | None = None
+    # Surfaced when a provider explicitly signals a refusal (e.g. OpenAI chat
+    # completions ``message.refusal`` or Responses-API ``refusal`` content
+    # block). ``None`` means no refusal was reported. The refusal text is
+    # also inlined as ``[refusal] ...`` in ``output.text`` for back-compat.
+    refusal: str | None = None
 
 
 @dataclass
@@ -343,7 +348,19 @@ def _normalize_openai_chat(
     first = choices[0] if isinstance(choices, list) and choices else {}
     message = first.get("message", {}) if isinstance(first, dict) else {}
 
-    text = message.get("content") if isinstance(message, dict) else None
+    raw_text = message.get("content") if isinstance(message, dict) else None
+    refusal_text = message.get("refusal") if isinstance(message, dict) else None
+
+    # Refusal handling: chat-completions surfaces refusals via a dedicated
+    # `message.refusal` field rather than a content block. To match the
+    # Responses-API behavior (which inlines `[refusal] <text>`), we surface
+    # the refusal in canonical text/content_blocks and tag the meta dict so
+    # compare and run-detail can detect it without parsing the prefix.
+    has_refusal = isinstance(refusal_text, str) and bool(refusal_text)
+    if has_refusal and not raw_text:
+        text = f"[refusal] {refusal_text}"
+    else:
+        text = raw_text
 
     raw_tool_calls = message.get("tool_calls", []) if isinstance(message, dict) else []
     tool_calls: list[dict[str, Any]] = []
@@ -397,6 +414,7 @@ def _normalize_openai_chat(
             latency_ms=latency_ms,
             finish_reason=finish_reason,
             request_id=response.get("id"),
+            refusal=refusal_text if has_refusal else None,
         ),
     )
 
@@ -447,6 +465,7 @@ def _normalize_openai_responses(
     text_parts: list[str] = []
     tool_calls: list[dict[str, Any]] = []
     content_blocks: list[dict[str, Any]] = []
+    refusal_text: str | None = None
 
     for item in (output_items if isinstance(output_items, list) else []):
         if not isinstance(item, dict):
@@ -476,7 +495,16 @@ def _normalize_openai_responses(
                         }.items() if v is not None},
                     ))
                 elif block_type == "refusal":
-                    content_blocks.append({"type": "text", "text": f"[refusal] {block.get('refusal', '')}"})
+                    raw_refusal = block.get("refusal", "") or ""
+                    if isinstance(raw_refusal, str) and raw_refusal:
+                        refusal_text = raw_refusal
+                    refusal_inline = f"[refusal] {raw_refusal}"
+                    # Surface in output.text alongside content_blocks so
+                    # run-detail/compare summaries see the refusal even when
+                    # no other text was returned. Matches the chat-completions
+                    # `message.refusal` path.
+                    text_parts.append(refusal_inline)
+                    content_blocks.append({"type": "text", "text": refusal_inline})
                 elif block_type is not None:
                     content_blocks.append(_media_part(
                         "file",
@@ -542,6 +570,7 @@ def _normalize_openai_responses(
             latency_ms=latency_ms,
             finish_reason=response.get("status"),
             request_id=response.get("id"),
+            refusal=refusal_text,
         ),
     )
 
@@ -611,7 +640,8 @@ def normalize_anthropic(
         elif block_type == "redacted_thinking":
             content_blocks.append({"type": "redacted_thinking"})
         elif block_type == "image":
-            source_block = block.get("source") or {}
+            raw_source = block.get("source")
+            source_block = raw_source if isinstance(raw_source, dict) else {}
             mime = source_block.get("media_type")
             src_type = source_block.get("type", "")
             if src_type == "url":
@@ -629,7 +659,8 @@ def normalize_anthropic(
                 preview_text="image output",
             ))
         elif block_type == "document":
-            source_block = block.get("source") or {}
+            raw_source = block.get("source")
+            source_block = raw_source if isinstance(raw_source, dict) else {}
             mime = source_block.get("media_type") or "application/pdf"
             src_type = source_block.get("type", "")
             if src_type == "url":
@@ -660,7 +691,13 @@ def normalize_anthropic(
     usage_raw = response.get("usage") or {}
     prompt_tokens = usage_raw.get("input_tokens")
     completion_tokens = usage_raw.get("output_tokens")
-    total = (prompt_tokens or 0) + (completion_tokens or 0) if (prompt_tokens or completion_tokens) else None
+    # Anthropic does not return a precomputed total. Sum what we have, but
+    # treat ``0`` as a real value (an empty completion is meaningfully
+    # different from a missing one).
+    if prompt_tokens is None and completion_tokens is None:
+        total: int | None = None
+    else:
+        total = (prompt_tokens or 0) + (completion_tokens or 0)
 
     return NormalizedLLMCall(
         provider="anthropic",
@@ -709,7 +746,8 @@ def _extract_base64_from_response(
     Returns ``(raw_bytes, mime_type)`` or ``None`` if bytes are not available.
     """
     if provider == "anthropic":
-        source = block.get("source") or {}
+        raw_source = block.get("source")
+        source = raw_source if isinstance(raw_source, dict) else {}
         if source.get("type") == "base64" and source.get("data"):
             mime = source.get("media_type") or "application/octet-stream"
             try:

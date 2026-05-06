@@ -844,3 +844,143 @@ class TestStepLifecycle:
         assert inp["model"] == "gpt-4.1"
         assert inp["system"] == "You are helpful."
         assert "user" not in inp
+
+
+# ---------------------------------------------------------------------------
+# Step 1 hardening — preview / summary direction parity
+# ---------------------------------------------------------------------------
+
+class TestStep1PreviewSummaryDirectionParity:
+    """`_input_summary` and `_request_preview` must walk messages in the
+    same direction. Previously summary picked the LAST user message and
+    preview picked the FIRST — multi-turn chats showed disagreeing data
+    in the same step. Both now pick the last user message, which is
+    what the model actually saw."""
+
+    def test_preview_uses_last_user_message(self):
+        wrapped = wrap_openai_client(_fake_openai_client())
+
+        run = TraceRun(workflow_name="test")
+        run.status = "running"
+        set_current_run(run)
+        wrapped.chat.completions.create(
+            model="gpt-4.1",
+            messages=[
+                {"role": "user", "content": "first turn"},
+                {"role": "assistant", "content": "ack"},
+                {"role": "user", "content": "second turn"},
+            ],
+        )
+        set_current_run(None)
+
+        req_art = next(a for a in run.artifacts if a.artifact_type == "llm_request")
+        assert "second turn" in req_art.preview_text
+        assert "first turn" not in req_art.preview_text
+
+    def test_summary_and_preview_agree(self):
+        wrapped = wrap_openai_client(_fake_openai_client())
+
+        run = TraceRun(workflow_name="test")
+        run.status = "running"
+        set_current_run(run)
+        wrapped.chat.completions.create(
+            model="gpt-4.1",
+            messages=[
+                {"role": "user", "content": "older"},
+                {"role": "assistant", "content": "ack"},
+                {"role": "user", "content": "newer"},
+            ],
+        )
+        set_current_run(None)
+
+        s = run.steps[0]
+        assert s.input_summary["user"] == "newer"
+        req_art = next(a for a in run.artifacts if a.artifact_type == "llm_request")
+        assert "newer" in req_art.preview_text
+
+
+# ---------------------------------------------------------------------------
+# Step 1 hardening — partial-capture fallback when enrich_step fails
+# ---------------------------------------------------------------------------
+
+class TestStep1PartialCaptureFallback:
+    """If `_enrich_step` raises mid-success, the wrapper used to silently
+    return a 'completed' step with no metadata, no summaries, and no
+    response artifact. The fix populates baseline metadata, marks the
+    step as `capture: partial`, and always attaches both `llm_request`
+    and `llm_response` artifacts so debugging context is preserved."""
+
+    def test_metadata_capture_partial_on_enrich_failure(self):
+        wrapped = wrap_openai_client(_fake_openai_client())
+
+        run = TraceRun(workflow_name="test")
+        run.status = "running"
+        set_current_run(run)
+        try:
+            with patch(
+                "leer.integrations.openai._enrich_step",
+                side_effect=RuntimeError("boom"),
+            ):
+                wrapped.chat.completions.create(model="gpt-4.1", messages=[])
+        finally:
+            set_current_run(None)
+
+        s = run.steps[0]
+        assert s.status == "completed"
+        assert s.metadata["capture"] == "partial"
+        assert s.metadata["provider"] == "openai"
+        assert s.metadata["model"] == "gpt-4.1"
+        assert isinstance(s.metadata["latency_ms"], int)
+
+    def test_request_artifact_attached_on_enrich_failure(self):
+        wrapped = wrap_openai_client(_fake_openai_client())
+
+        run = TraceRun(workflow_name="test")
+        run.status = "running"
+        set_current_run(run)
+        try:
+            with patch(
+                "leer.integrations.openai._enrich_step",
+                side_effect=RuntimeError("boom"),
+            ):
+                wrapped.chat.completions.create(model="gpt-4.1", messages=[])
+        finally:
+            set_current_run(None)
+
+        req_arts = [a for a in run.artifacts if a.artifact_type == "llm_request"]
+        assert len(req_arts) == 1
+
+    def test_response_artifact_attached_on_enrich_failure(self):
+        """The raw provider response must still be inspectable so users
+        can debug what the SDK could not normalize."""
+        wrapped = wrap_openai_client(_fake_openai_client())
+
+        run = TraceRun(workflow_name="test")
+        run.status = "running"
+        set_current_run(run)
+        try:
+            with patch(
+                "leer.integrations.openai._enrich_step",
+                side_effect=RuntimeError("boom"),
+            ):
+                wrapped.chat.completions.create(model="gpt-4.1", messages=[])
+        finally:
+            set_current_run(None)
+
+        resp_arts = [a for a in run.artifacts if a.artifact_type == "llm_response"]
+        assert len(resp_arts) == 1
+        # Raw response payload preserved for debugging
+        assert resp_arts[0].inline_data.get("id") == "chatcmpl-test123"
+
+    def test_happy_path_does_not_set_capture_partial(self):
+        """Regression: a normal successful call has no `capture` flag."""
+        wrapped = wrap_openai_client(_fake_openai_client())
+
+        run = TraceRun(workflow_name="test")
+        run.status = "running"
+        set_current_run(run)
+        wrapped.chat.completions.create(model="gpt-4.1", messages=[])
+        set_current_run(None)
+
+        meta = run.steps[0].metadata
+        assert "capture" not in meta

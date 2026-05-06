@@ -121,7 +121,16 @@ def _instrumented_create(
         try:
             _enrich_step(s, request_dict, result, latency_ms)
         except Exception:
-            pass
+            # If full enrichment fails, fall back to a partial-capture record
+            # so the step is not silently empty. We pass the best
+            # representation of the response we can produce — provider SDK
+            # objects are converted via ``_to_dict`` (returning ``{}`` when
+            # conversion itself fails), so callers always see *something*.
+            try:
+                response_dict = _to_dict(result) if not isinstance(result, dict) else result
+            except Exception:
+                response_dict = None
+            _safe_partial_enrich(s, request_dict, response_dict, latency_ms)
 
         return result
 
@@ -262,18 +271,19 @@ class _StreamingIterator:
 
         assembled = collector.assembled_output()
         response_dict = _assembled_to_anthropic_response(
-            assembled, self._request_dict, msg_id=self._ctx.get("msg_id"),
+            assembled,
+            self._request_dict,
+            msg_id=self._ctx.get("msg_id"),
+            response_model=self._ctx.get("model"),
         )
 
         try:
             _enrich_step(s, self._request_dict, response_dict, latency_ms, _is_dict=True)
         except Exception:
-            s.metadata.update({
-                "provider": "anthropic",
-                "model": self._request_dict.get("model"),
-                "latency_ms": latency_ms,
-            })
-            _safe_attach_request_artifact(s, self._request_dict)
+            _safe_partial_enrich(
+                s, self._request_dict, response_dict, latency_ms,
+                response_model=self._ctx.get("model"),
+            )
 
         attach_artifact(create_json_artifact(
             artifact_type="llm_stream",
@@ -310,24 +320,23 @@ class _StreamingIterator:
 
         if has_output:
             response_dict = _assembled_to_anthropic_response(
-                assembled, self._request_dict, msg_id=self._ctx.get("msg_id"),
+                assembled,
+                self._request_dict,
+                msg_id=self._ctx.get("msg_id"),
+                response_model=self._ctx.get("model"),
             )
             try:
                 _enrich_step(s, self._request_dict, response_dict, latency_ms, _is_dict=True)
             except Exception:
-                s.metadata.update({
-                    "provider": "anthropic",
-                    "model": self._request_dict.get("model"),
-                    "latency_ms": latency_ms,
-                })
-                _safe_attach_request_artifact(s, self._request_dict)
+                _safe_partial_enrich(
+                    s, self._request_dict, response_dict, latency_ms,
+                    response_model=self._ctx.get("model"),
+                )
         else:
-            s.metadata.update({
-                "provider": "anthropic",
-                "model": self._request_dict.get("model"),
-                "latency_ms": latency_ms,
-            })
-            _safe_attach_request_artifact(s, self._request_dict)
+            _safe_partial_enrich(
+                s, self._request_dict, None, latency_ms,
+                response_model=self._ctx.get("model"),
+            )
 
         try:
             attach_artifact(create_json_artifact(
@@ -419,9 +428,16 @@ def _assembled_to_anthropic_response(
     request_dict: dict[str, Any],
     *,
     msg_id: str | None = None,
+    response_model: str | None = None,
 ) -> dict[str, Any]:
     """Convert collector assembled output to a dict matching the Anthropic
-    messages response shape, suitable for ``normalize_anthropic``."""
+    messages response shape, suitable for ``normalize_anthropic``.
+
+    ``response_model`` (when present) is the model reported by the provider
+    in the ``message_start`` event — that wins over the request model so
+    streaming behavior matches the non-streaming path, where
+    ``response.model`` is authoritative.
+    """
     content: list[dict[str, Any]] = []
 
     text = assembled.get("text")
@@ -451,7 +467,7 @@ def _assembled_to_anthropic_response(
 
     return {
         "id": msg_id or assembled.get("request_id") or "",
-        "model": request_dict.get("model"),
+        "model": response_model or request_dict.get("model"),
         "content": content,
         "stop_reason": assembled.get("finish_reason"),
         "usage": usage,
@@ -470,6 +486,62 @@ def _safe_attach_request_artifact(s: Any, request_dict: dict[str, Any]) -> None:
         ))
     except Exception:
         pass
+
+
+def _safe_partial_enrich(
+    s: Any,
+    request_dict: dict[str, Any],
+    response_dict: dict[str, Any] | None,
+    latency_ms: int,
+    *,
+    response_model: str | None = None,
+) -> None:
+    """Best-effort metadata + artifacts for cases where ``_enrich_step``
+    cannot run (raised, or was never reachable because no output was
+    captured). Never raises.
+
+    Guarantees:
+    - ``metadata.provider`` / ``metadata.model`` / ``metadata.latency_ms``
+      are populated.
+    - ``metadata["capture"] == "partial"`` so consumers can distinguish
+      partial captures from fully-enriched steps without false positives.
+    - The ``llm_request`` artifact is always attached.
+    - The ``llm_response`` artifact is attached when a ``response_dict``
+      is available, so debugging context is preserved even when
+      normalization fails.
+    """
+    try:
+        s.metadata.update({
+            "provider": "anthropic",
+            "model": response_model or request_dict.get("model"),
+            "latency_ms": latency_ms,
+            "capture": "partial",
+        })
+    except Exception:
+        pass
+
+    try:
+        attach_artifact(create_json_artifact(
+            artifact_type="llm_request",
+            role="input",
+            data=request_dict,
+            preview_text=f"model: {request_dict.get('model', '?')} (partial capture)",
+            step_id=s.id,
+        ))
+    except Exception:
+        pass
+
+    if response_dict is not None:
+        try:
+            attach_artifact(create_json_artifact(
+                artifact_type="llm_response",
+                role="output",
+                data=response_dict,
+                preview_text="partial capture (raw response preserved)",
+                step_id=s.id,
+            ))
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -616,7 +688,10 @@ def _request_preview(n: NormalizedLLMCall) -> str:
         parts.append(f"model: {n.model}")
     if n.input.system:
         parts.append(f"system: {n.input.system[:80]}")
-    for m in n.input.messages:
+    # Walk reversed so the *last* user message wins — that is the message
+    # the model actually saw, and matches `_input_summary` so preview and
+    # summary do not disagree on multi-turn chats.
+    for m in reversed(n.input.messages):
         if m.get("role") == "user":
             content = m.get("content", "")
             parts.append(f"user: {_summarize_content_for_user(content)[:80]}")

@@ -719,3 +719,133 @@ class TestContextManagerStream:
         assert run.steps[0].status == "completed"
         stream_arts = [a for a in run.artifacts if a.artifact_type == "llm_stream"]
         assert len(stream_arts) == 1
+
+
+# ---------------------------------------------------------------------------
+# Step 1 hardening — provider-reported model wins in streaming
+# ---------------------------------------------------------------------------
+
+class TestStep1ProviderReportedModel:
+    """Anthropic's `message_start` event reports the actual model the
+    provider served. Previously the streaming-assembled response only
+    used `request.model`, which can disagree (e.g. when an alias is
+    requested). The fix matches the non-streaming path, where
+    `response.model` is authoritative."""
+
+    def test_provider_model_overrides_request_model(self):
+        events: list[dict[str, Any]] = [
+            _msg_start(model="claude-sonnet-4-20250514-canary"),
+            _content_block_start_text(),
+            _text_delta("hi"),
+            _content_block_stop(0),
+            _msg_delta(),
+            _msg_stop(),
+        ]
+        stream = _FakeStream(events)
+
+        def go(run):
+            wrapped = wrap_anthropic_client(_fake_streaming_client(stream))
+            list(wrapped.messages.create(
+                model="claude-sonnet-4-latest",  # alias requested
+                messages=[], max_tokens=100, stream=True,
+            ))
+
+        run = _traced(go)
+        s = run.steps[0]
+        # `metadata.model` is set from the normalized LLM call, which
+        # uses _resolve_model(response, request) — provider model wins.
+        assert s.metadata.get("model") == "claude-sonnet-4-20250514-canary"
+        assert s.metadata["llm"]["model"] == "claude-sonnet-4-20250514-canary"
+
+    def test_request_model_used_when_provider_omits(self):
+        """No `message_start.message.model` → request model is the fallback."""
+        msg_start_no_model = {
+            "type": "message_start",
+            "message": {
+                "id": "msg_x",
+                "usage": {"input_tokens": 5},
+            },
+        }
+        events: list[dict[str, Any]] = [
+            msg_start_no_model,
+            _content_block_start_text(),
+            _text_delta("hi"),
+            _content_block_stop(0),
+            _msg_delta(),
+            _msg_stop(),
+        ]
+        stream = _FakeStream(events)
+
+        def go(run):
+            wrapped = wrap_anthropic_client(_fake_streaming_client(stream))
+            list(wrapped.messages.create(
+                model="claude-sonnet-4-20250514", messages=[],
+                max_tokens=100, stream=True,
+            ))
+
+        run = _traced(go)
+        s = run.steps[0]
+        assert s.metadata.get("model") == "claude-sonnet-4-20250514"
+
+
+# ---------------------------------------------------------------------------
+# Step 1 hardening — partial-capture fallback when enrich_step fails
+# ---------------------------------------------------------------------------
+
+class TestStep1AnthropicStreamingPartialCapture:
+    """When `_enrich_step` raises during streaming finalization, the step
+    must still get baseline metadata, a `capture: partial` flag, and
+    both `llm_request` and `llm_response` artifacts so debugging
+    context is preserved."""
+
+    def test_streaming_enrich_failure_marks_partial(self):
+        from unittest.mock import patch
+
+        events = _text_events("hello")
+        stream = _FakeStream(events)
+
+        def go(run):
+            wrapped = wrap_anthropic_client(_fake_streaming_client(stream))
+            with patch(
+                "leer.integrations.anthropic._enrich_step",
+                side_effect=RuntimeError("boom"),
+            ):
+                list(wrapped.messages.create(
+                    model="claude-sonnet-4-20250514", messages=[],
+                    max_tokens=100, stream=True,
+                ))
+
+        run = _traced(go)
+        s = run.steps[0]
+        assert s.status == "completed"
+        assert s.metadata.get("capture") == "partial"
+        assert s.metadata.get("provider") == "anthropic"
+        assert s.metadata.get("model") == "claude-sonnet-4-20250514"
+
+    def test_streaming_enrich_failure_attaches_request_and_response(self):
+        from unittest.mock import patch
+
+        events = _text_events("hello")
+        stream = _FakeStream(events)
+
+        def go(run):
+            wrapped = wrap_anthropic_client(_fake_streaming_client(stream))
+            with patch(
+                "leer.integrations.anthropic._enrich_step",
+                side_effect=RuntimeError("boom"),
+            ):
+                list(wrapped.messages.create(
+                    model="claude-sonnet-4-20250514", messages=[],
+                    max_tokens=100, stream=True,
+                ))
+
+        run = _traced(go)
+        req_arts = [a for a in run.artifacts if a.artifact_type == "llm_request"]
+        resp_arts = [a for a in run.artifacts if a.artifact_type == "llm_response"]
+        assert len(req_arts) == 1
+        assert len(resp_arts) == 1
+        # The assembled response_dict carries text from the stream.
+        resp_data = resp_arts[0].inline_data
+        assert isinstance(resp_data, dict)
+        text_blocks = [b for b in resp_data.get("content", []) if b.get("type") == "text"]
+        assert any("hello" in b.get("text", "") for b in text_blocks)

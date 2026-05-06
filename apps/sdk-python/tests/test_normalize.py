@@ -2106,3 +2106,233 @@ class TestCompareCallLifecycle:
         tc = _ToolCallSummary("get_weather")
         steps = [_CompareStep("tool", True, "completed", None, None, "get_weather")]
         assert _derive_compare_lifecycle(tc, steps) == "unmatched"
+
+
+# ===================================================================
+# Step 1 hardening — OpenAI chat completions message.refusal
+# ===================================================================
+
+class TestOpenAIChatRefusal:
+    """Provider-hardening Step 1: a `message.refusal` field on chat
+    completions used to be silently dropped. It now surfaces in
+    ``output.text`` (with `[refusal] ` prefix) and ``meta.refusal``."""
+
+    def test_refusal_only_message(self):
+        resp = _openai_chat_response()
+        resp["choices"][0]["message"]["content"] = None
+        resp["choices"][0]["message"]["refusal"] = "I cannot help with that request."
+        resp["choices"][0]["finish_reason"] = "stop"
+
+        n = normalize_openai(_openai_chat_request(), resp)
+
+        assert n.output.text is not None
+        assert n.output.text.startswith("[refusal] ")
+        assert "I cannot help" in n.output.text
+        assert n.meta.refusal == "I cannot help with that request."
+        assert len(n.output.content_blocks) == 1
+        assert n.output.content_blocks[0]["type"] == "text"
+
+    def test_refusal_preserves_existing_text(self):
+        """If the model returned both a content message and a refusal field,
+        keep the canonical text and just record the refusal in meta. We
+        never silently overwrite the assistant text."""
+        resp = _openai_chat_response()
+        resp["choices"][0]["message"]["content"] = "Here is something."
+        resp["choices"][0]["message"]["refusal"] = "But I will not help further."
+
+        n = normalize_openai(_openai_chat_request(), resp)
+
+        assert n.output.text == "Here is something."
+        assert n.meta.refusal == "But I will not help further."
+
+    def test_no_refusal_meta_is_none(self):
+        """Default response carries no refusal. ``meta.refusal`` stays None."""
+        n = normalize_openai(_openai_chat_request(), _openai_chat_response())
+        assert n.meta.refusal is None
+
+    def test_empty_string_refusal_ignored(self):
+        resp = _openai_chat_response()
+        resp["choices"][0]["message"]["refusal"] = ""
+
+        n = normalize_openai(_openai_chat_request(), resp)
+        assert n.meta.refusal is None
+
+    def test_non_string_refusal_ignored(self):
+        """Defensive: a malformed refusal field never crashes normalization."""
+        resp = _openai_chat_response()
+        resp["choices"][0]["message"]["content"] = None
+        resp["choices"][0]["message"]["refusal"] = {"unexpected": "shape"}
+
+        n = normalize_openai(_openai_chat_request(), resp)
+        assert n.meta.refusal is None
+
+
+class TestOpenAIResponsesRefusalMeta:
+    """Refusal blocks in Responses-API output now also propagate to
+    ``meta.refusal`` for parity with chat completions and for compare/
+    run-detail consumers that want a structured signal."""
+
+    def test_refusal_block_sets_meta_refusal(self):
+        resp = _openai_responses_response()
+        resp["output"] = [
+            {
+                "type": "message",
+                "content": [
+                    {"type": "refusal", "refusal": "I cannot help with that"},
+                ],
+            }
+        ]
+
+        n = normalize_openai(_openai_responses_request(), resp)
+
+        assert n.meta.refusal == "I cannot help with that"
+        assert n.output.text is not None
+        assert "[refusal]" in n.output.text
+
+    def test_no_refusal_block_meta_refusal_none(self):
+        n = normalize_openai(_openai_responses_request(), _openai_responses_response())
+        assert n.meta.refusal is None
+
+
+# ===================================================================
+# Step 1 hardening — Anthropic total_tokens math
+# ===================================================================
+
+class TestAnthropicUsageMath:
+    """Provider-hardening Step 1: `(0 or 0)` is falsy in Python, which
+    used to silently turn a fully-zero usage report into ``None``.
+    The fix uses explicit ``is not None`` checks."""
+
+    def test_both_zero_yields_zero_total(self):
+        resp = _anthropic_response()
+        resp["usage"] = {"input_tokens": 0, "output_tokens": 0}
+
+        n = normalize_anthropic(_anthropic_request(), resp)
+        assert n.usage.prompt_tokens == 0
+        assert n.usage.completion_tokens == 0
+        assert n.usage.total_tokens == 0
+
+    def test_zero_prompt_with_completion(self):
+        resp = _anthropic_response()
+        resp["usage"] = {"input_tokens": 0, "output_tokens": 7}
+
+        n = normalize_anthropic(_anthropic_request(), resp)
+        assert n.usage.prompt_tokens == 0
+        assert n.usage.total_tokens == 7
+
+    def test_only_completion_present(self):
+        resp = _anthropic_response()
+        resp["usage"] = {"output_tokens": 12}
+
+        n = normalize_anthropic(_anthropic_request(), resp)
+        assert n.usage.prompt_tokens is None
+        assert n.usage.completion_tokens == 12
+        assert n.usage.total_tokens == 12
+
+    def test_both_missing_yields_none(self):
+        resp = _anthropic_response()
+        resp["usage"] = {}
+
+        n = normalize_anthropic(_anthropic_request(), resp)
+        assert n.usage.total_tokens is None
+
+
+# ===================================================================
+# Step 1 hardening — Anthropic source-block malformed-payload safety
+# ===================================================================
+
+class TestAnthropicMalformedSourceBlocks:
+    """Provider-hardening Step 1: Anthropic image/document blocks may
+    arrive with ``source`` as something other than a dict (e.g. a list
+    or string from a buggy proxy or a future schema variant). The
+    normalizer must not crash and must still produce a canonical part."""
+
+    def test_image_with_list_source_does_not_crash(self):
+        resp = _anthropic_response()
+        resp["content"] = [
+            {"type": "image", "source": ["unexpected", "list"]},
+        ]
+        n = normalize_anthropic(_anthropic_request(), resp)
+
+        assert len(n.output.content_blocks) == 1
+        part = n.output.content_blocks[0]
+        assert part["type"] == "image"
+        assert part["provider"] == "anthropic"
+
+    def test_image_with_string_source_does_not_crash(self):
+        resp = _anthropic_response()
+        resp["content"] = [
+            {"type": "image", "source": "weird-string"},
+        ]
+        n = normalize_anthropic(_anthropic_request(), resp)
+        assert len(n.output.content_blocks) == 1
+        assert n.output.content_blocks[0]["type"] == "image"
+
+    def test_image_with_none_source_does_not_crash(self):
+        resp = _anthropic_response()
+        resp["content"] = [
+            {"type": "image", "source": None},
+        ]
+        n = normalize_anthropic(_anthropic_request(), resp)
+        assert len(n.output.content_blocks) == 1
+        assert n.output.content_blocks[0]["type"] == "image"
+
+    def test_document_with_list_source_does_not_crash(self):
+        resp = _anthropic_response()
+        resp["content"] = [
+            {"type": "document", "source": ["bad"], "title": "report.pdf"},
+        ]
+        n = normalize_anthropic(_anthropic_request(), resp)
+        assert len(n.output.content_blocks) == 1
+        part = n.output.content_blocks[0]
+        assert part["type"] == "document"
+        # default mime falls back to application/pdf when source is malformed
+        assert part["mime_type"] == "application/pdf"
+        assert part["filename"] == "report.pdf"
+
+    def test_image_well_formed_source_unchanged(self):
+        """Regression: well-formed sources still produce the canonical part."""
+        resp = _anthropic_response()
+        resp["content"] = [
+            {
+                "type": "image",
+                "source": {"type": "url", "url": "https://example.com/x.png", "media_type": "image/png"},
+            },
+        ]
+        n = normalize_anthropic(_anthropic_request(), resp)
+        part = n.output.content_blocks[0]
+        assert part["mime_type"] == "image/png"
+        assert part["source"]["kind"] == "url"
+        assert part["source"]["value"] == "https://example.com/x.png"
+
+
+# ===================================================================
+# Step 1 hardening — refusal hardening cross-provider summary surface
+# ===================================================================
+
+class TestRefusalCrossProviderConsistency:
+    """Refusal must be a stable shape across both OpenAI APIs."""
+
+    def test_refusal_meta_field_present_on_all_normalizers(self):
+        """All three paths emit a `meta.refusal` field (None or str)."""
+        n_chat = normalize_openai(_openai_chat_request(), _openai_chat_response())
+        n_resp = normalize_openai(_openai_responses_request(), _openai_responses_response())
+        n_ant = normalize_anthropic(_anthropic_request(), _anthropic_response())
+
+        # Field exists on all and is None when absent
+        assert hasattr(n_chat.meta, "refusal")
+        assert hasattr(n_resp.meta, "refusal")
+        assert hasattr(n_ant.meta, "refusal")
+        assert n_chat.meta.refusal is None
+        assert n_resp.meta.refusal is None
+        assert n_ant.meta.refusal is None
+
+    def test_dict_keys_still_match_across_providers(self):
+        """Adding `refusal` to LLMMeta must not break key-set parity."""
+        a = normalize_openai(_openai_chat_request(), _openai_chat_response())
+        b = normalize_openai(_openai_responses_request(), _openai_responses_response())
+        c = normalize_anthropic(_anthropic_request(), _anthropic_response())
+
+        da, db, dc = a.to_dict(), b.to_dict(), c.to_dict()
+        assert set(da["meta"].keys()) == set(db["meta"].keys()) == set(dc["meta"].keys())
+        assert "refusal" in da["meta"]

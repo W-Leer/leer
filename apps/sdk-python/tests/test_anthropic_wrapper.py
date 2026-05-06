@@ -723,3 +723,132 @@ class TestStepLifecycle:
         assert inp["model"] == "claude-sonnet-4-20250514"
         assert inp["system"] == "You are helpful."
         assert "user" not in inp
+
+
+# ---------------------------------------------------------------------------
+# Step 1 hardening — preview / summary direction parity
+# ---------------------------------------------------------------------------
+
+class TestStep1AnthropicPreviewSummaryDirectionParity:
+    """`_input_summary` and `_request_preview` must walk messages in the
+    same direction (last user message wins). Previously the preview
+    walked forward and the summary walked reversed, so multi-turn chats
+    showed disagreeing user content in the same step."""
+
+    def test_preview_uses_last_user_message(self):
+        wrapped = wrap_anthropic_client(_fake_anthropic_client())
+
+        run = TraceRun(workflow_name="test")
+        run.status = "running"
+        set_current_run(run)
+        wrapped.messages.create(
+            model="claude-sonnet-4-20250514",
+            messages=[
+                {"role": "user", "content": "first turn"},
+                {"role": "assistant", "content": "ack"},
+                {"role": "user", "content": "second turn"},
+            ],
+            max_tokens=100,
+        )
+        set_current_run(None)
+
+        req_art = next(a for a in run.artifacts if a.artifact_type == "llm_request")
+        assert "second turn" in req_art.preview_text
+        assert "first turn" not in req_art.preview_text
+
+    def test_summary_and_preview_agree(self):
+        wrapped = wrap_anthropic_client(_fake_anthropic_client())
+
+        run = TraceRun(workflow_name="test")
+        run.status = "running"
+        set_current_run(run)
+        wrapped.messages.create(
+            model="claude-sonnet-4-20250514",
+            messages=[
+                {"role": "user", "content": "older"},
+                {"role": "assistant", "content": "ack"},
+                {"role": "user", "content": "newer"},
+            ],
+            max_tokens=100,
+        )
+        set_current_run(None)
+
+        s = run.steps[0]
+        assert s.input_summary["user"] == "newer"
+        req_art = next(a for a in run.artifacts if a.artifact_type == "llm_request")
+        assert "newer" in req_art.preview_text
+
+
+# ---------------------------------------------------------------------------
+# Step 1 hardening — partial-capture fallback when enrich_step fails
+# ---------------------------------------------------------------------------
+
+class TestStep1AnthropicPartialCaptureFallback:
+    """If `_enrich_step` raises mid-success, the wrapper used to silently
+    return a 'completed' step with no metadata, no summaries, and no
+    response artifact. The fix populates baseline metadata, marks the
+    step as `capture: partial`, and always attaches both `llm_request`
+    and `llm_response` artifacts so debugging context is preserved."""
+
+    def test_metadata_capture_partial_on_enrich_failure(self):
+        wrapped = wrap_anthropic_client(_fake_anthropic_client())
+
+        run = TraceRun(workflow_name="test")
+        run.status = "running"
+        set_current_run(run)
+        try:
+            with patch(
+                "leer.integrations.anthropic._enrich_step",
+                side_effect=RuntimeError("boom"),
+            ):
+                wrapped.messages.create(
+                    model="claude-sonnet-4-20250514", messages=[], max_tokens=100,
+                )
+        finally:
+            set_current_run(None)
+
+        s = run.steps[0]
+        assert s.status == "completed"
+        assert s.metadata["capture"] == "partial"
+        assert s.metadata["provider"] == "anthropic"
+        assert s.metadata["model"] == "claude-sonnet-4-20250514"
+        assert isinstance(s.metadata["latency_ms"], int)
+
+    def test_request_and_response_artifacts_attached_on_enrich_failure(self):
+        wrapped = wrap_anthropic_client(_fake_anthropic_client())
+
+        run = TraceRun(workflow_name="test")
+        run.status = "running"
+        set_current_run(run)
+        try:
+            with patch(
+                "leer.integrations.anthropic._enrich_step",
+                side_effect=RuntimeError("boom"),
+            ):
+                wrapped.messages.create(
+                    model="claude-sonnet-4-20250514", messages=[], max_tokens=100,
+                )
+        finally:
+            set_current_run(None)
+
+        req_arts = [a for a in run.artifacts if a.artifact_type == "llm_request"]
+        resp_arts = [a for a in run.artifacts if a.artifact_type == "llm_response"]
+        assert len(req_arts) == 1
+        assert len(resp_arts) == 1
+        # Raw response payload preserved for debugging
+        assert resp_arts[0].inline_data.get("id") == "msg_test123"
+
+    def test_happy_path_does_not_set_capture_partial(self):
+        """Regression: a normal successful call has no `capture` flag."""
+        wrapped = wrap_anthropic_client(_fake_anthropic_client())
+
+        run = TraceRun(workflow_name="test")
+        run.status = "running"
+        set_current_run(run)
+        wrapped.messages.create(
+            model="claude-sonnet-4-20250514", messages=[], max_tokens=100,
+        )
+        set_current_run(None)
+
+        meta = run.steps[0].metadata
+        assert "capture" not in meta

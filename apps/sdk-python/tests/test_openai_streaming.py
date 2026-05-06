@@ -672,3 +672,62 @@ class TestCreateCallFailureMetadata:
         assert "captured_chunk_bytes" in sm
         assert "assembled_text_chars" in sm
         assert "assembled_tool_calls" in sm
+
+
+# ---------------------------------------------------------------------------
+# Step 1 hardening — partial-capture fallback when streaming enrich fails
+# ---------------------------------------------------------------------------
+
+class TestStep1OpenAIStreamingPartialCapture:
+    """When `_enrich_step` raises during streaming finalization, the step
+    must still get baseline metadata, a `capture: partial` flag, and
+    both `llm_request` and `llm_response` artifacts so debugging
+    context is preserved."""
+
+    def test_streaming_enrich_failure_marks_partial(self):
+        from unittest.mock import patch
+
+        chunks = [_chunk(content="hello"), _chunk(content=" world", finish_reason="stop")]
+        stream = _FakeStream(chunks)
+
+        def go(run):
+            wrapped = wrap_openai_client(_fake_streaming_client(stream))
+            with patch(
+                "leer.integrations.openai._enrich_step",
+                side_effect=RuntimeError("boom"),
+            ):
+                list(wrapped.chat.completions.create(
+                    model="gpt-4.1", messages=[], stream=True,
+                ))
+
+        run = _traced(go)
+        s = run.steps[0]
+        assert s.status == "completed"
+        assert s.metadata.get("capture") == "partial"
+        assert s.metadata.get("provider") == "openai"
+        assert s.metadata.get("model") == "gpt-4.1"
+
+    def test_streaming_enrich_failure_attaches_request_and_response(self):
+        from unittest.mock import patch
+
+        chunks = [_chunk(content="hi"), _chunk(content="!", finish_reason="stop")]
+        stream = _FakeStream(chunks)
+
+        def go(run):
+            wrapped = wrap_openai_client(_fake_streaming_client(stream))
+            with patch(
+                "leer.integrations.openai._enrich_step",
+                side_effect=RuntimeError("boom"),
+            ):
+                list(wrapped.chat.completions.create(
+                    model="gpt-4.1", messages=[], stream=True,
+                ))
+
+        run = _traced(go)
+        req_arts = [a for a in run.artifacts if a.artifact_type == "llm_request"]
+        resp_arts = [a for a in run.artifacts if a.artifact_type == "llm_response"]
+        assert len(req_arts) == 1
+        assert len(resp_arts) == 1
+        # The assembled response_dict carries the streamed text in the chat shape.
+        resp_data = resp_arts[0].inline_data
+        assert resp_data["choices"][0]["message"]["content"] == "hi!"
