@@ -10,6 +10,7 @@ import { ContentBlockRow, InputMediaMarker } from "@/components/media-artifact";
 import { computeLatencyBreakdown, type LatencyBreakdown } from "@/lib/latency";
 import type { ToolCallLinkResult, LinkageConfidence, ToolCallLifecycle } from "@/lib/tool-linkage";
 import { deriveLifecycle } from "@/lib/tool-linkage";
+import { getCachedTokens, getThinkingBlocks, type ThinkingBlock } from "@/lib/provider-hardening";
 
 type Dict = Record<string, unknown>;
 
@@ -115,7 +116,7 @@ export interface BlobStreamState {
 
 const EMPTY_INPUT: LLMShape["input"] = { system: null, messages: [], tools: [], params: {} };
 const EMPTY_OUTPUT: LLMShape["output"] = { text: null, tool_calls: [], content_blocks: [] };
-const EMPTY_USAGE: LLMShape["usage"] = { prompt_tokens: null, completion_tokens: null, total_tokens: null };
+const EMPTY_USAGE: LLMShape["usage"] = { prompt_tokens: null, completion_tokens: null, total_tokens: null, cached_tokens: null };
 const EMPTY_META: LLMShape["meta"] = { finish_reason: null, request_id: null, latency_ms: null };
 
 function safeLlm(raw: LLMShape): LLMShape {
@@ -161,6 +162,8 @@ export function LlmStepDetail({
     (b) => { const t = b.type as string | undefined; return t && t !== "text" && t !== "thinking" && t !== "redacted_thinking" && t !== "tool_call"; },
   );
   const hasOutput = hasOutputText || hasToolCalls || hasMediaBlocks;
+  const thinkingBlocks = useMemo(() => getThinkingBlocks(llm), [llm]);
+  const hasThinkingBlocks = thinkingBlocks.length > 0;
   const hasError = errorSummary && Object.keys(errorSummary).length > 0;
   const isStream = streamMeta?.is_stream === true;
 
@@ -193,7 +196,8 @@ export function LlmStepDetail({
           {hasInput && <InputSection llm={llm} />}
           {!hasInput && !hasError && <EmptyHint text="No prompt captured" />}
           {hasOutput && <OutputSection llm={llm} hideToolCalls={hasToolCalls} artifacts={artifacts} />}
-          {!hasOutput && !hasError && <EmptyHint text="No response captured" />}
+          {hasThinkingBlocks && <ThinkingSection blocks={thinkingBlocks} />}
+          {!hasOutput && !hasThinkingBlocks && !hasError && <EmptyHint text="No response captured" />}
           {hasToolCalls && (
             <ToolCallsSection
               calls={llm.output.tool_calls}
@@ -440,6 +444,57 @@ function ToolCallsList({ calls }: { calls: Record<string, unknown>[] }) {
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Thinking section (extended/internal reasoning channel)              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Renders the captured thinking / redacted_thinking channel. Per Design
+ * Principle 7 this is structurally separate from `output.text`: it is a
+ * dedicated, collapsed-by-default section and never feeds compare summaries.
+ */
+function ThinkingSection({ blocks }: { blocks: ThinkingBlock[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const redactedCount = blocks.filter((b) => b.redacted).length;
+
+  return (
+    <div className="rounded-md border border-indigo-100 dark:border-indigo-950/40">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center gap-2 px-4 py-2 text-left"
+      >
+        <span className={`text-[10px] transition-transform duration-150 ${expanded ? "rotate-90" : ""} text-neutral-400`}>▶</span>
+        <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-500 dark:bg-indigo-950/30 dark:text-indigo-400">
+          thinking
+        </span>
+        <span className="text-[10px] tabular-nums text-neutral-400">
+          {blocks.length} block{blocks.length !== 1 ? "s" : ""}
+        </span>
+        {redactedCount > 0 && (
+          <span className="text-[10px] text-neutral-400">{redactedCount} redacted</span>
+        )}
+      </button>
+      {expanded && (
+        <div className="space-y-2 border-t border-indigo-100 px-4 py-3 dark:border-indigo-950/40">
+          {blocks.map((b, i) => (
+            <div key={i}>
+              {b.redacted ? (
+                <p className="text-xs italic text-neutral-400">
+                  Redacted thinking — reasoning captured but content withheld by the provider.
+                </p>
+              ) : b.text ? (
+                <ExpandableTextBlock text={b.text} />
+              ) : (
+                <p className="text-xs italic text-neutral-400">(empty thinking block)</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1078,6 +1133,10 @@ const EVENT_TYPE_STYLES: Record<string, string> = {
   message_start: "bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400",
   message_stop: "bg-blue-50 text-blue-500 dark:bg-blue-950/30 dark:text-blue-400",
   usage: "bg-neutral-100 text-neutral-500",
+  refusal_delta: "bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400",
+  thinking_start: "bg-indigo-50 text-indigo-500 dark:bg-indigo-950/30 dark:text-indigo-400",
+  thinking_delta: "bg-indigo-50 text-indigo-500 dark:bg-indigo-950/30 dark:text-indigo-400",
+  thinking_signature: "bg-indigo-50 text-indigo-500 dark:bg-indigo-950/30 dark:text-indigo-400",
   unknown: "bg-neutral-100 text-neutral-400",
 };
 
@@ -1132,6 +1191,24 @@ function eventPreview(type: string, ev: Dict): string {
         parts.push(`args=${compactJsonFragment(ev.arguments, 80)}`);
       }
       return parts.join(" ") || "delta";
+    }
+    case "refusal_delta": {
+      const text = typeof ev.text === "string" ? ev.text : "";
+      return text.length > 120 ? text.slice(0, 120) + "…" : text || "refusal";
+    }
+    case "thinking_start": {
+      const parts: string[] = ["start"];
+      if (typeof ev.block_index === "number") parts.push(`block[${ev.block_index}]`);
+      if (ev.redacted === true) parts.push("(redacted)");
+      return parts.join(" ");
+    }
+    case "thinking_delta": {
+      const text = typeof ev.text === "string" ? ev.text : "";
+      return text.length > 120 ? text.slice(0, 120) + "…" : text || '""';
+    }
+    case "thinking_signature": {
+      const sig = typeof ev.signature === "string" ? ev.signature : "";
+      return sig ? `signature (${sig.length} chars)` : "signature";
     }
     case "message_start": {
       const parts: string[] = ["start"];
@@ -1208,12 +1285,15 @@ function ErrorSection({ data }: { data: Dict }) {
 function UsageRow({
   usage,
 }: {
-  usage: { prompt_tokens: number | null; completion_tokens: number | null; total_tokens: number | null };
+  usage: LLMShape["usage"];
 }) {
   const items: { label: string; value: number }[] = [];
   if (usage.prompt_tokens != null) items.push({ label: "prompt", value: usage.prompt_tokens });
   if (usage.completion_tokens != null) items.push({ label: "completion", value: usage.completion_tokens });
   if (usage.total_tokens != null) items.push({ label: "total", value: usage.total_tokens });
+  // cached_tokens: render only when reported (null => omit, 0 => show real value).
+  const cached = getCachedTokens(usage);
+  if (cached != null) items.push({ label: "cached", value: cached });
   if (items.length === 0) return null;
 
   return (

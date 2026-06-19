@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Test files run under `bun test` (not part of the Next build graph).
+    "**/*.test.ts",
+    "**/*.test.tsx",
   ]),
 ]);
 

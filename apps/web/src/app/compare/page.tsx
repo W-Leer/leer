@@ -21,6 +21,13 @@ import {
   MCP_BADGE,
   RETRIEVAL_STAGE_BADGE,
 } from "@/lib/step-metadata";
+import {
+  isPartialCapture,
+  refusalCompareState,
+  getCachedTokens,
+  cachedTokensDiverges,
+  PARTIAL_CAPTURE_TOOLTIP,
+} from "@/lib/provider-hardening";
 import type {
   CompareResponse,
   CompareRunDiff,
@@ -659,6 +666,31 @@ function StepDiffHeader({
             {isStreamA && isStreamB ? "stream" : isStreamA ? "stream A only" : "stream B only"}
           </span>
         )}
+
+        {(() => {
+          const r = refusalCompareState(step.llm_a, step.llm_b);
+          if (!r.a && !r.b) return null;
+          const label = r.a && r.b ? "refusal" : r.a ? "refusal A only" : "refusal B only";
+          const cls = r.diverges
+            ? "bg-[var(--diff-badge-bg)] text-[var(--diff-badge-text)]"
+            : "bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400";
+          return <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${cls}`}>{label}</span>;
+        })()}
+
+        {(() => {
+          const pa = isPartialCapture(step.metadata_a);
+          const pb = isPartialCapture(step.metadata_b);
+          if (!pa && !pb) return null;
+          const label = pa && pb ? "partial" : pa ? "partial A only" : "partial B only";
+          const cls = pa !== pb
+            ? "bg-[var(--diff-badge-bg)] text-[var(--diff-badge-text)]"
+            : "bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400";
+          return (
+            <span title={PARTIAL_CAPTURE_TOOLTIP} className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${cls}`}>
+              {label}
+            </span>
+          );
+        })()}
 
         {(() => {
           const mcpA = isMcpMeta(step.metadata_a);
@@ -1620,13 +1652,16 @@ function LlmUsageDiff({ a, b }: { a: LLMShape | null; b: LLMShape | null }) {
   const uB = b?.usage;
   const hasAny =
     (uA?.prompt_tokens ?? uA?.completion_tokens ?? uA?.total_tokens) != null ||
-    (uB?.prompt_tokens ?? uB?.completion_tokens ?? uB?.total_tokens) != null;
+    (uB?.prompt_tokens ?? uB?.completion_tokens ?? uB?.total_tokens) != null ||
+    getCachedTokens(uA) != null ||
+    getCachedTokens(uB) != null;
   if (!hasAny) return null;
 
   const diff =
     uA?.prompt_tokens !== uB?.prompt_tokens ||
     uA?.completion_tokens !== uB?.completion_tokens ||
-    uA?.total_tokens !== uB?.total_tokens;
+    uA?.total_tokens !== uB?.total_tokens ||
+    getCachedTokens(uA) !== getCachedTokens(uB);
   const bg = diff ? "bg-[var(--tint-diff-row)]" : "bg-neutral-50/50";
 
   return (
@@ -1655,6 +1690,8 @@ function UsagePills({ usage }: { usage?: LLMShape["usage"] | null }) {
   if (usage.prompt_tokens != null) items.push({ label: "prompt", value: usage.prompt_tokens });
   if (usage.completion_tokens != null) items.push({ label: "completion", value: usage.completion_tokens });
   if (usage.total_tokens != null) items.push({ label: "total", value: usage.total_tokens });
+  const cached = getCachedTokens(usage);
+  if (cached != null) items.push({ label: "cached", value: cached });
   if (items.length === 0) return <p className="text-xs italic text-neutral-400">—</p>;
 
   return (
@@ -2167,6 +2204,8 @@ function computeInsight(data: CompareResponse): string | null {
 
   let streamDiffFound = false;
   let tokenDiffFound = false;
+  let cachedTokenDiffFound = false;
+  let refusalDiffFound = false;
   let toolCallCountDiff = false;
   let toolFailureDiff = false;
   let retrievalCountDiff = false;
@@ -2174,6 +2213,9 @@ function computeInsight(data: CompareResponse): string | null {
   let mcpServerDiff = false;
 
   for (const step of steps) {
+    if (refusalCompareState(step.llm_a, step.llm_b).diverges) refusalDiffFound = true;
+    if (cachedTokensDiverges(step.llm_a?.usage, step.llm_b?.usage)) cachedTokenDiffFound = true;
+
     const sA = streamVal(step.metadata_a);
     const sB = streamVal(step.metadata_b);
     if (sA && sB) {
@@ -2232,6 +2274,10 @@ function computeInsight(data: CompareResponse): string | null {
     }
   }
 
+  if (refusalDiffFound) {
+    return "Refusal divergence — the model refused in one run but not the other.";
+  }
+
   if (toolFailureDiff) {
     return "Tool execution divergence — a tool step failed in one run but not the other.";
   }
@@ -2258,6 +2304,10 @@ function computeInsight(data: CompareResponse): string | null {
 
   if (tokenDiffFound) {
     return "Different token usage — the runs consumed different amounts of tokens.";
+  }
+
+  if (cachedTokenDiffFound) {
+    return "Different prompt-cache usage — cache-read token counts diverge between the runs.";
   }
 
   return null;

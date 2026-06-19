@@ -92,11 +92,17 @@ export interface LLMShape {
     prompt_tokens: number | null;
     completion_tokens: number | null;
     total_tokens: number | null;
+    // Prompt cache-read tokens (Step 2 canonical field). `null` means the
+    // provider did not report it; `0` is a real "no cache hit" value.
+    cached_tokens?: number | null;
   };
   meta: {
     finish_reason: string | null;
     request_id: string | null;
     latency_ms: number | null;
+    // Raw refusal string when the provider explicitly signalled a refusal
+    // (Step 1 canonical field). `null`/absent means no refusal.
+    refusal?: string | null;
   };
 }
 
