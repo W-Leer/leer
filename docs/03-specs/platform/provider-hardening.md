@@ -405,12 +405,12 @@ This workstream is successful when:
 
 ## Status
 
-In progress. Tracked under the **Provider Reliability Pass** workstream.
+**Complete.** Tracked under the **Provider Reliability Pass** workstream. All five steps (0–4) are done; OpenAI and Anthropic support is assessed production-ready for the v1 observability scope (see QA report).
 
 - **Step 0 — Audit**: complete (`docs/04-execution/provider-hardening-step-0-audit.md`)
 - **Step 1 — Normalization + summary hardening**: complete. Introduced `metadata.capture = "partial"` and refusal dual-representation (`output.text` + `meta.refusal`). See plan for stable contracts.
 - **Step 2 — Sync↔streaming parity + cross-provider metadata consistency**: complete. Introduced `LLMUsage.cached_tokens`, OpenAI Responses-API streaming canonical parity, Anthropic streaming `thinking` / `redacted_thinking` capture, and malformed-`usage` tolerance. See plan for stable contracts.
 - **Step 3 — UI visibility + non-regression for newly hardened provider data**: complete. Surfaced the Step 1/2 canonical fields in the existing surfaces (no redesign): `metadata.capture = "partial"` and `meta.refusal` badges on run-detail + compare step headers, `usage.cached_tokens` in run-detail/compare usage views, a dedicated collapsed Thinking section in run-detail (thinking kept structurally separate from `output.text` per Design Principle 7, never fed into compare summaries), refusal/cached-tokens compare insights, and stream-event legibility for the new canonical event types. Frontend-only; detection rules centralized in `apps/web/src/lib/provider-hardening.ts` with `bun test` coverage. See plan for details.
-- **Step 4 — Demo + QA signoff**: not started.
+- **Step 4 — Demo + QA signoff**: complete (`docs/04-execution/provider-hardening-qa.md`). A deterministic, offline validation matrix (`apps/sdk-python/tests/test_provider_hardening_qa.py`, 34 tests) drives the real wrappers across every OpenAI Chat / OpenAI Responses / Anthropic scenario and asserts execution-record quality. The review surfaced two parity gaps — Anthropic refusals (`stop_reason == "refusal"`) were not mapped to `meta.refusal`, and OpenAI streaming recorded the requested model instead of the provider-resolved one — both now fixed and regression-tested. Full SDK suite: 669 passed. Verdict: close the workstream; remaining items are documented limits or deferred feature work.
 
 The canonical content-channels rule (Design Principle 7) is the durable contract that Step 3's UI work respects: thinking is surfaced as its own channel and is never merged into `output.text` or compare diffs.

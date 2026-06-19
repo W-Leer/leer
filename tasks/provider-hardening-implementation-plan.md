@@ -559,22 +559,97 @@ generation); `bun test` 21/21; edited files lint-clean.
   `apps/web/src/app/page.tsx` are unrelated to this workstream and were
   left untouched (out of scope; not a cleanup spree).
 
-### Step 4 — Demo + QA signoff
-Output:
-- one or more deterministic demos for hardened provider edge cases
-- provider hardening QA checklist
-- support-boundary status update in docs/tasks
+### Step 4 — Demo + QA signoff — COMPLETE
 
-Possible deliverables:
-- `examples/demo_provider_hardening_openai.py`
-- `examples/demo_provider_hardening_anthropic.py`
-- or a combined provider hardening demo if cleaner
-- `docs/04-execution/provider-hardening-qa.md`
+Demo-validation and QA signoff. The deliverable is a **deterministic, offline
+validation matrix** that drives the real wrappers across every QA scenario and
+asserts execution-record quality, plus a QA report with the gaps found, the
+fixes applied, a support matrix, and a readiness verdict. Two parity gaps were
+found by review (proven by failing tests first), fixed, and regression-tested.
+All changes are SDK-only, additive, OpenAI/Anthropic only — no schema, no API,
+no UI, no replay, no async wrappers.
 
-Focus:
-- real edge cases, not just happy paths
-- visual verification in run detail and compare
-- explicit support matrix / known limitations
+#### What was produced
+
+1. **Validation matrix (executable QA)** —
+   `apps/sdk-python/tests/test_provider_hardening_qa.py` (34 tests). Covers the
+   full Step 4 matrix offline via fixtures + the in-memory `TraceRun` harness:
+   OpenAI Chat (text / single tool / multi tool / refusal / streaming text /
+   streaming tool / streaming refusal / empty+usage / mid-stream failure),
+   OpenAI Responses (text / tool / refusal / streaming variants), Anthropic
+   (text / tool use / thinking / redacted thinking / refusal / cached tokens /
+   streaming text / streaming thinking / streaming tool use / streaming
+   refusal), plus cross-cutting error + partial-capture behavior. Each scenario
+   asserts request capture, response capture, normalized output, usage
+   metadata, tool-call capture, stream artifacts, step status, and partial
+   behavior.
+2. **QA report** — `docs/04-execution/provider-hardening-qa.md`: method,
+   validated matrix, discovered gaps + severity, fixes, deferred items, support
+   matrix, and the production-readiness verdict.
+
+#### Gaps found + fixed (parity hardening)
+
+1. **G1 — Anthropic refusal channel (High).** Anthropic signals refusals via
+   `stop_reason == "refusal"`, which `normalize_anthropic` never mapped — so
+   `meta.refusal` was `null` for Anthropic and the Step 3 refusal badge /
+   compare insight never fired (asymmetric with OpenAI; spec Risk §1).
+   `normalize_anthropic` now sets `meta.refusal` on `stop_reason == "refusal"`
+   (text = model explanation when present, else `"Model declined to
+   respond."`) and inlines a `[refusal] ` marker into `output.text` only when
+   no other content was returned (Step 1 dual-representation rule). Keys on
+   `stop_reason`, so streaming inherits it via the round-tripped response dict.
+   No UI change needed — detection is centralized on `meta.refusal`.
+2. **G2 — OpenAI streaming model fidelity (Medium).** Non-streaming OpenAI and
+   (since Step 1) Anthropic streaming record the provider-resolved model;
+   OpenAI streaming hard-coded the requested model, causing sync↔streaming and
+   cross-provider drift (false compare "model divergence"). `StreamCollector`
+   gained `set_response_model()` (exposed as `model` in `assembled_output()`);
+   the OpenAI chunk parser reads `chunk.model`, the Responses parser reads
+   `response.model` from `response.created`/`response.completed`, and both
+   assembled-to-response converters prefer the resolved model with a
+   request-model fallback.
+3. **G3 — comment accuracy (Low).** The Responses stream parser's unmodeled-
+   event branch claimed "recorded for traceability" but drops the events;
+   comment corrected to match behavior (no code-path change).
+
+#### Files changed
+
+- `apps/sdk-python/leer/integrations/normalize.py` (G1: Anthropic refusal →
+  `meta.refusal` + conditional inline)
+- `apps/sdk-python/leer/integrations/streaming.py` (G2: `set_response_model`,
+  `model` in assembled output)
+- `apps/sdk-python/leer/integrations/openai.py` (G2: capture resolved model in
+  chat + responses parsers, prefer it in both converters; G3: comment)
+
+#### Tests added
+
+- `apps/sdk-python/tests/test_provider_hardening_qa.py` (34 tests): the
+  validation matrix (29) + `TestGapAnthropicRefusal` (4) +
+  `TestGapOpenAIStreamingModelFidelity` (3, incl. fallback control). Gap tests
+  were written RED first to prove the gaps, then turned GREEN by the fixes.
+
+Full SDK suite: **669 passed** (635 pre-Step-4 baseline + 34 added in Step 4).
+
+#### Constraints honored
+
+- no schema changes, no API changes, no UI changes
+- no new step types, no replay logic, no async wrappers, no provider redesign
+- backward compatible: `assembled_output()` gains an additive `model` key
+  (no consumer asserts exact dict equality); `meta.refusal` stays `None` for
+  non-refusal Anthropic responses; OpenAI streaming falls back to the requested
+  model when the stream carries none.
+
+#### Caveats / deferred (none blocking)
+
+- OpenAI Responses `reasoning` items normalize to a generic `file` block, not a
+  thinking channel — additive feature work, out of matrix, deferred.
+- Streamed chat usage requires `stream_options={"include_usage": true}`
+  (provider behavior; documented in the support matrix).
+- Chat completions `n > 1`: first choice only.
+- Anthropic `cache_creation_input_tokens` still not canonicalized.
+- Responses streaming interleave ordering unchanged from Step 2.
+- No runnable UI demo script was added; the offline matrix supersedes it for
+  deterministic CI verification (optional follow-up noted in the QA report).
 
 ---
 
@@ -673,10 +748,13 @@ The workstream is complete when:
 - Step 1 — Normalization + summary hardening: **complete**
 - Step 2 — Sync↔streaming parity + cross-provider metadata consistency: **complete**
 - Step 3 — Compare + run-detail non-regression: **complete**
-- Step 4 — Demo + QA signoff: not started
+- Step 4 — Demo + QA signoff: **complete** (`docs/04-execution/provider-hardening-qa.md`)
+
+**Workstream complete.** OpenAI and Anthropic support is assessed
+production-ready for the v1 observability scope. The QA report recommends
+closing the Provider Hardening project and moving to broader Leer roadmap work.
 
 Next action:
-- begin **Step 4 — Demo + QA signoff**: deterministic demos for the
-  hardened provider edge cases (partial capture, refusal,
-  cached_tokens, thinking, Responses streaming), a provider-hardening
-  QA checklist, and a support-matrix status update.
+- close the workstream. Re-open only for async wrappers or a
+  reasoning/thinking-parity step (both explicitly deferred and out of this
+  pass's scope).
