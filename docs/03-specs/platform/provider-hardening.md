@@ -410,7 +410,7 @@ In progress. Tracked under the **Provider Reliability Pass** workstream.
 - **Step 0 — Audit**: complete (`docs/04-execution/provider-hardening-step-0-audit.md`)
 - **Step 1 — Normalization + summary hardening**: complete. Introduced `metadata.capture = "partial"` and refusal dual-representation (`output.text` + `meta.refusal`). See plan for stable contracts.
 - **Step 2 — Sync↔streaming parity + cross-provider metadata consistency**: complete. Introduced `LLMUsage.cached_tokens`, OpenAI Responses-API streaming canonical parity, Anthropic streaming `thinking` / `redacted_thinking` capture, and malformed-`usage` tolerance. See plan for stable contracts.
-- **Step 3 — UI visibility + non-regression for newly hardened provider data**: not started.
+- **Step 3 — UI visibility + non-regression for newly hardened provider data**: complete. Surfaced the Step 1/2 canonical fields in the existing surfaces (no redesign): `metadata.capture = "partial"` and `meta.refusal` badges on run-detail + compare step headers, `usage.cached_tokens` in run-detail/compare usage views, a dedicated collapsed Thinking section in run-detail (thinking kept structurally separate from `output.text` per Design Principle 7, never fed into compare summaries), refusal/cached-tokens compare insights, and stream-event legibility for the new canonical event types. Frontend-only; detection rules centralized in `apps/web/src/lib/provider-hardening.ts` with `bun test` coverage. See plan for details.
 - **Step 4 — Demo + QA signoff**: not started.
 
-The canonical content-channels rule (Design Principle 7) is the durable contract that Step 3's UI work must respect.
+The canonical content-channels rule (Design Principle 7) is the durable contract that Step 3's UI work respects: thinking is surfaced as its own channel and is never merged into `output.text` or compare diffs.

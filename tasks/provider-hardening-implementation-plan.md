@@ -432,78 +432,132 @@ Full SDK suite: **635 passed** (597 from Step 1, 38 added in Step 2).
   iterator's exception path already handles raised errors; pure
   event-only failures are a rare wire-protocol edge.
 
-### Step 3 — Compare + run-detail non-regression
+### Step 3 — Compare + run-detail non-regression — COMPLETE
 
 Mental model: this step is **UI visibility + non-regression for the
 newly-hardened provider data**, not a compare or run-detail redesign.
-Steps 1 and 2 introduced new canonical fields that consumers cannot see
-yet; Step 3 makes them visible in the existing surfaces and proves
-nothing else regressed.
+Steps 1 and 2 introduced new canonical fields that consumers could not
+see yet; Step 3 makes them visible in the existing surfaces and proves
+nothing else regressed. Implemented as a focused, additive frontend
+slice. **No backend, no schema, no API changes** — the API already
+passes `metadata.llm` (and the top-level `metadata.capture` flag)
+straight through, so every field surfaced here was already on the wire
+since Steps 1–2. The UI was simply ignoring it.
 
-Output:
-- safer rendering for hardened provider edge cases
-- compare handling for sparse / malformed / partial provider outcomes
-- better empty/fallback states where needed
+#### Behavior changes
 
-#### New data to surface
+1. **`partial` capture badge** — `metadata.capture === "partial"` now
+   renders a low-noise amber badge on the step header in **run-detail**
+   (`StepCard`) and **compare** (`StepDiffHeader`, with `partial A
+   only` / `partial B only` when one-sided). Tooltip wording matches
+   Step 1's contract: "Raw payloads preserved, canonical view
+   incomplete… the provider call may have succeeded." It is amber, not
+   red — degraded observability, not failed execution.
+2. **Refusal badge + high-signal compare** — `llm.meta.refusal` now
+   renders a rose `refusal` badge on the step header in run-detail and
+   compare (`refusal A only` / `refusal B only`). One-sided refusal is
+   treated as a divergence (diff-colored badge) and surfaces a compare
+   **insight** ("Refusal divergence — the model refused in one run but
+   not the other."). The existing `[refusal] ` inline text in
+   `output.text` is left untouched — not duplicated.
+3. **`cached_tokens`** — `llm.usage.cached_tokens` now renders in the
+   run-detail `UsageRow` ("cached N") and the compare usage diff
+   (`UsagePills` / `LlmUsageDiff`). `null` ⇒ rendered nothing; `0` ⇒
+   rendered as a real value. Cross-provider: same surface for OpenAI
+   chat, OpenAI Responses, Anthropic. Compare adds a cached-tokens
+   divergence insight (fires only when both sides report and differ).
+4. **Thinking / redacted_thinking visibility** — run-detail gains a
+   dedicated, collapsed-by-default **Thinking** section
+   (`ThinkingSection`) that surfaces the captured thinking channel
+   (text for `thinking`, a "redacted" placeholder for
+   `redacted_thinking`). Previously these blocks were filtered out of
+   media rendering and had no home, so thinking content was captured
+   but **invisible**. Per Design Principle 7 it is kept structurally
+   separate from `output.text` and is **never** fed into compare
+   summaries. Thinking now also counts toward "has output" so a
+   thinking-only capture no longer shows "No response captured".
+5. **Responses-API streamed captures (non-regression) + stream-event
+   legibility** — streamed Responses captures already assemble through
+   the same normalizer, so `step.llm` (input/output/usage/tool calls)
+   renders identically to non-streaming; verified, no special-case
+   code needed. Ride-along: the new canonical stream-event types from
+   Step 2 (`refusal_delta`, `thinking_start`, `thinking_delta`,
+   `thinking_signature`) now have badge styles and previews in the
+   stream event viewer instead of rendering as opaque `unknown`.
 
-These are the only items Step 3 should add UI affordances for. They
-are exactly the canonical fields introduced (or stabilized) by Steps
-1 and 2:
+#### New module + contract
 
-1. **`metadata.capture = "partial"`** — a small, low-noise badge on
-   the step header (run-detail and compare) that reads the step as
-   "raw payloads preserved, canonical view incomplete". Per Step 1's
-   contract, this is degraded observability, not failed execution; the
-   badge wording should match.
-2. **`meta.refusal`** — a refusal badge or row on LLM steps where the
-   provider explicitly signaled refusal. Compare should treat refusal
-   divergence as a high-signal insight. The `[refusal] ` prefix in
-   `output.text` already renders for free; do not duplicate it.
-3. **`metadata.usage.cached_tokens`** — a small column/row on LLM
-   steps showing cache-read tokens when the field is set (`None`
-   means not reported by the provider; render nothing, not zero).
-   Cross-provider: same surface for OpenAI chat, OpenAI Responses,
-   Anthropic.
-4. **Anthropic thinking / redacted_thinking blocks** — basic
-   visibility in run-detail (collapsible block or labelled section so
-   users know thinking content was captured) without leaking thinking
-   text into compare summaries. Per Design Principle 7, thinking is a
-   separate channel and must not be merged into `output.text`-driven
-   compare diffs.
-5. **OpenAI Responses-API streamed captures** — verify they render
-   exactly like non-streaming Responses captures now that Step 2 made
-   them canonically equivalent. No special-case rendering; this is a
-   non-regression check.
+- **`apps/web/src/lib/provider-hardening.ts`** — the single home for
+  Step 3 detection/format rules, mirroring the `step-metadata.ts`
+  pattern so run-detail and compare never drift. Pure functions:
+  `isPartialCapture`, `getRefusal`/`hasRefusal`/`refusalCompareState`,
+  `getCachedTokens`/`cachedTokensDiverges`,
+  `getThinkingBlocks`/`hasThinking`, plus `PARTIAL_CAPTURE_TOOLTIP`.
+  These read only the canonical fields the API already returns; nothing
+  is re-derived from raw provider payloads.
+- **`LLMShape` type** gained additive optional `usage.cached_tokens?`
+  and `meta.refusal?` (matching the backend; parity-safe).
 
-Beyond those five, Step 3 should also do the standard non-regression
-sweep:
+#### Files changed
 
-- malformed or sparse `llm` metadata
-- output_summary gaps
-- one-sided compare states
-- media-only / tool-only / refusal-like outputs
-- usage-less outputs
-- partial provider metadata
-- compare safety with mixed multimodal / MCP / retrieval / tool flows
+- `apps/web/src/lib/provider-hardening.ts` (new — shared helpers)
+- `apps/web/src/lib/types.ts` (additive `cached_tokens?` / `refusal?`)
+- `apps/web/src/components/llm-step-detail.tsx` (cached_tokens in
+  `UsageRow`, new `ThinkingSection`, thinking-aware empty-state guard,
+  stream-event styles + previews for refusal/thinking)
+- `apps/web/src/app/runs/[id]/page.tsx` (partial + refusal header
+  badges)
+- `apps/web/src/app/compare/page.tsx` (partial + refusal header
+  badges, cached_tokens in usage diff, refusal + cached-tokens compare
+  insights)
+- `apps/web/package.json` (`test` script → `bun test`)
+- `apps/web/tsconfig.json`, `apps/web/eslint.config.mjs` (exclude
+  `*.test.*` from the Next build/lint graph; tests run under `bun test`)
 
-Expected deliverables:
-- targeted UI affordances for the five items above
-- UI fallback improvements where the non-regression sweep finds gaps
-- compare routing refinements only where existing routing breaks on
-  the new data
-- no-crash guarantees for hardened cases
-- high-signal diff behavior where possible (e.g. refusal divergence,
-  cached-tokens divergence)
+#### Tests added
 
-Constraints:
-- **not a compare or run-detail redesign**
-- no large new UI subsystem
-- no provider-specific compare branches unless truly necessary
+- `apps/web/src/lib/provider-hardening.test.ts` (21 tests, `bun test`):
+  partial-capture detection (incl. no-false-positives + null safety),
+  refusal extraction + compare divergence, `cached_tokens` formatting
+  (0 vs null vs missing/wrong-type) + divergence semantics, thinking /
+  redacted_thinking extraction (ordering, filtering non-thinking
+  blocks, malformed-block safety). All 21 pass.
+
+Verification: `next build` green (compile + TypeScript check + static
+generation); `bun test` 21/21; edited files lint-clean.
+
+#### Constraints honored
+
+- no schema changes, no backend/API changes
+- not a compare or run-detail redesign; no large new UI subsystem
+- no provider-specific compare branches
 - no new dedicated artifact viewers
-- canonical content channels remain structurally distinct (spec
-  Design Principle 7) — UI may surface multiple channels on one
-  step, but must not collapse them into a single text blob
+- canonical content channels remain structurally distinct (Design
+  Principle 7) — thinking is surfaced as its own section and never
+  merged into `output.text` or compare summaries
+- additive only: new type fields are optional and default-absent; new
+  helpers are pure; behavior for steps without the new fields is
+  unchanged
+
+#### Caveats / what remains for Step 4
+
+- **Demo + QA signoff** (deterministic demos for the hardened edge
+  cases, QA checklist, support-matrix status) — Step 4 by the plan.
+- **No web render tests** — the repo has no React/DOM test runner;
+  Step 3 added pure-function detection/format tests (the highest-value,
+  lowest-risk regression surface) under `bun test`. Rendering is
+  verified via `next build` + manual inspection; a jsdom/RTL harness
+  is intentionally deferred to avoid adding a UI test subsystem.
+- **Anthropic `cache_creation_input_tokens`** (cache *write* cost)
+  still not surfaced — it is not part of canonical `cached_tokens` and
+  surfacing it is deferred (would be an Anthropic-only extra).
+- **Responses-streaming interleave ordering** unchanged from Step 2's
+  caveat; no consumer needs ordered assembly yet.
+- **Thinking rendering is intentionally minimal** (collapsible text /
+  redacted placeholder). No rich/dedicated thinking artifact viewer.
+- Pre-existing `react-hooks/refs` lint errors in
+  `apps/web/src/app/page.tsx` are unrelated to this workstream and were
+  left untouched (out of scope; not a cleanup spree).
 
 ### Step 4 — Demo + QA signoff
 Output:
@@ -618,9 +672,11 @@ The workstream is complete when:
 - Step 0 — Audit: complete (`docs/04-execution/provider-hardening-step-0-audit.md`)
 - Step 1 — Normalization + summary hardening: **complete**
 - Step 2 — Sync↔streaming parity + cross-provider metadata consistency: **complete**
-- Step 3 — Compare + run-detail non-regression: not started
+- Step 3 — Compare + run-detail non-regression: **complete**
 - Step 4 — Demo + QA signoff: not started
 
 Next action:
-- begin **Step 3 — Compare + run-detail non-regression** (or pause to
-  validate Steps 1+2 in real workloads first).
+- begin **Step 4 — Demo + QA signoff**: deterministic demos for the
+  hardened provider edge cases (partial capture, refusal,
+  cached_tokens, thinking, Responses streaming), a provider-hardening
+  QA checklist, and a support-matrix status update.
