@@ -159,6 +159,18 @@ def _instrumented_create(
 # Streaming instrumented call
 # ---------------------------------------------------------------------------
 
+def _is_responses_request(request_dict: dict[str, Any]) -> bool:
+    """Detect an OpenAI Responses-API call by request shape.
+
+    The Responses API uses ``input`` (string or list of items); chat
+    completions uses ``messages`` (list of role/content dicts). When both
+    are present we treat the call as Responses (Responses can mix),
+    matching the dispatch rule used by ``normalize_openai``. When neither
+    is present we default to chat completions for back-compat.
+    """
+    return "input" in request_dict and "messages" not in request_dict
+
+
 def _instrumented_streaming_create(
     original_fn: Any,
     args: tuple[Any, ...],
@@ -168,7 +180,10 @@ def _instrumented_streaming_create(
 
     Creates the LLM step eagerly, then returns a wrapping iterator that
     captures chunks into a StreamCollector and finalizes the step when
-    iteration completes or fails.
+    iteration completes or fails. The iterator dispatches per-chunk
+    parsing based on the request's API style (chat completions vs
+    Responses) so streaming captures stay in canonical parity with
+    non-streaming captures.
     """
     run = get_current_run()
     if run is None:
@@ -218,7 +233,8 @@ def _instrumented_streaming_create(
         raise
 
     collector = StreamCollector(provider="openai", model=request_dict.get("model"))
-    return _StreamingIterator(raw_stream, collector, s, request_dict, t0)
+    api_style = "responses" if _is_responses_request(request_dict) else "chat"
+    return _StreamingIterator(raw_stream, collector, s, request_dict, t0, api_style)
 
 
 # ---------------------------------------------------------------------------
@@ -235,6 +251,7 @@ class _StreamingIterator:
         step: TraceStep,
         request_dict: dict[str, Any],
         t0: float,
+        api_style: str = "chat",
     ) -> None:
         self._raw_stream = raw_stream
         self._collector = collector
@@ -242,6 +259,11 @@ class _StreamingIterator:
         self._request_dict = request_dict
         self._t0 = t0
         self._finalized = False
+        # ``api_style`` is "chat" (chat completions chunks) or "responses"
+        # (Responses-API events). Selects the chunk parser and the
+        # assembled-to-response-dict converter so streaming captures
+        # round-trip into the matching normalizer.
+        self._api_style = api_style
 
     def __iter__(self) -> Iterator[Any]:
         return self
@@ -257,7 +279,10 @@ class _StreamingIterator:
             raise
 
         try:
-            _process_openai_chunk(self._collector, chunk)
+            if self._api_style == "responses":
+                _process_openai_responses_event(self._collector, chunk)
+            else:
+                _process_openai_chunk(self._collector, chunk)
         except Exception:
             pass
 
@@ -277,6 +302,17 @@ class _StreamingIterator:
             else:
                 self._finalize_success()
 
+    def _build_response_dict(self, assembled: dict[str, Any]) -> dict[str, Any]:
+        """Convert assembled stream state into the matching API-shape dict.
+
+        Dispatched on ``self._api_style`` so the result is normalizer-ready:
+        chat-completions calls produce a ``{"choices": [...]}`` shape;
+        Responses-API calls produce a ``{"output": [...]}`` shape.
+        """
+        if self._api_style == "responses":
+            return _assembled_to_responses_dict(assembled, self._request_dict)
+        return _assembled_to_chat_response(assembled, self._request_dict)
+
     def _finalize_success(self) -> None:
         if self._finalized:
             return
@@ -288,7 +324,7 @@ class _StreamingIterator:
         s.metadata["stream"] = collector.stream_metadata()
 
         assembled = collector.assembled_output()
-        response_dict = _assembled_to_chat_response(assembled, self._request_dict)
+        response_dict = self._build_response_dict(assembled)
 
         try:
             _enrich_step(s, self._request_dict, response_dict, latency_ms, _is_dict=True)
@@ -326,10 +362,14 @@ class _StreamingIterator:
         s.metadata["stream"] = collector.stream_metadata()
 
         assembled = collector.assembled_output()
-        has_output = bool(assembled.get("text") or assembled.get("tool_calls"))
+        has_output = bool(
+            assembled.get("text")
+            or assembled.get("tool_calls")
+            or assembled.get("refusal")
+        )
 
         if has_output:
-            response_dict = _assembled_to_chat_response(assembled, self._request_dict)
+            response_dict = self._build_response_dict(assembled)
             try:
                 _enrich_step(s, self._request_dict, response_dict, latency_ms, _is_dict=True)
             except Exception:
@@ -356,6 +396,25 @@ class _StreamingIterator:
 # OpenAI chunk parsing
 # ---------------------------------------------------------------------------
 
+def _extract_chat_cached_tokens(usage: dict[str, Any]) -> int | None:
+    """Pull ``cached_tokens`` from a chat-completions chunk usage dict."""
+    details = usage.get("prompt_tokens_details")
+    if isinstance(details, dict):
+        value = details.get("cached_tokens")
+        if isinstance(value, int):
+            return value
+    return None
+
+
+def _push_chat_usage(collector: StreamCollector, usage: dict[str, Any]) -> None:
+    collector.append_usage(
+        prompt_tokens=usage.get("prompt_tokens"),
+        completion_tokens=usage.get("completion_tokens"),
+        total_tokens=usage.get("total_tokens"),
+        cached_tokens=_extract_chat_cached_tokens(usage),
+    )
+
+
 def _process_openai_chunk(collector: StreamCollector, chunk: Any) -> None:
     """Translate a single OpenAI streaming chunk into collector updates."""
     chunk_dict = _to_dict(chunk) if not isinstance(chunk, dict) else chunk
@@ -366,12 +425,8 @@ def _process_openai_chunk(collector: StreamCollector, chunk: Any) -> None:
     choices = chunk_dict.get("choices") or []
     if not choices:
         usage = chunk_dict.get("usage")
-        if usage and isinstance(usage, dict):
-            collector.append_usage(
-                prompt_tokens=usage.get("prompt_tokens"),
-                completion_tokens=usage.get("completion_tokens"),
-                total_tokens=usage.get("total_tokens"),
-            )
+        if isinstance(usage, dict):
+            _push_chat_usage(collector, usage)
         return
 
     choice = choices[0] if isinstance(choices, list) else {}
@@ -385,6 +440,14 @@ def _process_openai_chunk(collector: StreamCollector, chunk: Any) -> None:
         content = delta.get("content")
         if content:
             collector.append_text_delta(content)
+
+        # Refusal text streamed via ``delta.refusal`` (chat-completions
+        # streaming surface). Routed to the dedicated refusal accumulator
+        # so the assembled response emits ``message.refusal`` and Step 1's
+        # refusal handling kicks in canonically.
+        refusal_delta = delta.get("refusal")
+        if isinstance(refusal_delta, str) and refusal_delta:
+            collector.append_refusal_delta(refusal_delta)
 
         tool_calls = delta.get("tool_calls")
         if tool_calls and isinstance(tool_calls, list):
@@ -407,12 +470,8 @@ def _process_openai_chunk(collector: StreamCollector, chunk: Any) -> None:
         )
 
     usage = chunk_dict.get("usage")
-    if usage and isinstance(usage, dict):
-        collector.append_usage(
-            prompt_tokens=usage.get("prompt_tokens"),
-            completion_tokens=usage.get("completion_tokens"),
-            total_tokens=usage.get("total_tokens"),
-        )
+    if isinstance(usage, dict):
+        _push_chat_usage(collector, usage)
 
 
 # ---------------------------------------------------------------------------
@@ -446,6 +505,13 @@ def _assembled_to_chat_response(
     message: dict[str, Any] = {"role": "assistant", "content": assembled.get("text")}
     if tool_calls_raw:
         message["tool_calls"] = tool_calls_raw
+    refusal = assembled.get("refusal")
+    if refusal:
+        # Round-trip into the canonical chat-completions ``message.refusal``
+        # field so ``_normalize_openai_chat`` produces ``meta.refusal`` and
+        # the ``[refusal] ...`` text contract from Step 1 applies uniformly
+        # for streaming captures.
+        message["refusal"] = refusal
 
     usage = assembled.get("usage") or {}
     usage_dict: dict[str, Any] = {}
@@ -455,6 +521,8 @@ def _assembled_to_chat_response(
         usage_dict["completion_tokens"] = usage["completion_tokens"]
     if usage.get("total_tokens") is not None:
         usage_dict["total_tokens"] = usage["total_tokens"]
+    if usage.get("cached_tokens") is not None:
+        usage_dict["prompt_tokens_details"] = {"cached_tokens": usage["cached_tokens"]}
 
     return {
         "id": assembled.get("request_id") or "",
@@ -464,6 +532,172 @@ def _assembled_to_chat_response(
             "message": message,
             "finish_reason": assembled.get("finish_reason"),
         }],
+        "usage": usage_dict,
+    }
+
+
+# ---------------------------------------------------------------------------
+# OpenAI Responses-API event parsing and assembly
+# ---------------------------------------------------------------------------
+
+def _process_openai_responses_event(collector: StreamCollector, event: Any) -> None:
+    """Translate a single OpenAI Responses-API stream event into collector calls.
+
+    Handles the load-bearing event types only: anything else is recorded as
+    an ``unknown`` event so it shows up in the ``llm_stream`` artifact for
+    debugging without breaking canonical assembly.
+
+    Tool-call deltas are keyed by the event's ``output_index`` so the
+    collector aggregates argument deltas onto the right function-call item
+    when the model emits multiple in one response.
+    """
+    event_dict = _to_dict(event) if not isinstance(event, dict) else event
+    event_type = event_dict.get("type")
+
+    if event_type == "response.created":
+        response = event_dict.get("response") or {}
+        rid = response.get("id") if isinstance(response, dict) else None
+        if rid:
+            collector.set_request_id(rid)
+        collector.mark_message_start(payload={"response_id": rid})
+
+    elif event_type == "response.output_item.added":
+        item = event_dict.get("item") or {}
+        if isinstance(item, dict) and item.get("type") == "function_call":
+            output_index = event_dict.get("output_index", 0)
+            collector.append_tool_call_delta(
+                output_index,
+                tool_call_id=item.get("call_id") or item.get("id"),
+                name_delta=item.get("name"),
+                arguments_delta=item.get("arguments") or None,
+            )
+
+    elif event_type == "response.output_text.delta":
+        delta = event_dict.get("delta")
+        if isinstance(delta, str) and delta:
+            collector.append_text_delta(delta)
+
+    elif event_type == "response.refusal.delta":
+        delta = event_dict.get("delta")
+        if isinstance(delta, str) and delta:
+            collector.append_refusal_delta(delta)
+
+    elif event_type == "response.function_call_arguments.delta":
+        output_index = event_dict.get("output_index", 0)
+        delta = event_dict.get("delta")
+        if isinstance(delta, str) and delta:
+            collector.append_tool_call_delta(output_index, arguments_delta=delta)
+
+    elif event_type == "response.completed":
+        response = event_dict.get("response") or {}
+        if isinstance(response, dict):
+            usage = response.get("usage")
+            if isinstance(usage, dict):
+                cached = None
+                details = usage.get("input_tokens_details")
+                if isinstance(details, dict) and isinstance(details.get("cached_tokens"), int):
+                    cached = details["cached_tokens"]
+                collector.append_usage(
+                    prompt_tokens=usage.get("input_tokens"),
+                    completion_tokens=usage.get("output_tokens"),
+                    total_tokens=usage.get("total_tokens"),
+                    cached_tokens=cached,
+                )
+            status = response.get("status")
+            collector.mark_message_stop(
+                finish_reason=status,
+                request_id=response.get("id"),
+            )
+
+    elif event_type in ("response.failed", "response.incomplete"):
+        response = event_dict.get("response") or {}
+        status = response.get("status") if isinstance(response, dict) else None
+        if status:
+            collector.set_finish_reason(status)
+        collector.mark_message_stop(payload={"original_type": event_type})
+
+    elif event_type and event_type.startswith("response."):
+        # Recognized-but-unmodeled event (e.g. ``response.in_progress``,
+        # ``response.output_item.done``, ``response.content_part.added``).
+        # Recorded for traceability but does not contribute to assembly.
+        pass
+
+    else:
+        collector.mark_unknown(payload={"original_type": event_type})
+
+
+def _assembled_to_responses_dict(
+    assembled: dict[str, Any],
+    request_dict: dict[str, Any],
+) -> dict[str, Any]:
+    """Convert collector assembled state to a Responses-API response dict.
+
+    The shape mirrors what ``client.responses.create()`` returns for
+    non-streaming calls (with ``output``, ``usage.input_tokens``, etc.) so
+    ``normalize_openai`` dispatches to ``_normalize_openai_responses`` and
+    streaming captures land in the same canonical shape as non-streaming
+    captures.
+
+    Output-array ordering: an ``assistant`` message with text content (when
+    text was streamed), then any ``function_call`` items in tool-index
+    order, then a ``refusal`` message (when refusal text was streamed).
+    The actual interleave the model produced is lost in the streamed
+    representation, but each load-bearing piece round-trips intact.
+    """
+    output: list[dict[str, Any]] = []
+
+    text = assembled.get("text")
+    if text:
+        output.append({
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": text}],
+        })
+
+    for tc in assembled.get("tool_calls") or []:
+        args = tc.get("arguments")
+        if args is None:
+            args_str = ""
+        elif isinstance(args, str):
+            args_str = args
+        else:
+            import json as _json
+            try:
+                args_str = _json.dumps(args)
+            except (TypeError, ValueError):
+                args_str = str(args)
+        output.append({
+            "type": "function_call",
+            "call_id": tc.get("id"),
+            "name": tc.get("name"),
+            "arguments": args_str,
+        })
+
+    refusal = assembled.get("refusal")
+    if refusal:
+        output.append({
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "refusal", "refusal": refusal}],
+        })
+
+    usage = assembled.get("usage") or {}
+    usage_dict: dict[str, Any] = {}
+    if usage.get("prompt_tokens") is not None:
+        usage_dict["input_tokens"] = usage["prompt_tokens"]
+    if usage.get("completion_tokens") is not None:
+        usage_dict["output_tokens"] = usage["completion_tokens"]
+    if usage.get("total_tokens") is not None:
+        usage_dict["total_tokens"] = usage["total_tokens"]
+    if usage.get("cached_tokens") is not None:
+        usage_dict["input_tokens_details"] = {"cached_tokens": usage["cached_tokens"]}
+
+    return {
+        "id": assembled.get("request_id") or "",
+        "object": "response",
+        "model": request_dict.get("model"),
+        "status": assembled.get("finish_reason"),
+        "output": output,
         "usage": usage_dict,
     }
 
@@ -582,6 +816,7 @@ def _enrich_step(
             "prompt_tokens": normalized.usage.prompt_tokens,
             "completion_tokens": normalized.usage.completion_tokens,
             "total_tokens": normalized.usage.total_tokens,
+            "cached_tokens": normalized.usage.cached_tokens,
         },
         "llm": normalized.to_dict(),
     })

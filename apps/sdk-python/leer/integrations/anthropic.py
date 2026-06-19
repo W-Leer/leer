@@ -375,19 +375,32 @@ def _process_anthropic_event(
         if msg.get("model"):
             ctx["model"] = msg["model"]
         collector.mark_message_start(payload={"message_id": msg_id})
-        usage = msg.get("usage") or {}
+        usage = msg.get("usage") if isinstance(msg.get("usage"), dict) else {}
+        kwargs: dict[str, Any] = {}
         if usage.get("input_tokens") is not None:
-            collector.append_usage(prompt_tokens=usage["input_tokens"])
+            kwargs["prompt_tokens"] = usage["input_tokens"]
+        # Anthropic reports cache-read tokens at ``cache_read_input_tokens``
+        # on both ``message_start`` and ``message_delta``. Capture whatever
+        # arrives first; ``message_delta`` may overwrite with a final value.
+        if usage.get("cache_read_input_tokens") is not None:
+            kwargs["cached_tokens"] = usage["cache_read_input_tokens"]
+        if kwargs:
+            collector.append_usage(**kwargs)
 
     elif event_type == "content_block_start":
         block = event_dict.get("content_block") or {}
         block_index = event_dict.get("index", 0)
-        if block.get("type") == "tool_use":
+        block_type = block.get("type")
+        if block_type == "tool_use":
             collector.append_tool_call_delta(
                 block_index,
                 tool_call_id=block.get("id"),
                 name_delta=block.get("name"),
             )
+        elif block_type == "thinking":
+            collector.begin_thinking_block(block_index=block_index, redacted=False)
+        elif block_type == "redacted_thinking":
+            collector.begin_thinking_block(block_index=block_index, redacted=True)
 
     elif event_type == "content_block_delta":
         delta = event_dict.get("delta") or {}
@@ -402,15 +415,28 @@ def _process_anthropic_event(
             partial = delta.get("partial_json", "")
             if partial:
                 collector.append_tool_call_delta(block_index, arguments_delta=partial)
+        elif delta_type == "thinking_delta":
+            text = delta.get("thinking", "")
+            if text:
+                collector.append_thinking_delta(block_index=block_index, text=text)
+        elif delta_type == "signature_delta":
+            sig = delta.get("signature", "")
+            if sig:
+                collector.append_thinking_signature(block_index=block_index, signature=sig)
 
     elif event_type == "message_delta":
         delta = event_dict.get("delta") or {}
         stop_reason = delta.get("stop_reason")
         if stop_reason:
             collector.set_finish_reason(stop_reason)
-        usage = event_dict.get("usage") or {}
+        usage = event_dict.get("usage") if isinstance(event_dict.get("usage"), dict) else {}
+        kwargs = {}
         if usage.get("output_tokens") is not None:
-            collector.append_usage(completion_tokens=usage["output_tokens"])
+            kwargs["completion_tokens"] = usage["output_tokens"]
+        if usage.get("cache_read_input_tokens") is not None:
+            kwargs["cached_tokens"] = usage["cache_read_input_tokens"]
+        if kwargs:
+            collector.append_usage(**kwargs)
 
     elif event_type == "message_stop":
         collector.mark_message_stop(request_id=ctx.get("msg_id"))
@@ -440,6 +466,11 @@ def _assembled_to_anthropic_response(
     """
     content: list[dict[str, Any]] = []
 
+    # Thinking blocks come first to match Anthropic's non-streaming ordering
+    # (extended-thinking blocks are emitted before the final assistant text).
+    for block in assembled.get("thinking_blocks") or []:
+        content.append(block)
+
     text = assembled.get("text")
     if text:
         content.append({"type": "text", "text": text})
@@ -464,6 +495,10 @@ def _assembled_to_anthropic_response(
         usage["input_tokens"] = raw_usage["prompt_tokens"]
     if raw_usage.get("completion_tokens") is not None:
         usage["output_tokens"] = raw_usage["completion_tokens"]
+    if raw_usage.get("cached_tokens") is not None:
+        # Round-trip into the canonical Anthropic key so the normalizer
+        # (which reads ``cache_read_input_tokens``) sees the streamed value.
+        usage["cache_read_input_tokens"] = raw_usage["cached_tokens"]
 
     return {
         "id": msg_id or assembled.get("request_id") or "",
@@ -579,6 +614,7 @@ def _enrich_step(
             "prompt_tokens": normalized.usage.prompt_tokens,
             "completion_tokens": normalized.usage.completion_tokens,
             "total_tokens": normalized.usage.total_tokens,
+            "cached_tokens": normalized.usage.cached_tokens,
         },
         "llm": normalized.to_dict(),
     })

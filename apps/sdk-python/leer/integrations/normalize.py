@@ -42,6 +42,14 @@ class LLMUsage:
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     total_tokens: int | None = None
+    # Tokens served from prompt cache (i.e. cache *reads*). Populated when the
+    # provider reports it: OpenAI ``usage.prompt_tokens_details.cached_tokens``
+    # (chat completions), ``usage.input_tokens_details.cached_tokens``
+    # (responses), Anthropic ``usage.cache_read_input_tokens``. ``None`` means
+    # the provider did not report cache-read tokens for this call (the default
+    # for non-cached requests). ``0`` means the provider reported it explicitly
+    # and no cached tokens were used.
+    cached_tokens: int | None = None
 
 
 @dataclass
@@ -286,6 +294,41 @@ def _summarize_content_for_user(content: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Cache-read token extraction (additive metadata for prompt caching)
+# ---------------------------------------------------------------------------
+
+
+def _extract_cached_tokens_openai(usage_raw: dict[str, Any]) -> int | None:
+    """Return cache-read tokens from an OpenAI ``usage`` dict, if reported.
+
+    Chat completions exposes them at ``prompt_tokens_details.cached_tokens``;
+    the Responses API exposes them at ``input_tokens_details.cached_tokens``.
+    Both shapes are tolerated (and tolerated when the nested object is itself
+    malformed, e.g. a list).
+    """
+    for key in ("prompt_tokens_details", "input_tokens_details"):
+        details = usage_raw.get(key)
+        if isinstance(details, dict):
+            value = details.get("cached_tokens")
+            if isinstance(value, int):
+                return value
+    return None
+
+
+def _extract_cached_tokens_anthropic(usage_raw: dict[str, Any]) -> int | None:
+    """Return cache-read tokens from an Anthropic ``usage`` dict, if reported.
+
+    Anthropic surfaces this as ``cache_read_input_tokens`` (not to be confused
+    with ``cache_creation_input_tokens``, which is the cache-*write* cost and
+    is intentionally not part of the canonical ``cached_tokens`` field).
+    """
+    value = usage_raw.get("cache_read_input_tokens")
+    if isinstance(value, int):
+        return value
+    return None
+
+
+# ---------------------------------------------------------------------------
 # OpenAI — parameter sets
 # ---------------------------------------------------------------------------
 
@@ -387,7 +430,9 @@ def _normalize_openai_chat(
     for tc in tool_calls:
         content_blocks.append({"type": "tool_call", **tc})
 
-    usage_raw = response.get("usage") or {}
+    usage_raw = response.get("usage")
+    if not isinstance(usage_raw, dict):
+        usage_raw = {}
 
     finish_reason = first.get("finish_reason") if isinstance(first, dict) else None
 
@@ -409,6 +454,7 @@ def _normalize_openai_chat(
             prompt_tokens=usage_raw.get("prompt_tokens"),
             completion_tokens=usage_raw.get("completion_tokens"),
             total_tokens=usage_raw.get("total_tokens"),
+            cached_tokens=_extract_cached_tokens_openai(usage_raw),
         ),
         meta=LLMMeta(
             latency_ms=latency_ms,
@@ -545,7 +591,9 @@ def _normalize_openai_responses(
 
     text = "\n\n".join(text_parts) if text_parts else None
 
-    usage_raw = response.get("usage") or {}
+    usage_raw = response.get("usage")
+    if not isinstance(usage_raw, dict):
+        usage_raw = {}
 
     return NormalizedLLMCall(
         provider="openai",
@@ -565,6 +613,7 @@ def _normalize_openai_responses(
             prompt_tokens=usage_raw.get("input_tokens"),
             completion_tokens=usage_raw.get("output_tokens"),
             total_tokens=usage_raw.get("total_tokens"),
+            cached_tokens=_extract_cached_tokens_openai(usage_raw),
         ),
         meta=LLMMeta(
             latency_ms=latency_ms,
@@ -688,7 +737,9 @@ def normalize_anthropic(
 
     text = "\n\n".join(text_parts) if text_parts else None
 
-    usage_raw = response.get("usage") or {}
+    usage_raw = response.get("usage")
+    if not isinstance(usage_raw, dict):
+        usage_raw = {}
     prompt_tokens = usage_raw.get("input_tokens")
     completion_tokens = usage_raw.get("output_tokens")
     # Anthropic does not return a precomputed total. Sum what we have, but
@@ -717,6 +768,7 @@ def normalize_anthropic(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=total,
+            cached_tokens=_extract_cached_tokens_anthropic(usage_raw),
         ),
         meta=LLMMeta(
             latency_ms=latency_ms,

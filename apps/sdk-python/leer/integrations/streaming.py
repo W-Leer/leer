@@ -81,6 +81,44 @@ class _ToolCallAccumulator:
 
 
 # ---------------------------------------------------------------------------
+# Thinking-block assembly state (Anthropic extended thinking)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class _ThinkingAccumulator:
+    """Tracks incremental assembly of a single thinking block from deltas.
+
+    Anthropic streams extended-thinking content as:
+      - ``content_block_start`` with ``content_block.type == "thinking"`` or
+        ``"redacted_thinking"``
+      - zero or more ``content_block_delta`` events with ``delta.type ==
+        "thinking_delta"`` (text increments) or ``"signature_delta"``
+        (verification signature for the completed block)
+      - ``content_block_stop``
+
+    Redacted-thinking blocks carry no text deltas; the block itself is a
+    placeholder ``{"type": "redacted_thinking"}`` indistinguishable from a
+    standard one in canonical output.
+    """
+
+    index: int
+    redacted: bool = False
+    text_parts: list[str] = field(default_factory=list)
+    signature_parts: list[str] = field(default_factory=list)
+
+    def assembled(self) -> dict[str, Any]:
+        if self.redacted:
+            return {"type": "redacted_thinking"}
+        block: dict[str, Any] = {
+            "type": "thinking",
+            "thinking": "".join(self.text_parts),
+        }
+        if self.signature_parts:
+            block["signature"] = "".join(self.signature_parts)
+        return block
+
+
+# ---------------------------------------------------------------------------
 # StreamCollector
 # ---------------------------------------------------------------------------
 
@@ -112,10 +150,22 @@ class StreamCollector:
         # Assembly state
         self._text_parts: list[str] = []
         self._tool_calls: dict[int, _ToolCallAccumulator] = {}
+        # Thinking blocks (Anthropic extended thinking). Keyed by content-block
+        # index so deltas land on the right block. Used only when a provider
+        # actively streams thinking content; absent otherwise.
+        self._thinking_blocks: dict[int, _ThinkingAccumulator] = {}
+        # Refusal text streamed by the provider (OpenAI chat-completions
+        # ``delta.refusal`` and OpenAI Responses ``response.refusal.delta``).
+        # Tracked separately from ``_text_parts`` so the assembled response
+        # can preserve the canonical refusal shape (chat completions
+        # ``message.refusal`` / Responses ``refusal`` content block), which
+        # is what the normalizers and Step 1's ``meta.refusal`` rule expect.
+        self._refusal_parts: list[str] = []
         self._usage: dict[str, int | None] = {
             "prompt_tokens": None,
             "completion_tokens": None,
             "total_tokens": None,
+            "cached_tokens": None,
         }
         self._finish_reason: str | None = None
         self._request_id: str | None = None
@@ -171,6 +221,25 @@ class StreamCollector:
             payload={"text": text},
         ))
 
+    def append_refusal_delta(self, text: str) -> None:
+        """Append a streamed refusal-text delta.
+
+        Refusal text is intentionally tracked separately from regular text
+        parts so the assembled response preserves the canonical refusal
+        shape that ``normalize_openai`` (and Step 1's ``meta.refusal``) rely
+        on. Empty deltas are ignored.
+        """
+        if not text:
+            return
+        self._record_chunk_timing()
+        self._refusal_parts.append(text)
+        self._append_event(StreamEvent(
+            index=self._next_index(),
+            type="refusal_delta",
+            timestamp_offset_ms=self._offset_ms(),
+            payload={"text": text},
+        ))
+
     def append_tool_call_delta(
         self,
         tool_index: int = 0,
@@ -212,6 +281,7 @@ class StreamCollector:
         prompt_tokens: int | None = None,
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
+        cached_tokens: int | None = None,
     ) -> None:
         self._record_chunk_timing()
         if prompt_tokens is not None:
@@ -220,6 +290,8 @@ class StreamCollector:
             self._usage["completion_tokens"] = completion_tokens
         if total_tokens is not None:
             self._usage["total_tokens"] = total_tokens
+        if cached_tokens is not None:
+            self._usage["cached_tokens"] = cached_tokens
 
         payload: dict[str, Any] = {}
         if prompt_tokens is not None:
@@ -228,12 +300,63 @@ class StreamCollector:
             payload["completion_tokens"] = completion_tokens
         if total_tokens is not None:
             payload["total_tokens"] = total_tokens
+        if cached_tokens is not None:
+            payload["cached_tokens"] = cached_tokens
 
         self._append_event(StreamEvent(
             index=self._next_index(),
             type="usage",
             timestamp_offset_ms=self._offset_ms(),
             payload=payload,
+        ))
+
+    def begin_thinking_block(self, *, block_index: int, redacted: bool = False) -> None:
+        """Open a thinking block at the given content-block index.
+
+        Subsequent ``append_thinking_delta`` / ``append_thinking_signature``
+        calls land on this block until another ``begin_thinking_block`` is
+        opened. Redacted-thinking blocks emit no text deltas; the block is
+        recorded as a placeholder so canonical output mirrors non-streaming.
+        """
+        self._record_chunk_timing()
+        self._thinking_blocks[block_index] = _ThinkingAccumulator(
+            index=block_index,
+            redacted=redacted,
+        )
+        self._append_event(StreamEvent(
+            index=self._next_index(),
+            type="thinking_start",
+            timestamp_offset_ms=self._offset_ms(),
+            payload={"block_index": block_index, "redacted": redacted},
+        ))
+
+    def append_thinking_delta(self, *, block_index: int, text: str) -> None:
+        self._record_chunk_timing()
+        acc = self._thinking_blocks.get(block_index)
+        if acc is None:
+            # Tolerate out-of-order events: implicitly open a non-redacted block.
+            acc = _ThinkingAccumulator(index=block_index)
+            self._thinking_blocks[block_index] = acc
+        acc.text_parts.append(text)
+        self._append_event(StreamEvent(
+            index=self._next_index(),
+            type="thinking_delta",
+            timestamp_offset_ms=self._offset_ms(),
+            payload={"block_index": block_index, "text": text},
+        ))
+
+    def append_thinking_signature(self, *, block_index: int, signature: str) -> None:
+        self._record_chunk_timing()
+        acc = self._thinking_blocks.get(block_index)
+        if acc is None:
+            acc = _ThinkingAccumulator(index=block_index)
+            self._thinking_blocks[block_index] = acc
+        acc.signature_parts.append(signature)
+        self._append_event(StreamEvent(
+            index=self._next_index(),
+            type="thinking_signature",
+            timestamp_offset_ms=self._offset_ms(),
+            payload={"block_index": block_index, "signature": signature},
         ))
 
     def mark_message_start(self, payload: dict[str, Any] | None = None) -> None:
@@ -303,10 +426,27 @@ class StreamCollector:
         return text if text else None
 
     @property
+    def assembled_refusal(self) -> str | None:
+        text = "".join(self._refusal_parts)
+        return text if text else None
+
+    @property
     def assembled_tool_calls(self) -> list[dict[str, Any]]:
         return [
             self._tool_calls[idx].assembled()
             for idx in sorted(self._tool_calls)
+        ]
+
+    @property
+    def assembled_thinking_blocks(self) -> list[dict[str, Any]]:
+        """Thinking blocks in content-block order (Anthropic streams only).
+
+        Empty list when no thinking blocks were observed. Order matches the
+        non-streaming ``content_blocks`` ordering used by ``normalize_anthropic``.
+        """
+        return [
+            self._thinking_blocks[idx].assembled()
+            for idx in sorted(self._thinking_blocks)
         ]
 
     def stream_metadata(self) -> dict[str, Any]:
@@ -366,7 +506,9 @@ class StreamCollector:
         tool_calls = self.assembled_tool_calls
         return {
             "text": self.assembled_text,
+            "refusal": self.assembled_refusal,
             "tool_calls": tool_calls,
+            "thinking_blocks": self.assembled_thinking_blocks,
             "usage": dict(self._usage),
             "finish_reason": self._finish_reason,
             "request_id": self._request_id,

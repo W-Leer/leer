@@ -99,6 +99,19 @@ Provider support is not only about one-shot sync requests. Finalization, partial
 
 We should not hide strange provider behavior. Empty responses, refusals, tool-only responses, malformed arguments, and partial stream endings should remain visible as real observability events.
 
+### 7. Canonical content channels are structurally distinct
+
+Provider responses surface several semantically distinct content channels — assistant text, refusals, internal/extended thinking, tool calls, media. Leer treats these as structurally separate even when a provider conflates them on the wire.
+
+The rule for canonical consumers (run-detail, compare, exports, future replay) is:
+
+- **`output.text` is the main human-readable assistant text.** It is the primary surface for run-detail bodies, compare summaries, and full-text search.
+- **`thinking`, `refusal`, `tool_calls`, and media blocks are separate semantic channels.** They live in dedicated structured fields (`content_blocks` of typed shapes; `meta.refusal`; `tool_calls`; etc.).
+- **For backward compatibility, refusal text is also inlined into `output.text`** with a `[refusal] ` prefix (the dual-representation rule introduced by Step 1). Thinking text is *not* mirrored into `output.text` — it has no human-friendly inline representation.
+- **Canonical consumers should prefer the structured field when available.** UIs that just need to render an assistant body can keep reading `output.text`; UIs that need to detect, color, badge, or filter on a channel must read the structured field directly. Future code should not collapse the channels back into one.
+
+This rule applies uniformly across providers and across sync/streaming paths. New channels added later (e.g. tool-result content, citations) should follow the same shape: typed structured field as the source of truth, optional human-readable mirror in `output.text` only when the inline form is genuinely useful.
+
 ---
 
 ## Main Problem Areas
@@ -392,6 +405,12 @@ This workstream is successful when:
 
 ## Status
 
-Not started.
+In progress. Tracked under the **Provider Reliability Pass** workstream.
 
-This spec is the starting point for the **Provider Reliability Pass** workstream.
+- **Step 0 — Audit**: complete (`docs/04-execution/provider-hardening-step-0-audit.md`)
+- **Step 1 — Normalization + summary hardening**: complete. Introduced `metadata.capture = "partial"` and refusal dual-representation (`output.text` + `meta.refusal`). See plan for stable contracts.
+- **Step 2 — Sync↔streaming parity + cross-provider metadata consistency**: complete. Introduced `LLMUsage.cached_tokens`, OpenAI Responses-API streaming canonical parity, Anthropic streaming `thinking` / `redacted_thinking` capture, and malformed-`usage` tolerance. See plan for stable contracts.
+- **Step 3 — UI visibility + non-regression for newly hardened provider data**: not started.
+- **Step 4 — Demo + QA signoff**: not started.
+
+The canonical content-channels rule (Design Principle 7) is the durable contract that Step 3's UI work must respect.
