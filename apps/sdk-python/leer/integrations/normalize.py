@@ -737,6 +737,24 @@ def normalize_anthropic(
 
     text = "\n\n".join(text_parts) if text_parts else None
 
+    # Refusal handling: unlike OpenAI (dedicated `message.refusal` field or
+    # `refusal` content block), Anthropic signals a refusal via
+    # `stop_reason == "refusal"`. To keep the refusal channel symmetric across
+    # providers — so `meta.refusal` detection, the run-detail/compare refusal
+    # badge, and the refusal compare-insight fire for Anthropic too — surface
+    # it in `meta.refusal`. Mirrors the Step 1 dual-representation rule: the
+    # refusal text is the model's explanation (when present), and a
+    # `[refusal] ` marker is inlined into `output.text` only when no other
+    # content was returned. This keys on `stop_reason`, so the streaming path
+    # inherits it via the round-tripped response dict.
+    stop_reason = response.get("stop_reason")
+    refusal_text: str | None = None
+    if stop_reason == "refusal":
+        refusal_text = text or "Model declined to respond."
+        if not text:
+            text = f"[refusal] {refusal_text}"
+            content_blocks.append({"type": "text", "text": text})
+
     usage_raw = response.get("usage")
     if not isinstance(usage_raw, dict):
         usage_raw = {}
@@ -772,8 +790,9 @@ def normalize_anthropic(
         ),
         meta=LLMMeta(
             latency_ms=latency_ms,
-            finish_reason=response.get("stop_reason"),
+            finish_reason=stop_reason,
             request_id=response.get("id"),
+            refusal=refusal_text,
         ),
     )
 

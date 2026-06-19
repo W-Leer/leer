@@ -421,6 +421,8 @@ def _process_openai_chunk(collector: StreamCollector, chunk: Any) -> None:
 
     if chunk_dict.get("id"):
         collector.set_request_id(chunk_dict["id"])
+    if chunk_dict.get("model"):
+        collector.set_response_model(chunk_dict["model"])
 
     choices = chunk_dict.get("choices") or []
     if not choices:
@@ -526,7 +528,7 @@ def _assembled_to_chat_response(
 
     return {
         "id": assembled.get("request_id") or "",
-        "model": request_dict.get("model"),
+        "model": assembled.get("model") or request_dict.get("model"),
         "choices": [{
             "index": 0,
             "message": message,
@@ -559,6 +561,8 @@ def _process_openai_responses_event(collector: StreamCollector, event: Any) -> N
         rid = response.get("id") if isinstance(response, dict) else None
         if rid:
             collector.set_request_id(rid)
+        if isinstance(response, dict) and response.get("model"):
+            collector.set_response_model(response["model"])
         collector.mark_message_start(payload={"response_id": rid})
 
     elif event_type == "response.output_item.added":
@@ -591,6 +595,8 @@ def _process_openai_responses_event(collector: StreamCollector, event: Any) -> N
     elif event_type == "response.completed":
         response = event_dict.get("response") or {}
         if isinstance(response, dict):
+            if response.get("model"):
+                collector.set_response_model(response["model"])
             usage = response.get("usage")
             if isinstance(usage, dict):
                 cached = None
@@ -617,9 +623,14 @@ def _process_openai_responses_event(collector: StreamCollector, event: Any) -> N
         collector.mark_message_stop(payload={"original_type": event_type})
 
     elif event_type and event_type.startswith("response."):
-        # Recognized-but-unmodeled event (e.g. ``response.in_progress``,
-        # ``response.output_item.done``, ``response.content_part.added``).
-        # Recorded for traceability but does not contribute to assembly.
+        # Recognized-but-unmodeled Responses event (e.g.
+        # ``response.in_progress``, ``response.output_item.done``,
+        # ``response.content_part.added``, ``response.output_text.done``).
+        # These carry no canonical payload we assemble from, and the
+        # load-bearing data they summarize is already captured via the
+        # delta/usage events above, so they are intentionally dropped rather
+        # than stored — keeping the ``llm_stream`` artifact focused. Unknown
+        # *non*-``response.`` events still fall through to ``mark_unknown``.
         pass
 
     else:
@@ -695,7 +706,7 @@ def _assembled_to_responses_dict(
     return {
         "id": assembled.get("request_id") or "",
         "object": "response",
-        "model": request_dict.get("model"),
+        "model": assembled.get("model") or request_dict.get("model"),
         "status": assembled.get("finish_reason"),
         "output": output,
         "usage": usage_dict,

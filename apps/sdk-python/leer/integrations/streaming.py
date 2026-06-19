@@ -169,6 +169,10 @@ class StreamCollector:
         }
         self._finish_reason: str | None = None
         self._request_id: str | None = None
+        # Model the provider reports on the wire (resolved snapshot). When set
+        # it wins over the requested model in the assembled response, matching
+        # the non-streaming path where ``response.model`` is authoritative.
+        self._response_model: str | None = None
 
         # Termination
         self._termination: str = "completed"
@@ -402,6 +406,11 @@ class StreamCollector:
     def set_request_id(self, request_id: str) -> None:
         self._request_id = request_id
 
+    def set_response_model(self, model: str | None) -> None:
+        """Record the provider-reported (resolved) model. Empty values ignored."""
+        if model:
+            self._response_model = model
+
     def mark_failed(self) -> None:
         self._termination = "failed"
 
@@ -512,4 +521,5 @@ class StreamCollector:
             "usage": dict(self._usage),
             "finish_reason": self._finish_reason,
             "request_id": self._request_id,
+            "model": self._response_model,
         }
