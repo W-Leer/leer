@@ -35,6 +35,13 @@ class LLMOutput:
     text: str | None = None
     content_blocks: list[dict[str, Any]] = field(default_factory=list)
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    # The structured object a model returned, when determinable: an
+    # SDK-provided parsed object (``message.parsed`` / ``output_parsed`` from
+    # the ``.parse()`` helpers) when present, else the JSON object/array the
+    # canonical ``text`` decodes to. ``None`` for plain-text or tool-only
+    # outputs. Provider-agnostic and additive — consumers get a uniform
+    # structured payload regardless of which provider produced it.
+    parsed: Any | None = None
 
 
 @dataclass
@@ -62,6 +69,11 @@ class LLMMeta:
     # block). ``None`` means no refusal was reported. The refusal text is
     # also inlined as ``[refusal] ...`` in ``output.text`` for back-compat.
     refusal: str | None = None
+    # ``True`` when the canonical text output is itself a JSON object/array
+    # (i.e. ``output.parsed`` is populated). Content-derived and independent
+    # of whether a schema/``response_format`` was requested — a structured
+    # signal consumers can read without re-parsing ``output.text``.
+    output_is_json: bool = False
 
 
 @dataclass
@@ -93,6 +105,35 @@ def _safe_get(d: dict[str, Any], *keys: str, default: Any = None) -> Any:
 
 def _extract_params(request: dict[str, Any], known: frozenset[str]) -> dict[str, Any]:
     return {k: v for k, v in request.items() if k in known}
+
+
+def _detect_structured_output(
+    text: str | None,
+    sdk_parsed: Any = None,
+) -> tuple[Any, bool]:
+    """Determine the structured payload for an LLM output.
+
+    Prefers an SDK-provided parsed object (``message.parsed`` /
+    ``output_parsed`` from the ``.parse()`` helpers) when it is a dict/list;
+    otherwise decodes the canonical ``text`` when it is a whole JSON
+    object/array. Returns ``(parsed_object, is_json)``.
+
+    Only object/array JSON counts as "structured" — scalar JSON (e.g. a bare
+    ``42`` or ``"hi"``) and refusal-prefixed text are intentionally not
+    flagged, so ordinary prose is never mislabeled.
+    """
+    if isinstance(sdk_parsed, (dict, list)):
+        return sdk_parsed, True
+    if isinstance(text, str):
+        stripped = text.strip()
+        if stripped[:1] in ("{", "["):
+            try:
+                obj = json.loads(stripped)
+            except (ValueError, TypeError):
+                return None, False
+            if isinstance(obj, (dict, list)):
+                return obj, True
+    return None, False
 
 
 def _parse_arguments(raw: Any) -> Any:
@@ -436,6 +477,9 @@ def _normalize_openai_chat(
 
     finish_reason = first.get("finish_reason") if isinstance(first, dict) else None
 
+    sdk_parsed = message.get("parsed") if isinstance(message, dict) else None
+    parsed, output_is_json = _detect_structured_output(text, sdk_parsed)
+
     return NormalizedLLMCall(
         provider="openai",
         model=_resolve_model(response, request),
@@ -449,6 +493,7 @@ def _normalize_openai_chat(
             text=text,
             content_blocks=content_blocks,
             tool_calls=tool_calls,
+            parsed=parsed,
         ),
         usage=LLMUsage(
             prompt_tokens=usage_raw.get("prompt_tokens"),
@@ -461,6 +506,7 @@ def _normalize_openai_chat(
             finish_reason=finish_reason,
             request_id=response.get("id"),
             refusal=refusal_text if has_refusal else None,
+            output_is_json=output_is_json,
         ),
     )
 
@@ -595,6 +641,8 @@ def _normalize_openai_responses(
     if not isinstance(usage_raw, dict):
         usage_raw = {}
 
+    parsed, output_is_json = _detect_structured_output(text, response.get("output_parsed"))
+
     return NormalizedLLMCall(
         provider="openai",
         model=_resolve_model(response, request),
@@ -608,6 +656,7 @@ def _normalize_openai_responses(
             text=text,
             content_blocks=content_blocks,
             tool_calls=tool_calls,
+            parsed=parsed,
         ),
         usage=LLMUsage(
             prompt_tokens=usage_raw.get("input_tokens"),
@@ -620,6 +669,7 @@ def _normalize_openai_responses(
             finish_reason=response.get("status"),
             request_id=response.get("id"),
             refusal=refusal_text,
+            output_is_json=output_is_json,
         ),
     )
 
@@ -768,6 +818,11 @@ def normalize_anthropic(
     else:
         total = (prompt_tokens or 0) + (completion_tokens or 0)
 
+    # Anthropic has no parsed-object helper; structured-via-forced-tool keeps
+    # its object in ``tool_calls[].arguments``. Only flag when the model
+    # returned JSON as its text output (so detection stays provider-agnostic).
+    parsed, output_is_json = _detect_structured_output(text)
+
     return NormalizedLLMCall(
         provider="anthropic",
         model=_resolve_model(response, request),
@@ -781,6 +836,7 @@ def normalize_anthropic(
             text=text,
             content_blocks=content_blocks,
             tool_calls=tool_calls,
+            parsed=parsed,
         ),
         usage=LLMUsage(
             prompt_tokens=prompt_tokens,
@@ -793,6 +849,7 @@ def normalize_anthropic(
             finish_reason=stop_reason,
             request_id=response.get("id"),
             refusal=refusal_text,
+            output_is_json=output_is_json,
         ),
     )
 

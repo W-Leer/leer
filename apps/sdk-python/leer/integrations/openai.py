@@ -60,9 +60,22 @@ class _WrappedOpenAI:
         self.chat = _WrappedChat(client.chat)
         if hasattr(client, "responses"):
             self.responses = _WrappedResponses(client.responses)
+        # ``beta.chat.completions.parse`` is the original structured-output
+        # entry point; wrap the ``beta`` namespace so it is instrumented too.
+        if hasattr(client, "beta") and hasattr(client.beta, "chat"):
+            self.beta = _WrappedBeta(client.beta)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._client, name)
+
+
+class _WrappedBeta:
+    def __init__(self, beta: Any) -> None:
+        self._beta = beta
+        self.chat = _WrappedChat(beta.chat)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._beta, name)
 
 
 class _WrappedChat:
@@ -81,6 +94,11 @@ class _WrappedCompletions:
     def create(self, *args: Any, **kwargs: Any) -> Any:
         return _instrumented_create(self._completions.create, args, kwargs)
 
+    def parse(self, *args: Any, **kwargs: Any) -> Any:
+        # Structured-output helper (returns ``message.parsed``); instrument it
+        # exactly like ``create`` so schema-constrained calls are captured.
+        return _instrumented_create(self._completions.parse, args, kwargs)
+
     def __getattr__(self, name: str) -> Any:
         return getattr(self._completions, name)
 
@@ -91,6 +109,10 @@ class _WrappedResponses:
 
     def create(self, *args: Any, **kwargs: Any) -> Any:
         return _instrumented_create(self._responses.create, args, kwargs)
+
+    def parse(self, *args: Any, **kwargs: Any) -> Any:
+        # Responses-API structured-output helper (returns ``output_parsed``).
+        return _instrumented_create(self._responses.parse, args, kwargs)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._responses, name)
