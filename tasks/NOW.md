@@ -6,16 +6,21 @@ Make Leer feel extremely strong and trustworthy as an observability product for 
 ## Tasks
 
 ### Immediate next feature
-- [ ] Provider hardening pass for OpenAI and Anthropic
+- [x] Provider hardening pass for OpenAI and Anthropic — **COMPLETE (Steps 0–4)**.
+  Assessed production-ready for the v1 observability scope. See QA signoff:
+  `docs/04-execution/provider-hardening-qa.md` (plan:
+  `tasks/provider-hardening-implementation-plan.md`). Candidate next
+  workstreams are in `docs/04-growth/next-steps-roadmap.md`.
 
-### Provider hardening
-- [ ] Validate OpenAI wrapper edge cases
-- [ ] Validate Anthropic wrapper edge cases
-- [ ] Ensure normalized LLM shape consistency across both providers
-- [ ] Harden streaming edge cases
-- [ ] Harden tool-calling edge cases
-- [ ] Harden multimodal edge cases
-- [ ] Harden error / finish-reason / usage normalization
+### Provider hardening — done
+- [x] Validate OpenAI wrapper edge cases
+- [x] Validate Anthropic wrapper edge cases
+- [x] Ensure normalized LLM shape consistency across both providers
+- [x] Harden streaming edge cases (sync↔streaming parity)
+- [x] Harden tool-calling edge cases
+- [x] Harden error / finish-reason / usage normalization
+- [~] Multimodal edge cases — inputs + image/document outputs covered; broader
+  multimodal validation tracked in the roadmap, not blocking.
 
 ### Observability UX
 - [ ] Improve compare clarity for complex runs
