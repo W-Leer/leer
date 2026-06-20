@@ -8,6 +8,9 @@ import {
   cachedTokensDiverges,
   getThinkingBlocks,
   hasThinking,
+  getParsedOutput,
+  isJsonOutput,
+  jsonOutputDiverges,
 } from "./provider-hardening";
 import type { LLMShape } from "./types";
 
@@ -16,19 +19,32 @@ function makeLlm(partial: {
   content_blocks?: Record<string, unknown>[];
   cached_tokens?: number | null;
   refusal?: string | null;
+  parsed?: unknown;
+  output_is_json?: boolean;
 }): LLMShape {
   return {
     provider: "openai",
     model: "gpt-4.1",
     input: { system: null, messages: [], tools: [], params: {} },
-    output: { text: "hi", tool_calls: [], content_blocks: partial.content_blocks ?? [] },
+    output: {
+      text: "hi",
+      tool_calls: [],
+      content_blocks: partial.content_blocks ?? [],
+      parsed: partial.parsed,
+    },
     usage: {
       prompt_tokens: null,
       completion_tokens: null,
       total_tokens: null,
       cached_tokens: partial.cached_tokens,
     },
-    meta: { finish_reason: null, request_id: null, latency_ms: null, refusal: partial.refusal },
+    meta: {
+      finish_reason: null,
+      request_id: null,
+      latency_ms: null,
+      refusal: partial.refusal,
+      output_is_json: partial.output_is_json,
+    },
   };
 }
 
@@ -185,5 +201,61 @@ describe("getThinkingBlocks / hasThinking", () => {
     expect(getThinkingBlocks(undefined)).toEqual([]);
     const llm = makeLlm({ content_blocks: [null as unknown as Record<string, unknown>, { type: 42 as unknown as string }] });
     expect(getThinkingBlocks(llm)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Structured output (Step 1: output.parsed / meta.output_is_json)
+// ---------------------------------------------------------------------------
+
+describe("getParsedOutput", () => {
+  test("returns the parsed object when present", () => {
+    const obj = { intent: "q", confidence: 0.9 };
+    expect(getParsedOutput(makeLlm({ parsed: obj }))).toEqual(obj);
+  });
+
+  test("returns parsed arrays", () => {
+    expect(getParsedOutput(makeLlm({ parsed: [1, 2, 3] }))).toEqual([1, 2, 3]);
+  });
+
+  test("null when absent / scalar / wrong type", () => {
+    expect(getParsedOutput(makeLlm({}))).toBeNull();
+    expect(getParsedOutput(makeLlm({ parsed: null }))).toBeNull();
+    expect(getParsedOutput(makeLlm({ parsed: 42 as unknown }))).toBeNull();
+    expect(getParsedOutput(makeLlm({ parsed: "hi" as unknown }))).toBeNull();
+  });
+
+  test("safe on null / undefined llm", () => {
+    expect(getParsedOutput(null)).toBeNull();
+    expect(getParsedOutput(undefined)).toBeNull();
+  });
+});
+
+describe("isJsonOutput", () => {
+  test("true when meta.output_is_json is true", () => {
+    expect(isJsonOutput(makeLlm({ output_is_json: true }))).toBe(true);
+  });
+
+  test("true when a parsed object is present even without the flag", () => {
+    expect(isJsonOutput(makeLlm({ parsed: { a: 1 } }))).toBe(true);
+  });
+
+  test("false for plain text outputs and missing data", () => {
+    expect(isJsonOutput(makeLlm({}))).toBe(false);
+    expect(isJsonOutput(makeLlm({ output_is_json: false }))).toBe(false);
+    expect(isJsonOutput(null)).toBe(false);
+  });
+});
+
+describe("jsonOutputDiverges", () => {
+  test("one side JSON, other not → diverges", () => {
+    expect(jsonOutputDiverges(makeLlm({ output_is_json: true }), makeLlm({}))).toBe(true);
+    expect(jsonOutputDiverges(makeLlm({}), makeLlm({ parsed: { a: 1 } }))).toBe(true);
+  });
+
+  test("both JSON or both not → no divergence", () => {
+    expect(jsonOutputDiverges(makeLlm({ output_is_json: true }), makeLlm({ parsed: { a: 1 } }))).toBe(false);
+    expect(jsonOutputDiverges(makeLlm({}), makeLlm({}))).toBe(false);
+    expect(jsonOutputDiverges(null, null)).toBe(false);
   });
 });

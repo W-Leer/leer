@@ -10,7 +10,7 @@ import { ContentBlockRow, InputMediaMarker } from "@/components/media-artifact";
 import { computeLatencyBreakdown, type LatencyBreakdown } from "@/lib/latency";
 import type { ToolCallLinkResult, LinkageConfidence, ToolCallLifecycle } from "@/lib/tool-linkage";
 import { deriveLifecycle } from "@/lib/tool-linkage";
-import { getCachedTokens, getThinkingBlocks, type ThinkingBlock } from "@/lib/provider-hardening";
+import { getCachedTokens, getParsedOutput, getThinkingBlocks, type ThinkingBlock } from "@/lib/provider-hardening";
 
 type Dict = Record<string, unknown>;
 
@@ -392,7 +392,9 @@ function ParamsBlock({ params }: { params: Record<string, unknown> }) {
 
 function OutputSection({ llm, hideToolCalls, artifacts }: { llm: LLMShape; hideToolCalls?: boolean; artifacts?: StepArtifactRef[] }) {
   const output = llm.output;
-  const structuredText = output.text ? tryParseJson(output.text) : null;
+  // Prefer the canonical parsed object (e.g. from `.parse()`); fall back to
+  // decoding `output.text` so older records still render structurally.
+  const structured = getParsedOutput(llm) ?? (output.text ? tryParseJson(output.text) : null);
 
   const mediaBlocks = output.content_blocks.filter(
     (b) => {
@@ -407,12 +409,11 @@ function OutputSection({ llm, hideToolCalls, artifacts }: { llm: LLMShape; hideT
         Output
       </div>
       <div className="space-y-3">
-        {output.text &&
-          (structuredText != null ? (
-            <StructuredValue value={structuredText} />
-          ) : (
-            <ExpandableTextBlock text={output.text} />
-          ))}
+        {structured != null ? (
+          <StructuredValue value={structured} />
+        ) : output.text ? (
+          <ExpandableTextBlock text={output.text} />
+        ) : null}
         {mediaBlocks.length > 0 && (
           <div className="space-y-2">
             {mediaBlocks.map((block, i) => (

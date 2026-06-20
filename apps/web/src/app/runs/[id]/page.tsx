@@ -31,7 +31,7 @@ import {
   MCP_BADGE,
   RETRIEVAL_STAGE_BADGE,
 } from "@/lib/step-metadata";
-import { isPartialCapture, hasRefusal, PARTIAL_CAPTURE_TOOLTIP } from "@/lib/provider-hardening";
+import { isPartialCapture, hasRefusal, isJsonOutput, PARTIAL_CAPTURE_TOOLTIP } from "@/lib/provider-hardening";
 import { ChevronRight, GitCompareArrows } from "lucide-react";
 
 export default function RunDetailPage() {
@@ -466,6 +466,14 @@ function StepCard({
               {hasRefusal(step.llm) && (
                 <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400">
                   refusal
+                </span>
+              )}
+              {step.step_type === "llm" && isJsonOutput(step.llm) && (
+                <span
+                  title="Structured output — the model returned a JSON object/array."
+                  className="rounded px-1.5 py-0.5 font-mono text-[10px] bg-sky-50 text-sky-600 dark:bg-sky-950/30 dark:text-sky-400"
+                >
+                  JSON
                 </span>
               )}
               {isPartialCapture(step.metadata) && (

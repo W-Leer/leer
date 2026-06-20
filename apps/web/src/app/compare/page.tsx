@@ -26,6 +26,8 @@ import {
   refusalCompareState,
   getCachedTokens,
   cachedTokensDiverges,
+  isJsonOutput,
+  jsonOutputDiverges,
   PARTIAL_CAPTURE_TOOLTIP,
 } from "@/lib/provider-hardening";
 import type {
@@ -690,6 +692,17 @@ function StepDiffHeader({
               {label}
             </span>
           );
+        })()}
+
+        {(() => {
+          const ja = isJsonOutput(step.llm_a);
+          const jb = isJsonOutput(step.llm_b);
+          if (!ja && !jb) return null;
+          const label = ja && jb ? "JSON" : ja ? "JSON A only" : "JSON B only";
+          const cls = ja !== jb
+            ? "bg-[var(--diff-badge-bg)] text-[var(--diff-badge-text)]"
+            : "bg-sky-50 text-sky-600 dark:bg-sky-950/30 dark:text-sky-400";
+          return <span className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-medium ${cls}`}>{label}</span>;
         })()}
 
         {(() => {
@@ -2206,6 +2219,7 @@ function computeInsight(data: CompareResponse): string | null {
   let tokenDiffFound = false;
   let cachedTokenDiffFound = false;
   let refusalDiffFound = false;
+  let jsonOutputDiffFound = false;
   let toolCallCountDiff = false;
   let toolFailureDiff = false;
   let retrievalCountDiff = false;
@@ -2215,6 +2229,7 @@ function computeInsight(data: CompareResponse): string | null {
   for (const step of steps) {
     if (refusalCompareState(step.llm_a, step.llm_b).diverges) refusalDiffFound = true;
     if (cachedTokensDiverges(step.llm_a?.usage, step.llm_b?.usage)) cachedTokenDiffFound = true;
+    if (jsonOutputDiverges(step.llm_a, step.llm_b)) jsonOutputDiffFound = true;
 
     const sA = streamVal(step.metadata_a);
     const sB = streamVal(step.metadata_b);
@@ -2296,6 +2311,10 @@ function computeInsight(data: CompareResponse): string | null {
 
   if (toolCallCountDiff) {
     return "Different tool call count — the LLM emitted a different number of tool calls across runs.";
+  }
+
+  if (jsonOutputDiffFound) {
+    return "Structured-output divergence — one run returned a JSON object/array while the other did not.";
   }
 
   if (streamDiffFound) {

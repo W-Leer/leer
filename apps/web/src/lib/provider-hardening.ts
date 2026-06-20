@@ -141,3 +141,35 @@ export function getThinkingBlocks(llm: LLMShape | null | undefined): ThinkingBlo
 export function hasThinking(llm: LLMShape | null | undefined): boolean {
   return getThinkingBlocks(llm).length > 0;
 }
+
+// ---------------------------------------------------------------------------
+// Structured output (Step 1: output.parsed / meta.output_is_json)
+// ---------------------------------------------------------------------------
+
+/**
+ * The structured object a model returned, when captured canonically — an
+ * object or array. `null` for plain-text / tool-only outputs or when the
+ * field is absent (older records). Prefer this over re-parsing `output.text`.
+ */
+export function getParsedOutput(llm: LLMShape | null | undefined): unknown | null {
+  const p = llm?.output?.parsed;
+  return p !== null && typeof p === "object" ? p : null;
+}
+
+/**
+ * True when the step produced a JSON object/array output. Reads the canonical
+ * `meta.output_is_json` flag, falling back to the presence of `output.parsed`
+ * so records captured before the flag existed still register.
+ */
+export function isJsonOutput(llm: LLMShape | null | undefined): boolean {
+  if (llm?.meta?.output_is_json === true) return true;
+  return getParsedOutput(llm) !== null;
+}
+
+/** True when exactly one side produced a structured JSON output. */
+export function jsonOutputDiverges(
+  a: LLMShape | null | undefined,
+  b: LLMShape | null | undefined,
+): boolean {
+  return isJsonOutput(a) !== isJsonOutput(b);
+}

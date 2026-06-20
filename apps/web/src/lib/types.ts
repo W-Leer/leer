@@ -87,6 +87,10 @@ export interface LLMShape {
     text: string | null;
     tool_calls: Record<string, unknown>[];
     content_blocks: Record<string, unknown>[];
+    // Structured object the model returned (Step 1 canonical field): an
+    // SDK-provided parsed object or the JSON `text` decodes to. Absent/null
+    // for plain-text or tool-only outputs.
+    parsed?: unknown;
   };
   usage: {
     prompt_tokens: number | null;
@@ -103,6 +107,9 @@ export interface LLMShape {
     // Raw refusal string when the provider explicitly signalled a refusal
     // (Step 1 canonical field). `null`/absent means no refusal.
     refusal?: string | null;
+    // True when the canonical text output is a JSON object/array (Step 1
+    // structured-output signal). Absent on records predating the field.
+    output_is_json?: boolean;
   };
 }
 

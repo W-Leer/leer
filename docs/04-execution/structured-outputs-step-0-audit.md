@@ -208,14 +208,22 @@ arbitrary tool args into `output.parsed` would mislabel ordinary tool calls.
 Uniform "did this step return a structured object?" detection therefore consults
 `output.parsed` **or** `tool_calls`.
 
+### UI surfacing (done)
+
+`output.parsed` / `meta.output_is_json` are now exposed additively:
+- `LLMShape` types extended (`apps/web/src/lib/types.ts`).
+- Detection helpers `getParsedOutput` / `isJsonOutput` / `jsonOutputDiverges`
+  (`apps/web/src/lib/provider-hardening.ts`) + 9 unit tests.
+- Run-detail: a compact `JSON` badge on structured LLM steps; the output
+  renderer prefers the canonical `output.parsed` (falling back to decoding
+  `output.text`).
+- Compare: a `JSON` / `JSON A|B only` badge (diff-highlighted when it diverges)
+  and a "Structured-output divergence" insight.
+
 ### Still open after Step 1
 
 - **G-A2** — `.stream()` context-manager helpers still uninstrumented
   (`create(stream=True)` remains the supported streaming path). Defer or wrap.
-- **UI surfacing** — `output.parsed` / `meta.output_is_json` flow into
-  `metadata.llm` but are not yet shown in run-detail / compare. The existing
-  `StructuredValue` renderer already renders JSON-in-text; surfacing the explicit
-  flag is a small additive follow-up.
 - **Request serialization** — `.parse()` is normally called with a pydantic
   *class* as `response_format`/`text_format`. Capture succeeds in-memory; verify
   the API client's JSON encoder tolerates non-serializable request kwargs (or
