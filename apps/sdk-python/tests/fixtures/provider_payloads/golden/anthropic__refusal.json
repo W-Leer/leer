@@ -1,0 +1,41 @@
+{
+  "input": {
+    "messages": [
+      {
+        "content": "Provide disallowed content.",
+        "role": "user"
+      }
+    ],
+    "params": {
+      "max_tokens": 256
+    },
+    "system": null,
+    "tools": []
+  },
+  "meta": {
+    "finish_reason": "refusal",
+    "latency_ms": 560,
+    "output_is_json": false,
+    "refusal": "Model declined to respond.",
+    "request_id": "msg_drift_refusal_001"
+  },
+  "model": "claude-sonnet-4-20250514",
+  "output": {
+    "content_blocks": [
+      {
+        "text": "[refusal] Model declined to respond.",
+        "type": "text"
+      }
+    ],
+    "parsed": null,
+    "text": "[refusal] Model declined to respond.",
+    "tool_calls": []
+  },
+  "provider": "anthropic",
+  "usage": {
+    "cached_tokens": null,
+    "completion_tokens": 1,
+    "prompt_tokens": 15,
+    "total_tokens": 16
+  }
+}

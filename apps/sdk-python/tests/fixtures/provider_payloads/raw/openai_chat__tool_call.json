@@ -1,0 +1,55 @@
+{
+  "kind": "openai_chat",
+  "provenance": {
+    "provider": "openai",
+    "surface": "client.chat.completions.create",
+    "source": "hand-authored",
+    "api_reference_date": "2026-06",
+    "notes": "Single function tool call; content is null."
+  },
+  "latency_ms": 1190,
+  "request": {
+    "model": "gpt-4.1",
+    "temperature": 0.0,
+    "messages": [
+      {"role": "user", "content": "What is the weather in Paris?"}
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "description": "Look up current weather",
+          "parameters": {
+            "type": "object",
+            "properties": {"city": {"type": "string"}},
+            "required": ["city"]
+          }
+        }
+      }
+    ]
+  },
+  "response": {
+    "id": "chatcmpl-drift-tool-001",
+    "object": "chat.completion",
+    "model": "gpt-4.1-2025-04-14",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "call_w1",
+              "type": "function",
+              "function": {"name": "get_weather", "arguments": "{\"city\": \"Paris\"}"}
+            }
+          ]
+        },
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "usage": {"prompt_tokens": 42, "completion_tokens": 14, "total_tokens": 56}
+  }
+}

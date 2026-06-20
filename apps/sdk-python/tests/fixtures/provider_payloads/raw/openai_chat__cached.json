@@ -1,0 +1,36 @@
+{
+  "kind": "openai_chat",
+  "provenance": {
+    "provider": "openai",
+    "surface": "client.chat.completions.create",
+    "source": "hand-authored",
+    "api_reference_date": "2026-06",
+    "notes": "Prompt-cache read reported at usage.prompt_tokens_details.cached_tokens."
+  },
+  "latency_ms": 705,
+  "request": {
+    "model": "gpt-4.1",
+    "messages": [
+      {"role": "system", "content": "Long cached system preamble..."},
+      {"role": "user", "content": "Continue."}
+    ]
+  },
+  "response": {
+    "id": "chatcmpl-drift-cached-001",
+    "object": "chat.completion",
+    "model": "gpt-4.1-2025-04-14",
+    "choices": [
+      {
+        "index": 0,
+        "message": {"role": "assistant", "content": "Continuing as requested."},
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 2048,
+      "completion_tokens": 16,
+      "total_tokens": 2064,
+      "prompt_tokens_details": {"cached_tokens": 1920}
+    }
+  }
+}

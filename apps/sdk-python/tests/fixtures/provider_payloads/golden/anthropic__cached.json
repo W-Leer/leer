@@ -1,0 +1,41 @@
+{
+  "input": {
+    "messages": [
+      {
+        "content": "Continue.",
+        "role": "user"
+      }
+    ],
+    "params": {
+      "max_tokens": 256
+    },
+    "system": "Long cached system preamble...",
+    "tools": []
+  },
+  "meta": {
+    "finish_reason": "end_turn",
+    "latency_ms": 815,
+    "output_is_json": false,
+    "refusal": null,
+    "request_id": "msg_drift_cached_001"
+  },
+  "model": "claude-sonnet-4-20250514",
+  "output": {
+    "content_blocks": [
+      {
+        "text": "Continuing as requested.",
+        "type": "text"
+      }
+    ],
+    "parsed": null,
+    "text": "Continuing as requested.",
+    "tool_calls": []
+  },
+  "provider": "anthropic",
+  "usage": {
+    "cached_tokens": 1900,
+    "completion_tokens": 14,
+    "prompt_tokens": 120,
+    "total_tokens": 134
+  }
+}

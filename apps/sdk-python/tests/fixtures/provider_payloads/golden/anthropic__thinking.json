@@ -1,0 +1,49 @@
+{
+  "input": {
+    "messages": [
+      {
+        "content": "What is 17 * 23? Think step by step.",
+        "role": "user"
+      }
+    ],
+    "params": {
+      "max_tokens": 1024,
+      "thinking": {
+        "budget_tokens": 512,
+        "type": "enabled"
+      }
+    },
+    "system": null,
+    "tools": []
+  },
+  "meta": {
+    "finish_reason": "end_turn",
+    "latency_ms": 2100,
+    "output_is_json": false,
+    "refusal": null,
+    "request_id": "msg_drift_think_001"
+  },
+  "model": "claude-sonnet-4-20250514",
+  "output": {
+    "content_blocks": [
+      {
+        "thinking": "17 * 23 = 17 * 20 + 17 * 3 = 340 + 51 = 391.",
+        "type": "thinking"
+      },
+      {
+        "text": "17 * 23 = 391.",
+        "type": "text"
+      }
+    ],
+    "parsed": null,
+    "text": "17 * 23 = 391.",
+    "tool_calls": []
+  },
+  "provider": "anthropic",
+  "usage": {
+    "cached_tokens": null,
+    "completion_tokens": 40,
+    "prompt_tokens": 28,
+    "total_tokens": 68
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "input": {
+    "messages": [
+      {
+        "content": "Summarize what Leer does in one sentence.",
+        "role": "user"
+      }
+    ],
+    "params": {
+      "max_output_tokens": 512,
+      "temperature": 0.3
+    },
+    "system": "You are a helpful assistant.",
+    "tools": []
+  },
+  "meta": {
+    "finish_reason": "completed",
+    "latency_ms": 1320,
+    "output_is_json": false,
+    "refusal": null,
+    "request_id": "resp_drift_text_001"
+  },
+  "model": "gpt-4.1-2025-04-14",
+  "output": {
+    "content_blocks": [
+      {
+        "text": "Leer captures provider-agnostic execution records of AI runs.",
+        "type": "text"
+      }
+    ],
+    "parsed": null,
+    "text": "Leer captures provider-agnostic execution records of AI runs.",
+    "tool_calls": []
+  },
+  "provider": "openai",
+  "usage": {
+    "cached_tokens": null,
+    "completion_tokens": 14,
+    "prompt_tokens": 31,
+    "total_tokens": 45
+  }
+}

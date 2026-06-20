@@ -1,0 +1,34 @@
+{
+  "kind": "openai_chat",
+  "provenance": {
+    "provider": "openai",
+    "surface": "client.chat.completions.create",
+    "source": "hand-authored",
+    "api_reference_date": "2026-06",
+    "notes": "Dedicated message.refusal field (no content)."
+  },
+  "latency_ms": 640,
+  "request": {
+    "model": "gpt-4.1-mini",
+    "messages": [
+      {"role": "user", "content": "Give me instructions to do something harmful."}
+    ]
+  },
+  "response": {
+    "id": "chatcmpl-drift-refusal-001",
+    "object": "chat.completion",
+    "model": "gpt-4.1-mini-2025-04-14",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": null,
+          "refusal": "I'm sorry, but I can't help with that."
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {"prompt_tokens": 21, "completion_tokens": 12, "total_tokens": 33}
+  }
+}

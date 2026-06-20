@@ -1,0 +1,33 @@
+{
+  "kind": "openai_chat",
+  "provenance": {
+    "provider": "openai",
+    "surface": "client.chat.completions.create",
+    "source": "hand-authored",
+    "api_reference_date": "2026-06",
+    "notes": "Plain assistant text response."
+  },
+  "latency_ms": 842,
+  "request": {
+    "model": "gpt-4.1-mini",
+    "temperature": 0.2,
+    "max_tokens": 256,
+    "messages": [
+      {"role": "system", "content": "You are a concise assistant."},
+      {"role": "user", "content": "Say hello in one short sentence."}
+    ]
+  },
+  "response": {
+    "id": "chatcmpl-drift-text-001",
+    "object": "chat.completion",
+    "model": "gpt-4.1-mini-2025-04-14",
+    "choices": [
+      {
+        "index": 0,
+        "message": {"role": "assistant", "content": "Hello there — happy to help!"},
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {"prompt_tokens": 18, "completion_tokens": 8, "total_tokens": 26}
+  }
+}

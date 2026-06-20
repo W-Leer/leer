@@ -1,0 +1,35 @@
+{
+  "kind": "openai_responses",
+  "provenance": {
+    "provider": "openai",
+    "surface": "client.responses.create",
+    "source": "hand-authored",
+    "api_reference_date": "2026-06",
+    "notes": "Responses API message output with a single output_text block."
+  },
+  "latency_ms": 1320,
+  "request": {
+    "model": "gpt-4.1",
+    "temperature": 0.3,
+    "max_output_tokens": 512,
+    "instructions": "You are a helpful assistant.",
+    "input": "Summarize what Leer does in one sentence."
+  },
+  "response": {
+    "id": "resp_drift_text_001",
+    "object": "response",
+    "model": "gpt-4.1-2025-04-14",
+    "status": "completed",
+    "output": [
+      {
+        "id": "msg_001",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {"type": "output_text", "text": "Leer captures provider-agnostic execution records of AI runs."}
+        ]
+      }
+    ],
+    "usage": {"input_tokens": 31, "output_tokens": 14, "total_tokens": 45}
+  }
+}

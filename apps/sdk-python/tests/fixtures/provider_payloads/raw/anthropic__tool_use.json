@@ -1,0 +1,41 @@
+{
+  "kind": "anthropic",
+  "provenance": {
+    "provider": "anthropic",
+    "surface": "client.messages.create",
+    "source": "hand-authored",
+    "api_reference_date": "2026-06",
+    "notes": "Leading text block followed by a tool_use block; stop_reason tool_use."
+  },
+  "latency_ms": 1240,
+  "request": {
+    "model": "claude-sonnet-4-20250514",
+    "max_tokens": 512,
+    "messages": [
+      {"role": "user", "content": "What is the weather in Madrid?"}
+    ],
+    "tools": [
+      {
+        "name": "get_weather",
+        "description": "Look up current weather",
+        "input_schema": {
+          "type": "object",
+          "properties": {"city": {"type": "string"}},
+          "required": ["city"]
+        }
+      }
+    ]
+  },
+  "response": {
+    "id": "msg_drift_tool_001",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-sonnet-4-20250514",
+    "stop_reason": "tool_use",
+    "content": [
+      {"type": "text", "text": "Let me check that for you."},
+      {"type": "tool_use", "id": "toolu_1", "name": "get_weather", "input": {"city": "Madrid"}}
+    ],
+    "usage": {"input_tokens": 49, "output_tokens": 22}
+  }
+}

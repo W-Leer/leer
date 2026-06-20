@@ -1,0 +1,42 @@
+{
+  "input": {
+    "messages": [
+      {
+        "content": "Say hello in one short sentence.",
+        "role": "user"
+      }
+    ],
+    "params": {
+      "max_tokens": 256,
+      "temperature": 0.4
+    },
+    "system": "You are a concise assistant.",
+    "tools": []
+  },
+  "meta": {
+    "finish_reason": "end_turn",
+    "latency_ms": 980,
+    "output_is_json": false,
+    "refusal": null,
+    "request_id": "msg_drift_text_001"
+  },
+  "model": "claude-sonnet-4-20250514",
+  "output": {
+    "content_blocks": [
+      {
+        "text": "Hello — glad to help!",
+        "type": "text"
+      }
+    ],
+    "parsed": null,
+    "text": "Hello — glad to help!",
+    "tool_calls": []
+  },
+  "provider": "anthropic",
+  "usage": {
+    "cached_tokens": null,
+    "completion_tokens": 7,
+    "prompt_tokens": 17,
+    "total_tokens": 24
+  }
+}

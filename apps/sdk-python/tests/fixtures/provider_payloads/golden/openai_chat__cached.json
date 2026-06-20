@@ -1,0 +1,39 @@
+{
+  "input": {
+    "messages": [
+      {
+        "content": "Continue.",
+        "role": "user"
+      }
+    ],
+    "params": {},
+    "system": "Long cached system preamble...",
+    "tools": []
+  },
+  "meta": {
+    "finish_reason": "stop",
+    "latency_ms": 705,
+    "output_is_json": false,
+    "refusal": null,
+    "request_id": "chatcmpl-drift-cached-001"
+  },
+  "model": "gpt-4.1-2025-04-14",
+  "output": {
+    "content_blocks": [
+      {
+        "text": "Continuing as requested.",
+        "type": "text"
+      }
+    ],
+    "parsed": null,
+    "text": "Continuing as requested.",
+    "tool_calls": []
+  },
+  "provider": "openai",
+  "usage": {
+    "cached_tokens": 1920,
+    "completion_tokens": 16,
+    "prompt_tokens": 2048,
+    "total_tokens": 2064
+  }
+}

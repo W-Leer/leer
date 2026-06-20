@@ -1,0 +1,35 @@
+{
+  "kind": "anthropic",
+  "provenance": {
+    "provider": "anthropic",
+    "surface": "client.messages.create",
+    "source": "hand-authored",
+    "api_reference_date": "2026-06",
+    "notes": "Prompt-cache read reported at usage.cache_read_input_tokens (cache_creation_input_tokens is intentionally ignored)."
+  },
+  "latency_ms": 815,
+  "request": {
+    "model": "claude-sonnet-4-20250514",
+    "max_tokens": 256,
+    "system": "Long cached system preamble...",
+    "messages": [
+      {"role": "user", "content": "Continue."}
+    ]
+  },
+  "response": {
+    "id": "msg_drift_cached_001",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-sonnet-4-20250514",
+    "stop_reason": "end_turn",
+    "content": [
+      {"type": "text", "text": "Continuing as requested."}
+    ],
+    "usage": {
+      "input_tokens": 120,
+      "output_tokens": 14,
+      "cache_read_input_tokens": 1900,
+      "cache_creation_input_tokens": 64
+    }
+  }
+}

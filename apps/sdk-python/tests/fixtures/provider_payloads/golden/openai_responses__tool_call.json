@@ -1,0 +1,68 @@
+{
+  "input": {
+    "messages": [
+      {
+        "content": "Look up the weather in Berlin.",
+        "role": "user"
+      }
+    ],
+    "params": {},
+    "system": null,
+    "tools": [
+      {
+        "description": "Look up current weather",
+        "name": "get_weather",
+        "parameters": {
+          "properties": {
+            "city": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "city"
+          ],
+          "type": "object"
+        },
+        "type": "function"
+      }
+    ]
+  },
+  "meta": {
+    "finish_reason": "completed",
+    "latency_ms": 1455,
+    "output_is_json": false,
+    "refusal": null,
+    "request_id": "resp_drift_tool_001"
+  },
+  "model": "gpt-4.1-2025-04-14",
+  "output": {
+    "content_blocks": [
+      {
+        "arguments": {
+          "city": "Berlin"
+        },
+        "id": "call_b1",
+        "name": "get_weather",
+        "type": "tool_call"
+      }
+    ],
+    "parsed": null,
+    "text": null,
+    "tool_calls": [
+      {
+        "arguments": {
+          "city": "Berlin"
+        },
+        "id": "call_b1",
+        "name": "get_weather"
+      }
+    ]
+  },
+  "provider": "openai",
+  "usage": {
+    "cached_tokens": null,
+    "completion_tokens": 12,
+    "prompt_tokens": 38,
+    "total_tokens": 50
+  }
+}

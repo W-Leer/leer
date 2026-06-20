@@ -1,0 +1,46 @@
+{
+  "input": {
+    "messages": [
+      {
+        "content": "Classify sentiment of 'I love this' as JSON.",
+        "role": "user"
+      }
+    ],
+    "params": {
+      "response_format": {
+        "type": "json_object"
+      }
+    },
+    "system": null,
+    "tools": []
+  },
+  "meta": {
+    "finish_reason": "stop",
+    "latency_ms": 910,
+    "output_is_json": true,
+    "refusal": null,
+    "request_id": "chatcmpl-drift-json-001"
+  },
+  "model": "gpt-4.1-mini-2025-04-14",
+  "output": {
+    "content_blocks": [
+      {
+        "text": "{\"sentiment\": \"positive\", \"score\": 0.97}",
+        "type": "text"
+      }
+    ],
+    "parsed": {
+      "score": 0.97,
+      "sentiment": "positive"
+    },
+    "text": "{\"sentiment\": \"positive\", \"score\": 0.97}",
+    "tool_calls": []
+  },
+  "provider": "openai",
+  "usage": {
+    "cached_tokens": null,
+    "completion_tokens": 13,
+    "prompt_tokens": 24,
+    "total_tokens": 37
+  }
+}

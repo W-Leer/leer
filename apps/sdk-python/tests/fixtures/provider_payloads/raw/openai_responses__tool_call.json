@@ -1,0 +1,45 @@
+{
+  "kind": "openai_responses",
+  "provenance": {
+    "provider": "openai",
+    "surface": "client.responses.create",
+    "source": "hand-authored",
+    "api_reference_date": "2026-06",
+    "notes": "Responses API function_call output item."
+  },
+  "latency_ms": 1455,
+  "request": {
+    "model": "gpt-4.1",
+    "input": [
+      {"role": "user", "content": "Look up the weather in Berlin."}
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "name": "get_weather",
+        "description": "Look up current weather",
+        "parameters": {
+          "type": "object",
+          "properties": {"city": {"type": "string"}},
+          "required": ["city"]
+        }
+      }
+    ]
+  },
+  "response": {
+    "id": "resp_drift_tool_001",
+    "object": "response",
+    "model": "gpt-4.1-2025-04-14",
+    "status": "completed",
+    "output": [
+      {
+        "id": "fc_001",
+        "type": "function_call",
+        "call_id": "call_b1",
+        "name": "get_weather",
+        "arguments": "{\"city\": \"Berlin\"}"
+      }
+    ],
+    "usage": {"input_tokens": 38, "output_tokens": 12, "total_tokens": 50}
+  }
+}

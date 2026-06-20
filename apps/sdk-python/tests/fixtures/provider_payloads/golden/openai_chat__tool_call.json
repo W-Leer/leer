@@ -1,0 +1,72 @@
+{
+  "input": {
+    "messages": [
+      {
+        "content": "What is the weather in Paris?",
+        "role": "user"
+      }
+    ],
+    "params": {
+      "temperature": 0.0
+    },
+    "system": null,
+    "tools": [
+      {
+        "function": {
+          "description": "Look up current weather",
+          "name": "get_weather",
+          "parameters": {
+            "properties": {
+              "city": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      }
+    ]
+  },
+  "meta": {
+    "finish_reason": "tool_calls",
+    "latency_ms": 1190,
+    "output_is_json": false,
+    "refusal": null,
+    "request_id": "chatcmpl-drift-tool-001"
+  },
+  "model": "gpt-4.1-2025-04-14",
+  "output": {
+    "content_blocks": [
+      {
+        "arguments": {
+          "city": "Paris"
+        },
+        "id": "call_w1",
+        "name": "get_weather",
+        "type": "tool_call"
+      }
+    ],
+    "parsed": null,
+    "text": null,
+    "tool_calls": [
+      {
+        "arguments": {
+          "city": "Paris"
+        },
+        "id": "call_w1",
+        "name": "get_weather"
+      }
+    ]
+  },
+  "provider": "openai",
+  "usage": {
+    "cached_tokens": null,
+    "completion_tokens": 14,
+    "prompt_tokens": 42,
+    "total_tokens": 56
+  }
+}

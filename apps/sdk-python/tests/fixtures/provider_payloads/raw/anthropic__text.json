@@ -1,0 +1,31 @@
+{
+  "kind": "anthropic",
+  "provenance": {
+    "provider": "anthropic",
+    "surface": "client.messages.create",
+    "source": "hand-authored",
+    "api_reference_date": "2026-06",
+    "notes": "Single text content block; stop_reason end_turn."
+  },
+  "latency_ms": 980,
+  "request": {
+    "model": "claude-sonnet-4-20250514",
+    "max_tokens": 256,
+    "temperature": 0.4,
+    "system": "You are a concise assistant.",
+    "messages": [
+      {"role": "user", "content": "Say hello in one short sentence."}
+    ]
+  },
+  "response": {
+    "id": "msg_drift_text_001",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-sonnet-4-20250514",
+    "stop_reason": "end_turn",
+    "content": [
+      {"type": "text", "text": "Hello — glad to help!"}
+    ],
+    "usage": {"input_tokens": 17, "output_tokens": 7}
+  }
+}
