@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import base64
+import json
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -103,6 +105,53 @@ def _build_payload(run: TraceRun) -> dict[str, Any]:
     }
 
 
+def _json_default(obj: Any) -> Any:
+    """Fallback encoder for values ``json.dumps`` can't handle natively.
+
+    Without this, a single non-JSON-serializable value anywhere in a captured
+    payload makes the whole ``submit`` fail — and the broad ``except`` below
+    *silently drops the entire run*. The most common offender is a pydantic
+    model *class* passed as ``response_format`` / ``text_format`` to the OpenAI
+    ``.parse()`` / ``.stream()`` helpers, which lands in the ``llm_request``
+    artifact and in ``metadata.llm.input.params``.
+
+    Surrounding structure is preserved; only the offending leaf is replaced
+    with a meaningful representation (a model's schema/dump when available,
+    otherwise a readable marker).
+    """
+    # pydantic model instance (or anything with a working ``model_dump()``).
+    dump = getattr(obj, "model_dump", None)
+    if callable(dump):
+        try:
+            return dump()
+        except Exception:
+            pass
+    # pydantic model *class* (response_format / text_format) — keep its schema.
+    schema = getattr(obj, "model_json_schema", None)
+    if callable(schema):
+        try:
+            return schema()
+        except Exception:
+            pass
+    if isinstance(obj, (set, frozenset)):
+        return list(obj)
+    if isinstance(obj, (bytes, bytearray)):
+        return bytes(obj).decode("utf-8", "replace")
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, type):
+        mod = getattr(obj, "__module__", "?")
+        qn = getattr(obj, "__qualname__", getattr(obj, "__name__", "object"))
+        return f"<class {mod}.{qn}>"
+    return f"<unserializable {type(obj).__name__}>"
+
+
+def _encode_payload(payload: dict[str, Any]) -> bytes:
+    """Serialize a payload to JSON bytes, never failing on a stray
+    non-serializable value (which would otherwise drop the whole run)."""
+    return json.dumps(payload, default=_json_default).encode("utf-8")
+
+
 def submit(run: TraceRun) -> None:
     if not _config.api_base_url:
         print("[leer] warning: api_base_url not configured, skipping submission", file=sys.stderr)
@@ -112,7 +161,13 @@ def submit(run: TraceRun) -> None:
     payload = _build_payload(run)
 
     try:
-        resp = httpx.post(url, json=payload, timeout=10.0)
+        content = _encode_payload(payload)
+        resp = httpx.post(
+            url,
+            content=content,
+            headers={"Content-Type": "application/json"},
+            timeout=10.0,
+        )
         resp.raise_for_status()
     except Exception as exc:
         print(f"[leer] submission failed: {exc}", file=sys.stderr)

@@ -236,9 +236,22 @@ instrumented (`openai.py`):
 - Outside a trace, `.stream()` returns the raw manager unchanged.
 - Covered by `apps/sdk-python/tests/test_openai_stream_helpers.py` (6 tests).
 
+### Request serialization (done)
+
+`submit()` posted runs with `httpx.post(json=payload)` (plain `json.dumps`, no
+fallback) wrapped in a broad `except` — so a single non-serializable value
+(e.g. a pydantic `response_format`/`text_format` class) would have **silently
+dropped the entire run**. Fixed centrally in `leer/client.py`:
+- `_json_default` — fallback encoder preserving surrounding structure and
+  replacing only the offending leaf (pydantic instance → `model_dump()`;
+  pydantic class → `model_json_schema()`; sets→list, bytes→text, datetime→iso;
+  else a readable `<class …>` / `<unserializable …>` marker).
+- `_encode_payload` + `submit` now post pre-encoded JSON `content`, so *any*
+  stray non-serializable value anywhere in the payload can no longer drop a run.
+- Covered by `apps/sdk-python/tests/test_client_serialization.py` (10 tests).
+
 ### Still open after Step 1
 
-- **Request serialization** — `.parse()` is normally called with a pydantic
-  *class* as `response_format`/`text_format`. Capture succeeds in-memory; verify
-  the API client's JSON encoder tolerates non-serializable request kwargs (or
-  redact them) before relying on `.parse()` in production.
+- Nothing blocking. Workstream item A (structured-output validation) is
+  complete: capture (`.parse()` + `.stream()`), canonical signal, UI surfacing,
+  and submission robustness are all done and tested.
