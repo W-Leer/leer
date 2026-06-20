@@ -99,6 +99,10 @@ class _WrappedCompletions:
         # exactly like ``create`` so schema-constrained calls are captured.
         return _instrumented_create(self._completions.parse, args, kwargs)
 
+    def stream(self, *args: Any, **kwargs: Any) -> Any:
+        # Context-manager streaming helper; capture like create(stream=True).
+        return _instrumented_stream(self._completions.stream, args, kwargs, api_style="chat_helper")
+
     def __getattr__(self, name: str) -> Any:
         return getattr(self._completions, name)
 
@@ -113,6 +117,10 @@ class _WrappedResponses:
     def parse(self, *args: Any, **kwargs: Any) -> Any:
         # Responses-API structured-output helper (returns ``output_parsed``).
         return _instrumented_create(self._responses.parse, args, kwargs)
+
+    def stream(self, *args: Any, **kwargs: Any) -> Any:
+        # Responses streaming helper; events match responses.create(stream=True).
+        return _instrumented_stream(self._responses.stream, args, kwargs, api_style="responses")
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._responses, name)
@@ -303,12 +311,23 @@ class _StreamingIterator:
         try:
             if self._api_style == "responses":
                 _process_openai_responses_event(self._collector, chunk)
+            elif self._api_style == "chat_helper":
+                _process_openai_chat_stream_event(self._collector, chunk)
             else:
                 _process_openai_chunk(self._collector, chunk)
         except Exception:
             pass
 
         return chunk
+
+    def __getattr__(self, name: str) -> Any:
+        # Delegate helper-stream methods (get_final_completion, text_stream,
+        # etc.) to the wrapped stream so instrumenting `.stream()` does not
+        # take away the SDK's convenience API. Private/dunder names are not
+        # forwarded to avoid surprising proxy behavior.
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return getattr(self._raw_stream, name)
 
     def __enter__(self) -> _StreamingIterator:
         if hasattr(self._raw_stream, "__enter__"):
@@ -415,6 +434,112 @@ class _StreamingIterator:
 
 
 # ---------------------------------------------------------------------------
+# Streaming context-manager helper (.stream())
+# ---------------------------------------------------------------------------
+
+class _WrappedStreamManager:
+    """Instruments OpenAI's ``.stream()`` context-manager helpers.
+
+    Unlike ``create(stream=True)`` (which returns an iterator directly), the
+    ``.stream()`` helpers return a manager that issues the request on
+    ``__enter__`` and yields stream events. We create the step on enter, feed
+    every event through the same ``StreamCollector`` assembly as
+    ``create(stream=True)``, and finalize on ``__exit__`` — so ``.stream()``
+    captures land in the identical canonical shape. The entered object proxies
+    unknown attributes back to the underlying stream, preserving the SDK's
+    convenience API (``get_final_completion`` / ``get_final_response`` / ...).
+    """
+
+    def __init__(self, manager: Any, request_dict: dict[str, Any], api_style: str) -> None:
+        self._manager = manager
+        self._request_dict = request_dict
+        self._api_style = api_style  # "chat_helper" or "responses"
+        self._iterator: _StreamingIterator | None = None
+        self._entered: Any = None
+
+    def __enter__(self) -> Any:
+        run = get_current_run()
+        if run is None:
+            # Trace ended between .stream() and enter — pure passthrough.
+            self._entered = self._manager.__enter__()
+            return self._entered
+
+        model_hint = self._request_dict.get("model") or "openai"
+        parent = current_step()
+        s = TraceStep(
+            name=str(model_hint),
+            step_type="llm",
+            sequence_index=len(run.steps),
+            parent_step_id=parent.id if parent else None,
+            status="running",
+            started_at=_now(),
+        )
+        run.steps.append(s)
+        push_step(s)
+        _emit_step_event("step.created", s.id)
+        _emit_step_event("step.started", s.id)
+
+        t0 = time.perf_counter()
+        try:
+            raw_stream = self._manager.__enter__()
+        except Exception:
+            latency_ms = int((time.perf_counter() - t0) * 1000)
+            collector = StreamCollector(provider="openai", model=self._request_dict.get("model"))
+            collector.mark_failed()
+            s.status = "failed"
+            s.ended_at = _now()
+            s.duration_ms = _duration_ms(s)
+            s.error_summary = {"traceback": traceback.format_exc()}
+            s.metadata.update({
+                "provider": "openai",
+                "model": self._request_dict.get("model"),
+                "latency_ms": latency_ms,
+            })
+            s.metadata["stream"] = collector.stream_metadata()
+            _safe_attach_request_artifact(s, self._request_dict)
+            _emit_step_event("step.failed", s.id)
+            pop_step()
+            raise
+
+        collector = StreamCollector(provider="openai", model=self._request_dict.get("model"))
+        self._iterator = _StreamingIterator(
+            raw_stream, collector, s, self._request_dict, t0, self._api_style,
+        )
+        self._entered = raw_stream
+        return self._iterator
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> Any:
+        # Finalize our step (idempotent — iteration may have already finalized
+        # on StopIteration/error) before closing the underlying manager.
+        if self._iterator is not None and not self._iterator._finalized:
+            if exc_type is not None:
+                self._iterator._finalize_failure()
+            else:
+                self._iterator._finalize_success()
+        return self._manager.__exit__(exc_type, exc_val, exc_tb)
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_"):
+            raise AttributeError(name)
+        target = self._entered if self._entered is not None else self._manager
+        return getattr(target, name)
+
+
+def _instrumented_stream(
+    stream_fn: Any,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    *,
+    api_style: str,
+) -> Any:
+    """Wrap a ``.stream()`` call. Outside a trace, returns the raw manager."""
+    manager = stream_fn(*args, **kwargs)
+    if get_current_run() is None:
+        return manager
+    return _WrappedStreamManager(manager, dict(kwargs), api_style)
+
+
+# ---------------------------------------------------------------------------
 # OpenAI chunk parsing
 # ---------------------------------------------------------------------------
 
@@ -496,6 +621,25 @@ def _process_openai_chunk(collector: StreamCollector, chunk: Any) -> None:
     usage = chunk_dict.get("usage")
     if isinstance(usage, dict):
         _push_chat_usage(collector, usage)
+
+
+def _process_openai_chat_stream_event(collector: StreamCollector, event: Any) -> None:
+    """Translate a chat-completions ``.stream()`` helper event.
+
+    The helper emits higher-level events; each underlying chunk is delivered
+    as a ``chunk``-type event carrying the raw ``ChatCompletionChunk`` in
+    ``.chunk``. Assembly is driven from those raw chunks — identical to
+    ``create(stream=True)`` — so the canonical record matches exactly. Other
+    event types (``content.delta``, ``content.done``, ``tool_calls.*``,
+    ``refusal.*``) duplicate data already in the chunks and are skipped to
+    avoid double-counting.
+    """
+    event_dict = _to_dict(event) if not isinstance(event, dict) else event
+    if event_dict.get("type") != "chunk":
+        return
+    chunk = event_dict.get("chunk")
+    if chunk is not None:
+        _process_openai_chunk(collector, chunk)
 
 
 # ---------------------------------------------------------------------------

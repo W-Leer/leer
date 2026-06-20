@@ -220,10 +220,24 @@ Uniform "did this step return a structured object?" detection therefore consults
 - Compare: a `JSON` / `JSON A|B only` badge (diff-highlighted when it diverges)
   and a "Structured-output divergence" insight.
 
+### G-A2 — `.stream()` helpers (done)
+
+`client.chat.completions.stream(...)` and `client.responses.stream(...)` are now
+instrumented (`openai.py`):
+- `_WrappedStreamManager` creates the step on `__enter__`, feeds every event
+  through the same `StreamCollector` assembly as `create(stream=True)`, and
+  finalizes on `__exit__` — so `.stream()` captures land in the identical
+  canonical shape (incl. `output.parsed`).
+- Chat `.stream()` events are higher-level; each underlying chunk arrives as a
+  `chunk`-type event, processed via `_process_openai_chat_stream_event` (other
+  semantic events are skipped to avoid double-counting).
+- The entered stream proxies unknown attributes back to the underlying stream,
+  preserving `get_final_completion()` / `get_final_response()`.
+- Outside a trace, `.stream()` returns the raw manager unchanged.
+- Covered by `apps/sdk-python/tests/test_openai_stream_helpers.py` (6 tests).
+
 ### Still open after Step 1
 
-- **G-A2** — `.stream()` context-manager helpers still uninstrumented
-  (`create(stream=True)` remains the supported streaming path). Defer or wrap.
 - **Request serialization** — `.parse()` is normally called with a pydantic
   *class* as `response_format`/`text_format`. Capture succeeds in-memory; verify
   the API client's JSON encoder tolerates non-serializable request kwargs (or
