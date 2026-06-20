@@ -11,11 +11,20 @@ Rendering cases covered:
   #2 [llm]   plan_search         — tool calls with structured arguments
      └─ #3 [tool] search_docs    — nested structured output
   #4 [code]  compile_results     — array of objects (table rendering)
+  #5 [llm]   extract_entities    — client.chat.completions.parse() with a
+                                   (non-serializable) response_format CLASS:
+                                   • SDK-provided message.parsed -> output.parsed
+                                     (JSON badge + StructuredValue, even though
+                                     the SDK object never round-trips text)
+                                   • the response_format class is preserved as a
+                                     schema by the submission encoder — proving
+                                     the run is NOT silently dropped
 
 Compare diff targets (Run A vs Run B):
   • classify_intent  — intent, confidence, entities all change
   • search_docs      — different result count, different scores
   • compile_results  — extra row, different values
+  • extract_entities — different entities + sentiment (parsed object diff)
 
 Prerequisites:
   - API running at http://127.0.0.1:8000
@@ -56,10 +65,19 @@ class _FakeCompletions:
         self._responses = responses
         self._idx = 0
 
-    def create(self, **kwargs: Any) -> _FakeResponse:
+    def _next(self) -> _FakeResponse:
         resp = self._responses[self._idx]
         self._idx += 1
         return _FakeResponse(resp)
+
+    def create(self, **kwargs: Any) -> _FakeResponse:
+        return self._next()
+
+    # Structured-output helper. The real SDK accepts a pydantic model *class*
+    # as ``response_format`` and returns it parsed at ``message.parsed``; the
+    # wrapper routes this through the same instrumentation as ``create``.
+    def parse(self, **kwargs: Any) -> _FakeResponse:
+        return self._next()
 
 
 class _FakeChat:
@@ -70,6 +88,31 @@ class _FakeChat:
 class _FakeOpenAI:
     def __init__(self, responses: list[dict[str, Any]]) -> None:
         self.chat = _FakeChat(responses)
+
+
+# ---------------------------------------------------------------------------
+# response_format schema — a stand-in for a pydantic model *class*
+# ---------------------------------------------------------------------------
+
+class EntityExtraction:
+    """Passed as ``response_format`` to ``.parse()``.
+
+    A bare class object is NOT JSON-serializable, so before the submission
+    encoder was hardened this would have made the *entire run* fail to submit.
+    Now it is preserved via ``model_json_schema()`` in the captured request.
+    """
+
+    @classmethod
+    def model_json_schema(cls) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "title": "EntityExtraction",
+            "properties": {
+                "entities": {"type": "array", "items": {"type": "string"}},
+                "sentiment": {"type": "string", "enum": ["positive", "neutral", "negative"]},
+            },
+            "required": ["entities", "sentiment"],
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +219,41 @@ SEARCH_PLAN_RESPONSE_B: dict[str, Any] = {
         "finish_reason": "tool_calls",
     }],
     "usage": {"prompt_tokens": 62, "completion_tokens": 25, "total_tokens": 87},
+}
+
+# --- .parse() responses: SDK supplies the object at message.parsed ---
+
+EXTRACT_RESPONSE_A: dict[str, Any] = {
+    "id": "chatcmpl-struct-005",
+    "model": "gpt-4.1-mini",
+    "choices": [{
+        "index": 0,
+        "message": {
+            "role": "assistant",
+            "content": json.dumps({"entities": ["Leer", "tracing"], "sentiment": "neutral"}),
+            # The SDK-provided parsed object — becomes canonical output.parsed.
+            "parsed": {"entities": ["Leer", "tracing"], "sentiment": "neutral"},
+        },
+        "finish_reason": "stop",
+    }],
+    "usage": {"prompt_tokens": 40, "completion_tokens": 12, "total_tokens": 52},
+}
+
+EXTRACT_RESPONSE_B: dict[str, Any] = {
+    "id": "chatcmpl-struct-006",
+    "model": "gpt-4.1-mini",
+    "choices": [{
+        "index": 0,
+        "message": {
+            "role": "assistant",
+            "content": json.dumps(
+                {"entities": ["Leer", "tracing", "debugging"], "sentiment": "positive"}
+            ),
+            "parsed": {"entities": ["Leer", "tracing", "debugging"], "sentiment": "positive"},
+        },
+        "finish_reason": "stop",
+    }],
+    "usage": {"prompt_tokens": 44, "completion_tokens": 16, "total_tokens": 60},
 }
 
 
@@ -294,6 +372,16 @@ def run_demo(variant: str, search_results: dict[str, Any]) -> dict[str, Any]:
             for r in search_results["results"]
         ]
 
+    # -- Step 5: structured output via .parse() with a response_format class --
+    # Exercises (a) .parse() instrumentation, (b) SDK message.parsed becoming
+    # canonical output.parsed, and (c) submission encoding of a non-serializable
+    # response_format class. If the run shows up in the UI at all, (c) works.
+    client.chat.completions.parse(
+        model="gpt-4.1-mini",
+        messages=[{"role": "user", "content": f"Extract entities + sentiment from: {query}"}],
+        response_format=EntityExtraction,
+    )
+
     return {
         "status": "completed",
         "answer": "Leer is an execution tracing platform for AI agents.",
@@ -314,7 +402,7 @@ def main() -> None:
 
     # --- Run A (baseline) ---
     print("\n  Submitting Run A (baseline)...")
-    client = _make_client([CLASSIFY_RESPONSE_A, SEARCH_PLAN_RESPONSE_A])
+    client = _make_client([CLASSIFY_RESPONSE_A, SEARCH_PLAN_RESPONSE_A, EXTRACT_RESPONSE_A])
     try:
         result_a = run_demo(variant="A", search_results=SEARCH_RESULTS_A)
         print(f"  Run A submitted. Output: {json.dumps(result_a)}")
@@ -324,7 +412,7 @@ def main() -> None:
 
     # --- Run B (variant with diffs) ---
     print("\n  Submitting Run B (variant)...")
-    client = _make_client([CLASSIFY_RESPONSE_B, SEARCH_PLAN_RESPONSE_B])
+    client = _make_client([CLASSIFY_RESPONSE_B, SEARCH_PLAN_RESPONSE_B, EXTRACT_RESPONSE_B])
     try:
         result_b = run_demo(variant="B", search_results=SEARCH_RESULTS_B)
         print(f"  Run B submitted. Output: {json.dumps(result_b)}")
@@ -343,11 +431,14 @@ def main() -> None:
     print("    #2 plan_search     → tool call args rendered structurally")
     print("    #3 search_docs     → nested object with array of results")
     print("    #4 compile_results → array of objects as table")
+    print("    #5 extract_entities→ .parse(): JSON badge + structured output.parsed,")
+    print("                          request shows the EntityExtraction schema")
     print()
     print("  Compare (Run A vs Run B):")
     print("    classify_intent  → intent, confidence, entities differ")
     print("    search_docs      → different result count, different scores")
     print("    compile_results  → extra row in B, different relevance values")
+    print("    extract_entities → different parsed entities + sentiment")
     print()
     print("  Open http://localhost:3000 → find the two 'structured-output-demo' runs")
     print("  → click Compare on either and select the other")
