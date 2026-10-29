@@ -149,7 +149,8 @@ Fix:
   `tests/test_real_sdk_contract.py` (18 tests) drives the real SDKs offline.
 
 Still not recorded: Anthropic `beta.messages.tool_runner`. It calls the raw
-client internally, so its model calls bypass the wrapper. Track separately.
+client internally, so its model calls bypass the wrapper. Tracked as D-H5
+below.
 
 ### D-H2 (client-run tools), D-H3, D-M1 — done
 
@@ -288,3 +289,54 @@ block events arrived.
 `None` for OpenAI, which has no categories). Anthropic
 `stop_details.explanation` becomes the refusal text when the model returned
 no text.
+
+### D-H5 — Anthropic `tool_runner` and `thread()` record nothing (High) — done
+
+Checked against `anthropic` 2.3.0, the latest release. Fixed as described
+below. `tests/test_real_sdk_contract.py` drives the real `tool_runner` without
+streaming, streamed, and streamed with `run_tools_eagerly`, plus
+`thread().send()` / `.stream()`, and pass-through outside a trace. Each turn
+is one LLM step under the caller's step, and streamed and non-streamed loops
+produce the same canonical output.
+
+**Finding.** `client.beta.messages` has two entry points the wrapper only
+forwards through `__getattr__`: `tool_runner()` and `thread()`. Both build a
+`BetaMessageThread` around the resource's own `_client`, which is the raw,
+unwrapped client. Every turn then calls
+`raw_client.beta.messages.create(...)`, so a whole tool loop produces no LLM
+steps. Reproduced with the real SDK: a two-turn `tool_runner` run sent 2
+requests and recorded 0 steps. `client.messages` (non-beta) has neither
+method.
+
+Thread turns send only the new messages, plus
+`thread: {type: "create" | "continue", previous_message_id}`. Later turns
+also omit `tools`. `thread` is already in `input.params` (D-M6), so each
+recorded turn is accurate and shows which message it continues.
+
+**Fix.** The wrapped `beta.messages` intercepts `tool_runner()` and
+`thread()` and calls the real SDK method on a copy of the resource whose
+`_client` is the wrapped client. The thread then sends every turn through
+the instrumented `beta.messages.create()`, streaming or not. The SDK's
+own runner, thread state, and return types are untouched. If the resource
+has no `_client`, the call is forwarded unchanged, as before.
+
+**Not in this fix: tools the runner executes.** The runner calls `@beta_tool`
+functions itself (`_run_tool`, toolset members, eager execution while
+streaming). Recording those as `tool` steps would mean patching private
+runner methods or wrapping the user's tool objects, so it is a separate
+design item. The model's requests are still visible as `output.tool_calls`,
+and the results as `tool_result` blocks in the next turn's `input.messages`.
+
+### Found while checking D-H5 against `openai` 3.41.0 (not triaged)
+
+`openai` has no helper like `tool_runner`. Its Python SDK has no tool loop.
+But `client.responses` has two methods the wrapper forwards unrecorded:
+
+- **`responses.compact()`** compacts a conversation. It runs a model over the
+  context and returns the compacted items. A run that uses it would silently
+  lose a model call from its record.
+- **`responses.connect()`** opens a persistent Responses API WebSocket. Turns
+  sent over it bypass `responses.create()` entirely. It needs a separate
+  capture path, like a stream with no HTTP response.
+
+Both need a design decision before code.

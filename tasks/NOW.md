@@ -11,7 +11,12 @@ Both SDKs had major releases since June. Gaps and fix order:
 - [x] Docs refresh (roadmap, NOW, AGENTS, README links)
 - [x] D-H1 — record Anthropic `messages.stream()`, `messages.parse()`, `beta.messages.*`
   (also fixed D-H4: OpenAI `.stream()` + `get_final_*()` recorded empty output)
-- [ ] Anthropic `beta.messages.tool_runner` — model calls bypass the wrapper
+- [x] D-H5 — Anthropic `beta.messages.tool_runner` and `thread()`: every turn is
+  now an LLM step (model calls used to bypass the wrapper)
+- [ ] Record tools that `tool_runner` executes itself as `tool` steps (needs a
+  design; see D-H5 in the assessment)
+- [ ] OpenAI `responses.compact()` and `responses.connect()` (WebSocket) are not
+  recorded (needs a design; see the assessment)
 - [x] D-H2 / D-H3 / D-M1 — Responses `custom_tool_call`, `phase` (commentary
   kept out of `output.text`), `namespace`; Responses streaming now matches
   non-streaming

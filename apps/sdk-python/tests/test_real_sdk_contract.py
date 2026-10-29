@@ -485,3 +485,137 @@ def test_anthropic_other_beta_surfaces_still_reachable() -> None:
     client = _anthropic(lambda req: _json_response({}))
     assert hasattr(client.beta, "files")
     assert hasattr(client.beta.messages, "count_tokens")
+
+
+# ---------------------------------------------------------------------------
+# Anthropic client.beta.messages.tool_runner / thread (D-H5)
+# ---------------------------------------------------------------------------
+
+from anthropic import beta_tool  # noqa: E402
+from anthropic.lib.tools import BetaStreamingToolRunner, BetaToolRunner  # noqa: E402
+from real_sdk_harness import llm_steps as _llm_steps  # noqa: E402
+
+_TOOL_USE_REPLY = {
+    "id": "msg_1", "type": "message", "role": "assistant", "model": "claude-test",
+    "content": [{"type": "tool_use", "id": "toolu_1", "name": "get_weather", "input": {"city": "Paris"}}],
+    "stop_reason": "tool_use", "stop_sequence": None, "usage": {"input_tokens": 5, "output_tokens": 2},
+}
+_FINAL_REPLY = {
+    "id": "msg_2", "type": "message", "role": "assistant", "model": "claude-test",
+    "content": [{"type": "text", "text": "It is 18C in Paris."}],
+    "stop_reason": "end_turn", "stop_sequence": None, "usage": {"input_tokens": 9, "output_tokens": 6},
+}
+
+
+@beta_tool
+def get_weather(city: str) -> str:
+    """Get the weather for a city."""
+    return f"18C in {city}"
+
+
+def _replying(*replies: dict[str, Any]) -> tuple[Callable[[Any], Any], list[dict[str, Any]]]:
+    """Answer each request with the next reply, streamed when the request asks."""
+    bodies: list[dict[str, Any]] = []
+
+    def handler(req: Any) -> Any:
+        body = json.loads(req.content)
+        bodies.append(body)
+        reply = replies[len(bodies) - 1]
+        if body.get("stream"):
+            return _sse_response(_anthropic_events_from(reply), named=True)
+        return _json_response(reply)
+
+    return handler, bodies
+
+
+_RUNNER_MODES: dict[str, dict[str, Any]] = {
+    "create": {},
+    "stream": {"stream": True},
+    "stream_eager": {"stream": True, "run_tools_eagerly": True},
+}
+
+
+@pytest.mark.parametrize("mode", list(_RUNNER_MODES), ids=list(_RUNNER_MODES))
+def test_anthropic_tool_runner_records_every_turn(mode: str) -> None:
+    options = _RUNNER_MODES[mode]
+    streaming = bool(options.get("stream"))
+    handler, bodies = _replying(_TOOL_USE_REPLY, _FINAL_REPLY)
+    client = _anthropic(handler)
+    replies: list[Any] = []
+
+    def go() -> None:
+        runner = client.beta.messages.tool_runner(
+            model="claude-test", max_tokens=64, tools=[get_weather],
+            messages=[{"role": "user", "content": "Weather in Paris?"}], **options,
+        )
+        assert isinstance(runner, BetaStreamingToolRunner if streaming else BetaToolRunner)
+        for item in runner:
+            replies.append(item.get_final_message() if streaming else item)
+
+    run = _traced(go)
+
+    assert [m.stop_reason for m in replies] == ["tool_use", "end_turn"]
+    steps = _llm_steps(run)
+    assert len(bodies) == 2
+    assert len(steps) == 2
+    first, second = (s.metadata["llm"] for s in steps)
+    assert [tc["id"] for tc in first["output"]["tool_calls"]] == ["toolu_1"]
+    assert first["input"]["params"]["thread"] == {"type": "create"}
+    assert second["output"]["text"] == "It is 18C in Paris."
+    assert second["input"]["params"]["thread"] == {"type": "continue", "previous_message_id": "msg_1"}
+    assert second["input"]["messages"][0]["content"][0]["tool_use_id"] == "toolu_1"
+    response_artifact = "llm_stream" if streaming else "llm_response"
+    assert all(response_artifact in _artifact_types(run, s) for s in steps)
+    assert all(s.status == "completed" for s in steps)
+    assert all(s.parent_step_id is None for s in steps), "a turn must not nest under the previous turn"
+
+
+def test_anthropic_tool_runner_streaming_matches_non_streaming() -> None:
+    def canonical(mode: str) -> list[dict[str, Any]]:
+        handler, _ = _replying(_TOOL_USE_REPLY, _FINAL_REPLY)
+        client = _anthropic(handler)
+        options = _RUNNER_MODES[mode]
+
+        def go() -> None:
+            for item in client.beta.messages.tool_runner(
+                model="claude-test", max_tokens=64, tools=[get_weather],
+                messages=[{"role": "user", "content": "Weather in Paris?"}], **options,
+            ):
+                if options:
+                    item.get_final_message()
+
+        return [s.metadata["llm"]["output"] for s in _llm_steps(_traced(go))]
+
+    assert canonical("stream") == canonical("create")
+
+
+def test_anthropic_thread_turns_are_recorded() -> None:
+    handler, bodies = _replying(_anthropic_message("Hi"), {**_anthropic_message("Again"), "id": "msg_2"})
+    client = _anthropic(handler)
+
+    def go() -> None:
+        thread = client.beta.messages.thread(model="claude-test", max_tokens=16)
+        thread.send({"role": "user", "content": "hi"})
+        with thread.stream({"role": "user", "content": "again"}) as stream:
+            stream.get_final_message()
+
+    run = _traced(go)
+
+    steps = _llm_steps(run)
+    assert len(bodies) == 2
+    assert [s.metadata["llm"]["output"]["text"] for s in steps] == ["Hi", "Again"]
+    assert "llm_response" in _artifact_types(run, steps[0])
+    assert "llm_stream" in _artifact_types(run, steps[1])
+    assert steps[1].metadata["llm"]["input"]["params"]["thread"]["previous_message_id"] == "msg_1"
+
+
+def test_anthropic_tool_runner_outside_trace_is_passthrough() -> None:
+    handler, bodies = _replying(_TOOL_USE_REPLY, _FINAL_REPLY)
+    client = _anthropic(handler)
+    runner = client.beta.messages.tool_runner(
+        model="claude-test", max_tokens=64, tools=[get_weather],
+        messages=[{"role": "user", "content": "Weather in Paris?"}],
+    )
+    assert isinstance(runner, BetaToolRunner)
+    assert [m.stop_reason for m in runner] == ["tool_use", "end_turn"]
+    assert len(bodies) == 2

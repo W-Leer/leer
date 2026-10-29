@@ -23,6 +23,10 @@ Usage::
     with client.messages.stream(model=..., messages=[...]) as stream:
         message = stream.get_final_message()
     parsed = client.messages.parse(model=..., messages=[...], output_format=MyModel)
+
+    # Every turn of a beta tool loop or message thread is its own LLM step:
+    for message in client.beta.messages.tool_runner(model=..., tools=[...], messages=[...]):
+        ...
 """
 
 from __future__ import annotations
@@ -50,8 +54,9 @@ def wrap_anthropic_client(client: Any) -> Any:
 
     Returns a proxy that transparently intercepts ``messages.create()``,
     ``messages.parse()`` and ``messages.stream()`` (and the same methods on
-    ``beta.messages``) when inside an active trace. All other attributes and
-    methods are forwarded to the original client unchanged.
+    ``beta.messages``, plus every turn of ``beta.messages.tool_runner()`` and
+    ``beta.messages.thread()``) when inside an active trace. All other
+    attributes and methods are forwarded to the original client unchanged.
 
     The original provider return value is always preserved — including stream
     iterators when ``stream=True``.
@@ -68,7 +73,7 @@ class _WrappedAnthropic:
         self._client = client
         self.messages = _WrappedMessages(client.messages)
         if hasattr(client, "beta") and hasattr(client.beta, "messages"):
-            self.beta = _WrappedBeta(client.beta)
+            self.beta = _WrappedBeta(client.beta, root=self)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._client, name)
@@ -77,9 +82,9 @@ class _WrappedAnthropic:
 class _WrappedBeta:
     """Proxy for ``client.beta`` that instruments ``beta.messages``."""
 
-    def __init__(self, beta: Any) -> None:
+    def __init__(self, beta: Any, root: Any = None) -> None:
         self._beta = beta
-        self.messages = _WrappedMessages(beta.messages)
+        self.messages = _WrappedMessages(beta.messages, root=root)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._beta, name)
@@ -88,12 +93,14 @@ class _WrappedBeta:
 class _WrappedMessages:
     """Proxy for ``client.messages`` / ``client.beta.messages``.
 
-    Intercepts ``create()``, ``parse()`` and ``stream()``; everything else
-    (``count_tokens``, ``batches``, ``tool_runner``, ...) is forwarded as-is.
+    Intercepts ``create()``, ``parse()`` and ``stream()``, plus the beta
+    ``tool_runner()`` and ``thread()`` loops; everything else
+    (``count_tokens``, ``batches``, ...) is forwarded as-is.
     """
 
-    def __init__(self, messages: Any) -> None:
+    def __init__(self, messages: Any, root: Any = None) -> None:
         self._messages = messages
+        self._root = root
 
     def create(self, **kwargs: Any) -> Any:
         """Intercept messages.create(); Anthropic SDK uses keyword-only args."""
@@ -104,6 +111,27 @@ class _WrappedMessages:
 
     def stream(self, **kwargs: Any) -> Any:
         return _instrumented_stream(self._messages.stream, kwargs)
+
+    def tool_runner(self, **kwargs: Any) -> Any:
+        return self._on_wrapped_client().tool_runner(**kwargs)
+
+    def thread(self, **kwargs: Any) -> Any:
+        return self._on_wrapped_client().thread(**kwargs)
+
+    def _on_wrapped_client(self) -> Any:
+        """The real resource with its ``_client`` swapped for the wrapped client.
+
+        ``tool_runner()`` and ``thread()`` build a ``BetaMessageThread`` around
+        the resource's ``_client`` and send every turn through
+        ``client.beta.messages.create()``. Swapping in the wrapped client
+        routes those turns through ``create()`` above. The SDK's own runner,
+        thread state and return types are unchanged.
+        """
+        if self._root is None or not hasattr(self._messages, "_client"):
+            return self._messages
+        resource = copy.copy(self._messages)
+        resource._client = self._root
+        return resource
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._messages, name)
