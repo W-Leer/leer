@@ -46,6 +46,8 @@ Both SDKs had major releases since June. Gaps and fix order:
   multimodal validation tracked in the roadmap, not blocking.
 
 ### Observability UX
+- [x] Project picker: `GET /v1/projects` + sidebar selection (was hardcoded to
+  `demo-project`)
 - [ ] Improve compare clarity for complex runs
 - [ ] Improve artifact inspection UX
 - [ ] Improve step-header density and badge readability

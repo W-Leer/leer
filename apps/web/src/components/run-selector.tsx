@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
+import { useProject } from "@/components/project-provider";
 import { apiFetch } from "@/lib/api";
 import { formatDuration, statusClass, timeAgo } from "@/lib/format";
 import type { ProjectRunsResponse, RunListItem } from "@/lib/types";
@@ -30,14 +31,17 @@ export function RunSelector({ label, value, onChange, excludeId, autoFocus }: Ru
   const containerRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
+  const { current: project } = useProject();
+
   const fetchRuns = useCallback(
     async (q: string) => {
+      if (!project) return;
       setLoading(true);
       try {
         const params = new URLSearchParams({ limit: "8", sort: "newest" });
         if (q) params.set("q", q);
         const data = await apiFetch<ProjectRunsResponse>(
-          `/v1/projects/demo-project/runs?${params}`,
+          `/v1/projects/${encodeURIComponent(project)}/runs?${params}`,
         );
         setRuns(excludeId ? data.runs.filter((r) => r.id !== excludeId) : data.runs);
       } catch {
@@ -46,7 +50,7 @@ export function RunSelector({ label, value, onChange, excludeId, autoFocus }: Ru
         setLoading(false);
       }
     },
-    [excludeId],
+    [excludeId, project],
   );
 
   const debouncedFetch = useEffectEvent(() => {

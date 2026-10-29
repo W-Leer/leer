@@ -100,6 +100,27 @@ def test_list_project_runs_404():
     assert resp.status_code == 404
 
 
+def test_list_projects_ordered_by_latest_run():
+    older = f"read-{uuid.uuid4().hex[:8]}"
+    newer = f"read-{uuid.uuid4().hex[:8]}"
+    _ingest(older)
+    _ingest(older)
+    _ingest(newer)
+
+    resp = client.get("/v1/projects")
+    assert resp.status_code == 200
+
+    projects = resp.json()["projects"]
+    by_slug = {p["slug"]: p for p in projects}
+    assert by_slug[older]["run_count"] == 2
+    assert by_slug[newer]["run_count"] == 1
+    assert by_slug[newer]["name"] == newer
+    assert by_slug[newer]["last_run_at"] is not None
+
+    slugs = [p["slug"] for p in projects]
+    assert slugs.index(newer) < slugs.index(older)
+
+
 def test_get_run_detail():
     slug = f"read-{uuid.uuid4().hex[:8]}"
     payload = _ingest(slug)

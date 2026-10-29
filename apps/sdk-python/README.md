@@ -26,11 +26,11 @@ uv add --editable /path/to/leer/apps/sdk-python
 ```python
 from leer import configure
 
-configure(api_base_url="http://127.0.0.1:8000", project_slug="demo-project")
+configure(api_base_url="http://127.0.0.1:8000", project_slug="my-project")
 ```
 
-The project is created on first ingest. The web UI's runs list currently
-shows only `demo-project`. The run is sent to the API in one
+The project is created on first ingest and appears in the web UI's project
+picker. The run is sent to the API in one
 request when the outermost `@trace` function returns. If sending fails,
 the SDK prints a warning to stderr and does not raise.
 

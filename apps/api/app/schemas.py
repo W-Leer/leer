@@ -110,6 +110,15 @@ class ProjectSummary(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ProjectListItem(ProjectSummary):
+    run_count: int
+    last_run_at: datetime | None = None
+
+
+class ProjectsResponse(BaseModel):
+    projects: list[ProjectListItem]
+
+
 class RunListItem(BaseModel):
     id: UUID
     workflow_name: str

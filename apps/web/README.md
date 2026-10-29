@@ -33,9 +33,9 @@ NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
 | `/runs/[id]` | Run detail: step timeline, LLM calls (including refusals), tool calls, artifacts, recorded-stream playback |
 | `/compare`   | Two runs side by side, step by step |
 
-The runs list currently shows only the `demo-project` project
-(hardcoded in `src/app/page.tsx`). Runs in other projects are reachable by
-URL (`/runs/<id>`), but not listed.
+The sidebar picks the project. It defaults to `?project=<slug>` in the URL,
+then the last project picked in this browser, then the most recently active
+project. See `src/components/project-provider.tsx`.
 
 ## Layout
 

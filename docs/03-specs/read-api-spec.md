@@ -28,9 +28,38 @@ Do not implement yet:
 
 ## Endpoints
 
+- `GET /v1/projects`
 - `GET /v1/projects/{project_slug}/runs`
 - `GET /v1/runs/{run_id}`
 - `GET /v1/runs/{run_id}/timeline`
+
+---
+
+## GET /v1/projects
+
+Lists every project, so the UI can pick one. Projects are created by
+ingestion; there is no create or delete endpoint.
+
+### Response shape
+
+```json
+{
+  "projects": [
+    {
+      "id": "uuid",
+      "name": "demo-project",
+      "slug": "demo-project",
+      "run_count": 12,
+      "last_run_at": "2026-03-24T12:00:00Z"
+    }
+  ]
+}
+```
+
+### Notes
+
+- ordered by `last_run_at` DESC (projects without runs last), then name
+- not paginated; the number of projects is expected to stay small
 
 ---
 

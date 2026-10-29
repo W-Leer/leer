@@ -10,7 +10,9 @@ from app.models import Artifact, Step
 from app.schemas import (
     CompareResponse,
     CompareRunSummary,
+    ProjectListItem,
     ProjectRunsResponse,
+    ProjectsResponse,
     ProjectSummary,
     RunDetailResponse,
     StepArtifactRef,
@@ -24,10 +26,18 @@ from app.services.reads import (
     get_project_by_slug,
     get_run_by_id,
     get_steps_for_run,
+    list_projects_with_activity,
     list_runs_for_project,
 )
 
 router = APIRouter(prefix="/v1")
+
+
+@router.get("/projects", response_model=ProjectsResponse)
+def list_projects(session: Session = Depends(get_session)) -> ProjectsResponse:
+    return ProjectsResponse(
+        projects=[ProjectListItem(**p) for p in list_projects_with_activity(session)],
+    )
 
 
 @router.get("/projects/{project_slug}/runs", response_model=ProjectRunsResponse)

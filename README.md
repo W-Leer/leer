@@ -122,8 +122,8 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000. Runs appear under `demo-project`. Pick two
-runs to compare them.
+Open http://localhost:3000. The examples record into `demo-project`; switch
+projects in the sidebar. Pick two runs to compare them.
 
 The API has no authentication yet, so run it locally or on a trusted
 network only. See [`SECURITY.md`](SECURITY.md).
@@ -138,8 +138,7 @@ from openai import OpenAI
 from leer import configure, step, trace
 from leer.integrations.openai import wrap_openai_client
 
-# The UI's runs list currently shows only "demo-project".
-configure(api_base_url="http://127.0.0.1:8000", project_slug="demo-project")
+configure(api_base_url="http://127.0.0.1:8000", project_slug="my-project")
 client = wrap_openai_client(OpenAI())
 
 

@@ -11,6 +11,7 @@ import { ROLE_STYLES, extractMessageContent, tryParseJson, resolveArgs, StreamSe
 import { CompareMediaBadge } from "@/components/media-artifact";
 import { ExpandableTextBlock } from "@/components/expandable-text-block";
 import { RunSelector, type SelectedRun } from "@/components/run-selector";
+import { useProject } from "@/components/project-provider";
 import { GitCompareArrows, Lightbulb } from "lucide-react";
 import {
   isMcpMeta,
@@ -66,6 +67,7 @@ export default function ComparePageWrapper() {
 function ComparePage() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { current: project } = useProject();
 
   const paramA = searchParams.get("a");
   const paramB = searchParams.get("b");
@@ -120,10 +122,11 @@ function ComparePage() {
   }, [paramA, paramB, fetchComparison]);
 
   useEffect(() => {
-    apiFetch<ProjectRunsResponse>("/v1/projects/demo-project/runs?limit=6&sort=newest")
+    if (!project) return;
+    apiFetch<ProjectRunsResponse>(`/v1/projects/${encodeURIComponent(project)}/runs?limit=6&sort=newest`)
       .then((d) => setQuickPicks(d.runs))
-      .catch(() => {});
-  }, []);
+      .catch(() => setQuickPicks([]));
+  }, [project]);
 
   function handleCompare() {
     if (!runA || !runB) return;
@@ -194,8 +197,8 @@ function ComparePage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <RunSelector label="Run A" value={runA} onChange={handleChangeA} excludeId={runB?.id} />
-        <RunSelector label="Run B" value={runB} onChange={handleChangeB} excludeId={runA?.id} autoFocus={!!runA && !runB} />
+        <RunSelector key={`a-${project}`} label="Run A" value={runA} onChange={handleChangeA} excludeId={runB?.id} />
+        <RunSelector key={`b-${project}`} label="Run B" value={runB} onChange={handleChangeB} excludeId={runA?.id} autoFocus={!!runA && !runB} />
       </div>
 
       {showQuickPicks && visiblePicks.length > 0 && (

@@ -55,6 +55,7 @@ The API is available at `http://127.0.0.1:8000`. Interactive docs are at
 | ------ | -------------------------------------------- | ---------------------------------------------------------- |
 | GET    | `/health`                                    | Health check                                               |
 | POST   | `/v1/ingest/runs`                            | Ingest one complete run (what the SDK sends)               |
+| GET    | `/v1/projects`                               | List projects, most recently active first                  |
 | GET    | `/v1/projects/{project_slug}/runs`           | List runs (`q`, `status`, `sort`, `limit`, `offset`)       |
 | GET    | `/v1/runs/{run_id}`                          | Run detail                                                 |
 | GET    | `/v1/runs/{run_id}/timeline`                 | Steps, events, and artifact references for a run           |

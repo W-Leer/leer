@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useProject } from "@/components/project-provider";
 import { apiFetch } from "@/lib/api";
 import {
   formatDuration,
@@ -32,8 +33,8 @@ const SORT_OPTIONS: { value: SortOrder; label: string }[] = [
 // URL helpers
 // ---------------------------------------------------------------------------
 
-function parseUrlParams(): { q: string; status: StatusFilter; sort: SortOrder; limit: number } {
-  if (typeof window === "undefined") return { q: "", status: "", sort: "newest", limit: PAGE_SIZE };
+function parseUrlParams(): { q: string; status: StatusFilter; sort: SortOrder; limit: number; project: string | null } {
+  if (typeof window === "undefined") return { q: "", status: "", sort: "newest", limit: PAGE_SIZE, project: null };
   const p = new URLSearchParams(window.location.search);
   const st = p.get("status");
   const so = p.get("sort");
@@ -42,17 +43,18 @@ function parseUrlParams(): { q: string; status: StatusFilter; sort: SortOrder; l
     status: st === "completed" || st === "failed" ? st : "",
     sort: so === "newest" || so === "oldest" ? so : "newest",
     limit: Math.min(100, Math.max(PAGE_SIZE, parseInt(p.get("limit") ?? "", 10) || PAGE_SIZE)),
+    project: p.get("project"),
   };
 }
 
-function buildUrl(q: string, status: StatusFilter, sort: SortOrder, limit: number): string {
+function buildUrl(q: string, status: StatusFilter, sort: SortOrder, limit: number, project: string): string {
   const p = new URLSearchParams();
+  p.set("project", project);
   if (q) p.set("q", q);
   if (status) p.set("status", status);
   if (sort !== "newest") p.set("sort", sort);
   if (limit > PAGE_SIZE) p.set("limit", String(limit));
-  const qs = p.toString();
-  return qs ? `/?${qs}` : "/";
+  return `/?${p}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +90,8 @@ export default function HomePage() {
 function HomePageInner() {
   const router = useRouter();
   const sp = useSearchParams();
+  const { projects, current: project, error: projectsError, selectProject } = useProject();
+  const noProjects = projects !== null && projects.length === 0;
   const [runs, setRuns] = useState<RunListItem[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -126,7 +130,7 @@ function HomePageInner() {
   const nextLimitRef = useRef(initParams.current.limit);
 
   const fetchRuns = useCallback(
-    async (q: string, status: StatusFilter, sortOrder: SortOrder, offset: number, limit: number, append: boolean) => {
+    async (slug: string, q: string, status: StatusFilter, sortOrder: SortOrder, offset: number, limit: number, append: boolean) => {
       const id = ++fetchIdRef.current;
       const params = new URLSearchParams();
       if (q) params.set("q", q);
@@ -136,7 +140,7 @@ function HomePageInner() {
       params.set("offset", String(offset));
 
       const data = await apiFetch<ProjectRunsResponse>(
-        `/v1/projects/demo-project/runs?${params}`,
+        `/v1/projects/${encodeURIComponent(slug)}/runs?${params}`,
       );
 
       if (fetchIdRef.current !== id) return;
@@ -158,12 +162,17 @@ function HomePageInner() {
     [],
   );
 
-  // Main data effect — handles mount, filter/sort changes, debounced search, popstate
-  const prevRef = useRef({ query, statusFilter, sort });
+  // Main data effect — handles mount, project/filter/sort changes, debounced search, popstate.
+  // Waits until the current project is known.
+  const prevRef = useRef<{ query: string; statusFilter: StatusFilter; sort: SortOrder; project: string | null }>({
+    query, statusFilter, sort, project: null,
+  });
   const didMountRef = useRef(false);
   useEffect(() => {
+    if (!project) return;
+    const slug = project;
     const prev = prevRef.current;
-    prevRef.current = { query, statusFilter, sort };
+    prevRef.current = { query, statusFilter, sort, project: slug };
     clearTimeout(debounceRef.current);
 
     const isMount = !didMountRef.current;
@@ -173,33 +182,34 @@ function HomePageInner() {
     isPopstateRef.current = false;
 
     const searchChanged = query !== prev.query;
-    const filtersChanged = statusFilter !== prev.statusFilter || sort !== prev.sort;
+    const projectChanged = !isMount && slug !== prev.project;
+    const filtersChanged = statusFilter !== prev.statusFilter || sort !== prev.sort || projectChanged;
 
     function execute() {
       setError(null);
       const limit = isMount || popstate ? nextLimitRef.current : PAGE_SIZE;
       nextLimitRef.current = PAGE_SIZE;
 
+      if (projectChanged) loadedCountRef.current = 0;
       if (loadedCountRef.current === 0) setInitialLoad(true);
       else setSearching(true);
 
-      fetchRuns(query, statusFilter, sort, 0, limit, false)
+      fetchRuns(slug, query, statusFilter, sort, 0, limit, false)
         .catch((err) => setError(err.message))
         .finally(() => {
           setInitialLoad(false);
           setSearching(false);
 
-          if (!popstate && !isMount) {
-            const url = buildUrl(query, statusFilter, sort, PAGE_SIZE);
+          if (isMount) {
+            window.history.replaceState(null, "", buildUrl(query, statusFilter, sort, limit, slug));
+            requestAnimationFrame(restoreScrollPosition);
+          } else if (!popstate) {
+            const url = buildUrl(query, statusFilter, sort, PAGE_SIZE, slug);
             if (filtersChanged) {
               window.history.pushState(null, "", url);
             } else {
               window.history.replaceState(null, "", url);
             }
-          }
-
-          if (isMount) {
-            requestAnimationFrame(restoreScrollPosition);
           }
         });
     }
@@ -211,7 +221,7 @@ function HomePageInner() {
     }
 
     return () => clearTimeout(debounceRef.current);
-  }, [query, statusFilter, sort, fetchRuns]);
+  }, [project, query, statusFilter, sort, fetchRuns]);
 
   // Popstate: sync URL → state
   useEffect(() => {
@@ -222,10 +232,11 @@ function HomePageInner() {
       setQuery(p.q);
       setStatusFilter(p.status);
       setSort(p.sort);
+      if (p.project) selectProject(p.project);
     }
     window.addEventListener("popstate", onPopstate);
     return () => window.removeEventListener("popstate", onPopstate);
-  }, []);
+  }, [selectProject]);
 
   // "/" keyboard shortcut
   useEffect(() => {
@@ -240,18 +251,20 @@ function HomePageInner() {
   }, []);
 
   function loadMore() {
+    if (!project) return;
+    const slug = project;
     setLoadingMore(true);
     const offset = loadedCountRef.current;
-    fetchRuns(query, statusFilter, sort, offset, PAGE_SIZE, true)
+    fetchRuns(slug, query, statusFilter, sort, offset, PAGE_SIZE, true)
       .catch((err) => setError(err.message))
       .finally(() => {
         setLoadingMore(false);
-        const url = buildUrl(query, statusFilter, sort, loadedCountRef.current);
+        const url = buildUrl(query, statusFilter, sort, loadedCountRef.current, slug);
         window.history.replaceState(null, "", url);
       });
   }
 
-  const loading = initialLoad;
+  const loading = initialLoad && !noProjects;
 
   return (
     <div className="-mx-10 -mt-8">
@@ -261,7 +274,9 @@ function HomePageInner() {
           {/* Title */}
           <div className="mb-5">
             <h1 className="text-[17px] font-semibold tracking-tight text-neutral-900">Runs</h1>
-            <p className="mt-0.5 text-[12px] text-neutral-400">Recent agent executions</p>
+            <p className="mt-0.5 text-[12px] text-neutral-400">
+              {project ? <>Recent agent executions in <span className="font-medium text-neutral-500">{project}</span></> : "Recent agent executions"}
+            </p>
           </div>
 
           {/* Control bar */}
@@ -323,7 +338,7 @@ function HomePageInner() {
           </div>
 
           {/* Count / searching indicator */}
-          {!loading && !error && (
+          {!loading && !error && !noProjects && (
             <div className="mt-4 flex items-center justify-between">
               <p className={`text-[11px] text-neutral-400 transition-opacity ${searching ? "opacity-50" : ""}`}>
                 {totalCount} {totalCount === 1 ? "run" : "runs"}
@@ -339,7 +354,9 @@ function HomePageInner() {
 
       {/* ── Run list ── */}
       <div className="max-w-6xl px-10 pb-12 pt-4">
-        {loading ? (
+        {noProjects ? (
+          <NoProjects error={projectsError} />
+        ) : loading ? (
           <div className="space-y-1">
             {[...Array(5)].map((_, i) => (
               <SkeletonCard key={i} />
@@ -427,6 +444,26 @@ function HomePageInner() {
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+
+function NoProjects({ error }: { error: string | null }) {
+  if (error) {
+    return (
+      <div className="rounded-lg bg-[var(--tint-error-block)] p-5 text-center text-sm text-[var(--error-text)]">
+        Failed to load projects: {error}
+      </div>
+    );
+  }
+  return (
+    <div className="py-20 text-center">
+      <p className="text-sm font-medium text-neutral-600">No runs recorded yet</p>
+      <p className="mx-auto mt-1 max-w-md text-[12px] leading-5 text-neutral-400">
+        Call <code className="font-mono text-[11px] text-neutral-500">configure(api_base_url=…, project_slug=&quot;my-project&quot;)</code>{" "}
+        in your agent and run it, or run one of the examples in <code className="font-mono text-[11px] text-neutral-500">examples/</code>.
+        Projects appear here after their first run.
+      </p>
+    </div>
+  );
+}
 
 function SkeletonCard() {
   return (

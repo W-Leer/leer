@@ -2,15 +2,17 @@
 
 import Link from "next/link";
 import { useCallback, useSyncExternalStore } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Activity,
   ArrowLeftToLine,
   ArrowRightToLine,
+  ChevronsUpDown,
   GitCompareArrows,
   Moon,
   Sun,
 } from "lucide-react";
+import { useProject } from "./project-provider";
 import { useTheme } from "./theme-provider";
 
 const COLLAPSE_KEY = "leer-sidebar-collapsed";
@@ -96,9 +98,7 @@ export function Sidebar() {
           <div className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
             Project
           </div>
-          <div className="mt-0.5 truncate text-sm font-medium text-neutral-700">
-            demo-project
-          </div>
+          <ProjectPicker />
         </div>
       </div>
 
@@ -145,6 +145,45 @@ export function Sidebar() {
         </Tooltip>
       </div>
     </aside>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+function ProjectPicker() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const { projects, current, error, selectProject } = useProject();
+
+  if (projects === null || projects.length === 0) {
+    const note = projects === null ? "Loading…" : error ? "API unreachable" : "No projects yet";
+    return <div className="mt-0.5 truncate text-sm text-neutral-400">{note}</div>;
+  }
+
+  function onChange(slug: string) {
+    selectProject(slug);
+    if (pathname.startsWith("/runs")) router.push(`/?project=${encodeURIComponent(slug)}`);
+  }
+
+  return (
+    <div className="relative mt-0.5">
+      <select
+        value={current ?? ""}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label="Project"
+        className="w-full cursor-pointer appearance-none truncate rounded-md bg-transparent py-0.5 pr-5 text-sm font-medium text-neutral-700 transition-colors hover:text-neutral-900 focus:outline-none"
+      >
+        {projects.map((p) => (
+          <option key={p.id} value={p.slug}>
+            {p.name}
+          </option>
+        ))}
+      </select>
+      <ChevronsUpDown
+        size={12}
+        className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-neutral-400"
+      />
+    </div>
   );
 }
 

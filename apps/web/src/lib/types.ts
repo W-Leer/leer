@@ -4,6 +4,15 @@ export interface ProjectSummary {
   slug: string;
 }
 
+export interface ProjectListItem extends ProjectSummary {
+  run_count: number;
+  last_run_at: string | null;
+}
+
+export interface ProjectsResponse {
+  projects: ProjectListItem[];
+}
+
 export interface RunListItem {
   id: string;
   workflow_name: string;

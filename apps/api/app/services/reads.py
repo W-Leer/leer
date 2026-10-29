@@ -12,6 +12,24 @@ def get_project_by_slug(session: Session, slug: str) -> Project | None:
     return session.execute(stmt).scalar_one_or_none()
 
 
+def list_projects_with_activity(session: Session) -> list[dict]:
+    """Every project with its run count and latest run time, most recently active first."""
+    last_run_at = func.max(Run.created_at)
+    stmt = (
+        select(
+            Project.id,
+            Project.name,
+            Project.slug,
+            func.count(Run.id).label("run_count"),
+            last_run_at.label("last_run_at"),
+        )
+        .outerjoin(Run, Run.project_id == Project.id)
+        .group_by(Project.id)
+        .order_by(last_run_at.desc().nulls_last(), Project.name)
+    )
+    return [dict(row._mapping) for row in session.execute(stmt)]
+
+
 DEFAULT_LIMIT = 20
 
 
