@@ -10,7 +10,7 @@ import { ContentBlockRow, InputMediaMarker } from "@/components/media-artifact";
 import { computeLatencyBreakdown, type LatencyBreakdown } from "@/lib/latency";
 import type { ToolCallLinkResult, LinkageConfidence, ToolCallLifecycle } from "@/lib/tool-linkage";
 import { deriveLifecycle } from "@/lib/tool-linkage";
-import { getCachedTokens, getParsedOutput, getThinkingBlocks, type ThinkingBlock } from "@/lib/provider-hardening";
+import { getCachedTokens, getParsedOutput, getThinkingBlocks, toolCallLabel, type ThinkingBlock } from "@/lib/provider-hardening";
 
 type Dict = Record<string, unknown>;
 
@@ -434,7 +434,7 @@ function ToolCallsList({ calls }: { calls: Record<string, unknown>[] }) {
       {calls.map((tc, i) => (
         <div key={i} className="rounded bg-neutral-50 px-3 py-2">
           <span className="font-mono text-[11px] font-medium text-neutral-700">
-            {(tc.name as string) ?? "call"}
+            {toolCallLabel(tc)}
           </span>
           {tc.arguments != null && (
             <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-neutral-500">
@@ -570,7 +570,7 @@ function ToolCallsSection({
       <div className="text-[11px] font-medium text-neutral-400">Tool calls</div>
       {calls.map((tc, i) => {
         const callId = (tc.id as string) ?? null;
-        const name = (tc.name as string) ?? "call";
+        const name = toolCallLabel(tc);
         const result = linkResults?.get(i);
         const link = result?.link ?? null;
         const lifecycle = result?.lifecycle ?? "unmatched";

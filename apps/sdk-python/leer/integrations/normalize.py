@@ -164,11 +164,13 @@ def _arguments_hash(args: Any) -> str | None:
 def summarize_tool_call(tc: dict[str, Any]) -> dict[str, Any]:
     """Build a compact summary dict for one normalized tool call.
 
-    Shape: ``{name, id?, arguments_hash?}``
-    Always includes ``name``; ``id`` and ``arguments_hash`` are present only
-    when the source tool call provides them.
+    Shape: ``{name, namespace?, id?, arguments_hash?}``
+    Always includes ``name``; the others are present only when the source
+    tool call provides them.
     """
     summary: dict[str, Any] = {"name": tc.get("name", "?")}
+    if tc.get("namespace"):
+        summary["namespace"] = tc["namespace"]
     call_id = tc.get("id")
     if call_id is not None:
         summary["id"] = call_id
@@ -555,6 +557,10 @@ def _normalize_openai_responses(
     output_items = response.get("output", [])
 
     text_parts: list[str] = []
+    # Text from ``phase == "commentary"`` messages: the preamble newer models
+    # send before acting. Kept out of ``output.text`` (which is the answer)
+    # unless the response has nothing else.
+    commentary_parts: list[str] = []
     tool_calls: list[dict[str, Any]] = []
     content_blocks: list[dict[str, Any]] = []
     refusal_text: str | None = None
@@ -565,14 +571,18 @@ def _normalize_openai_responses(
         item_type = item.get("type")
 
         if item_type == "message":
+            phase = item.get("phase")
             for block in (item.get("content") or []):
                 if not isinstance(block, dict):
                     continue
                 block_type = block.get("type")
                 if block_type == "output_text":
-                    t = block.get("text", "")
-                    text_parts.append(t)
-                    content_blocks.append({"type": "text", "text": t})
+                    t = block.get("text") or ""
+                    (commentary_parts if phase == "commentary" else text_parts).append(t)
+                    text_block: dict[str, Any] = {"type": "text", "text": t}
+                    if isinstance(phase, str):
+                        text_block["phase"] = phase
+                    content_blocks.append(text_block)
                 elif block_type == "output_image":
                     content_blocks.append(_media_part(
                         "image",
@@ -606,12 +616,19 @@ def _normalize_openai_responses(
                         metadata={"raw_type": block_type},
                     ))
 
-        elif item_type == "function_call":
+        elif item_type in ("function_call", "custom_tool_call"):
+            # Custom tools take free-form ``input`` instead of JSON ``arguments``;
+            # both are client-executed calls, as on the chat-completions path.
+            raw_args = item.get("arguments") if item_type == "function_call" else item.get("input")
             tc = {
                 "id": item.get("call_id") or item.get("id"),
                 "name": item.get("name"),
-                "arguments": _parse_arguments(item.get("arguments")),
+                "arguments": _parse_arguments(raw_args),
             }
+            # Same-named tools from different namespaces are otherwise
+            # indistinguishable.
+            if item.get("namespace"):
+                tc["namespace"] = item["namespace"]
             tool_calls.append(tc)
             content_blocks.append({"type": "tool_call", **tc})
 
@@ -635,6 +652,8 @@ def _normalize_openai_responses(
                 metadata={"raw_type": item_type},
             ))
 
+    if not text_parts:
+        text_parts = commentary_parts
     text = "\n\n".join(text_parts) if text_parts else None
 
     usage_raw = response.get("usage")

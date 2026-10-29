@@ -29,6 +29,7 @@ import {
   isJsonOutput,
   jsonOutputDiverges,
   PARTIAL_CAPTURE_TOOLTIP,
+  toolCallLabel,
 } from "@/lib/provider-hardening";
 import type {
   CompareResponse,
@@ -928,7 +929,9 @@ function extractToolCallSummariesFromOutputSummary(
   const calls = summary.tool_calls;
   if (!Array.isArray(calls)) return [];
   return calls.map((tc: Record<string, unknown>) => ({
-    name: (tc.name as string) ?? "?",
+    // Qualified label, so alignment and diffs treat `github.search` and
+    // `jira.search` as different tools.
+    name: toolCallLabel(tc, "?"),
     id: (tc.id as string) ?? undefined,
     arguments_hash: (tc.arguments_hash as string) ?? undefined,
   }));
@@ -1644,7 +1647,7 @@ function OutputContent({ llm }: { llm: LLMShape | null }) {
             return (
               <div key={i} className="rounded bg-neutral-50 px-2 py-1.5">
                 <span className="font-mono text-[11px] font-medium text-neutral-700">
-                  {(tc.name as string) ?? "call"}
+                  {toolCallLabel(tc)}
                 </span>
                 {args != null && (
                   <div className="mt-1">

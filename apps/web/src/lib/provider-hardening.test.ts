@@ -11,6 +11,7 @@ import {
   getParsedOutput,
   isJsonOutput,
   jsonOutputDiverges,
+  toolCallLabel,
 } from "./provider-hardening";
 import type { LLMShape } from "./types";
 
@@ -257,5 +258,31 @@ describe("jsonOutputDiverges", () => {
     expect(jsonOutputDiverges(makeLlm({ output_is_json: true }), makeLlm({ parsed: { a: 1 } }))).toBe(false);
     expect(jsonOutputDiverges(makeLlm({}), makeLlm({}))).toBe(false);
     expect(jsonOutputDiverges(null, null)).toBe(false);
+  });
+});
+
+describe("toolCallLabel", () => {
+  test("plain name when there is no namespace", () => {
+    expect(toolCallLabel({ name: "search" })).toBe("search");
+  });
+
+  test("qualifies the name with its namespace", () => {
+    expect(toolCallLabel({ name: "search", namespace: "github" })).toBe("github.search");
+  });
+
+  test("same-named tools in different namespaces get different labels", () => {
+    expect(toolCallLabel({ name: "search", namespace: "github" })).not.toBe(
+      toolCallLabel({ name: "search", namespace: "jira" }),
+    );
+  });
+
+  test("falls back when the name is missing", () => {
+    expect(toolCallLabel({})).toBe("call");
+    expect(toolCallLabel(null, "?")).toBe("?");
+    expect(toolCallLabel({ namespace: "github" }, "?")).toBe("?");
+  });
+
+  test("ignores a non-string namespace", () => {
+    expect(toolCallLabel({ name: "search", namespace: 42 })).toBe("search");
   });
 });

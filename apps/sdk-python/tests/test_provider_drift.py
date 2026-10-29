@@ -115,6 +115,13 @@ def test_canonical_invariants(raw_path: Path) -> None:
     if "thinking" in stem:
         block_types = {b.get("type") for b in d["output"]["content_blocks"]}
         assert block_types & {"thinking", "redacted_thinking"}, "thinking scenario must keep a thinking block"
+    if "commentary" in stem:
+        commentary = [b for b in d["output"]["content_blocks"] if b.get("phase") == "commentary"]
+        assert commentary, "commentary must be kept as a tagged content block"
+        assert commentary[0]["text"] not in (d["output"]["text"] or ""), "commentary must not leak into output.text"
+    if "namespaced" in stem:
+        keys = [(tc.get("namespace"), tc.get("name")) for tc in d["output"]["tool_calls"]]
+        assert len(set(keys)) == len(keys), "same-named tools must stay distinguishable by namespace"
 
 
 def test_harness_detects_drift() -> None:

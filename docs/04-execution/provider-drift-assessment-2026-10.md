@@ -150,3 +150,36 @@ Fix:
 
 Still not recorded: Anthropic `beta.messages.tool_runner`. It calls the raw
 client internally, so its model calls bypass the wrapper. Track separately.
+
+### D-H2 (client-run tools), D-H3, D-M1 — done
+
+- **D-H3:** Responses `message` items with `phase: "commentary"` are kept out
+  of `output.text` and `output_is_json`, unless the response has no other
+  text. Every text block keeps its `phase` in `output.content`, so the
+  commentary is still in the record.
+- **D-M1:** `function_call.namespace` is kept on the canonical tool call and in
+  the step's tool-call summary. Run-detail and compare show `namespace.name`
+  (for example `github.search`), and compare pairs calls by that label.
+- **D-H2, client-run part:** Responses `custom_tool_call` items are now tool
+  calls (`input` is parsed the same way as `arguments`), matching the
+  chat-completions `custom` handling.
+- **D-H2, provider-run part, moved to D-M2:** Anthropic `server_tool_use` and
+  OpenAI `web_search_call` / `mcp_call` are executed by the provider, so no
+  local tool step will ever link to them. Putting them in `output.tool_calls`
+  would show them as "unmatched" in tool linkage. They need a design decision
+  together with the other new item types.
+
+**Streaming bug found while testing (fixed):** a streamed Responses call
+rebuilt its output from deltas. That dropped `phase`, `namespace` and
+`custom_tool_call` and reordered items, so streamed and non-streamed records
+differed. The stream wrapper now normalizes the full `response` carried by the
+terminal event (`response.completed` / `incomplete` / `failed`), and only
+falls back to reassembling deltas when that event is missing. This also
+resolves the old "Responses streaming interleave ordering" item whenever a
+terminal event arrives.
+
+New fixtures: `openai_responses__commentary_phase`,
+`openai_responses__namespaced_tool_calls`, `openai_responses__custom_tool_call`.
+They are SDK-valid; the 8 older OpenAI fixtures are still covered by D-M4. A
+real-SDK test checks `.stream()` and `create(stream=True)` against
+`create()` for the same response.

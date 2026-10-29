@@ -12,9 +12,12 @@ Both SDKs had major releases since June. Gaps and fix order:
 - [x] D-H1 — record Anthropic `messages.stream()`, `messages.parse()`, `beta.messages.*`
   (also fixed D-H4: OpenAI `.stream()` + `get_final_*()` recorded empty output)
 - [ ] Anthropic `beta.messages.tool_runner` — model calls bypass the wrapper
-- [ ] D-H2 / D-H3 / D-M1 — missing tool calls (`custom_tool_call`,
-  `server_tool_use`), Responses `phase` mixing, dropped `namespace`
-- [ ] D-M2 / D-M3 — label new item/block types; capture `stop_details`
+- [x] D-H2 / D-H3 / D-M1 — Responses `custom_tool_call`, `phase` (commentary
+  kept out of `output.text`), `namespace`; Responses streaming now matches
+  non-streaming
+- [ ] D-M2 / D-M3 — label new item/block types (including provider-run tools:
+  Anthropic `server_tool_use`, OpenAI `web_search_call` / `mcp_call`); capture
+  `stop_details`
 - [ ] D-M4 + workstream E — SDK-valid fixtures, streaming snapshots, live recorder
 
 ### Recently completed

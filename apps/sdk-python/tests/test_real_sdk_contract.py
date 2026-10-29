@@ -117,7 +117,8 @@ _RESP_MSG_DONE = {
 }
 _RESP_USAGE = {
     "input_tokens": 5, "output_tokens": 2, "total_tokens": 7,
-    "input_tokens_details": {"cached_tokens": 0}, "output_tokens_details": {"reasoning_tokens": 0},
+    "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+    "output_tokens_details": {"reasoning_tokens": 0},
 }
 OPENAI_RESPONSES_EVENTS = [
     {"type": "response.created", "sequence_number": 0,
@@ -216,6 +217,75 @@ def test_openai_responses_stream_captures_every_consumption_style(consume: str) 
     s = _only_llm_step(run)
     assert s.status == "completed"
     assert s.metadata["llm"]["output"]["text"] == "Hello"
+
+
+def _responses_events_from(final: dict[str, Any]) -> list[dict[str, Any]]:
+    """A realistic Responses event sequence that ends in ``final``."""
+    seq = iter(range(1000))
+    events: list[dict[str, Any]] = [{
+        "type": "response.created", "sequence_number": next(seq),
+        "response": {**final, "status": "in_progress", "output": [], "usage": None},
+    }]
+    for i, item in enumerate(final["output"]):
+        base = {"output_index": i, "item_id": item["id"]}
+        if item["type"] == "message":
+            text = item["content"][0]["text"]
+            events.append({"type": "response.output_item.added", "sequence_number": next(seq), "output_index": i,
+                           "item": {**item, "status": "in_progress", "content": []}})
+            events.append({"type": "response.content_part.added", "sequence_number": next(seq), **base,
+                           "content_index": 0, "part": {"type": "output_text", "text": "", "annotations": []}})
+            events.append({"type": "response.output_text.delta", "sequence_number": next(seq), **base,
+                           "content_index": 0, "delta": text, "logprobs": []})
+            events.append({"type": "response.output_text.done", "sequence_number": next(seq), **base,
+                           "content_index": 0, "text": text, "logprobs": []})
+        elif item["type"] == "function_call":
+            events.append({"type": "response.output_item.added", "sequence_number": next(seq), "output_index": i,
+                           "item": {**item, "status": "in_progress", "arguments": ""}})
+            events.append({"type": "response.function_call_arguments.delta", "sequence_number": next(seq), **base,
+                           "delta": item["arguments"]})
+            events.append({"type": "response.function_call_arguments.done", "sequence_number": next(seq), **base,
+                           "name": item["name"], "arguments": item["arguments"]})
+        events.append({"type": "response.output_item.done", "sequence_number": next(seq), "output_index": i,
+                       "item": item})
+    events.append({"type": "response.completed", "sequence_number": next(seq), "response": final})
+    return events
+
+
+_PHASED_FINAL = _openai_response_obj("completed", [
+    {"id": "msg_c", "type": "message", "role": "assistant", "status": "completed", "phase": "commentary",
+     "content": [{"type": "output_text", "text": "Let me look that up.", "annotations": []}]},
+    {"id": "fc_1", "type": "function_call", "call_id": "call_1", "name": "search", "namespace": "github",
+     "arguments": "{\"q\": \"login\"}", "status": "completed"},
+    {"id": "msg_f", "type": "message", "role": "assistant", "status": "completed", "phase": "final_answer",
+     "content": [{"type": "output_text", "text": "{\"answer\": 42}", "annotations": []}]},
+], _RESP_USAGE)
+
+
+@pytest.mark.parametrize("surface", ["stream_helper", "create_stream_true"])
+def test_openai_responses_streaming_matches_non_streaming(surface: str) -> None:
+    """Phase, namespace and item order survive streaming exactly as in create()."""
+    events = _responses_events_from(_PHASED_FINAL)
+    streaming_client = _openai(lambda req: _sse_response(events, named=True))
+
+    def go_stream() -> None:
+        if surface == "stream_helper":
+            with streaming_client.responses.stream(model="gpt-test", input="hi") as stream:
+                stream.get_final_response()
+        else:
+            for _ in streaming_client.responses.create(model="gpt-test", input="hi", stream=True):
+                pass
+
+    streamed = _only_llm_step(_traced(go_stream)).metadata["llm"]
+    plain = _only_llm_step(_traced(lambda: _openai(lambda req: _json_response(_PHASED_FINAL)).responses.create(
+        model="gpt-test", input="hi",
+    ))).metadata["llm"]
+
+    assert streamed["output"] == plain["output"]
+    assert streamed["usage"] == plain["usage"]
+    assert streamed["model"] == plain["model"]
+    assert streamed["meta"]["finish_reason"] == plain["meta"]["finish_reason"]
+    assert streamed["output"]["text"] == '{"answer": 42}'
+    assert streamed["output"]["tool_calls"][0]["namespace"] == "github"
 
 
 # ---------------------------------------------------------------------------

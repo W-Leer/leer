@@ -1,0 +1,52 @@
+{
+  "kind": "openai_responses",
+  "provenance": {
+    "provider": "openai",
+    "surface": "client.responses.create",
+    "source": "hand-authored",
+    "api_reference_date": "2026-10",
+    "notes": "Two function calls with the same name in different namespaces. Tool calls must stay distinguishable via namespace."
+  },
+  "latency_ms": 1380,
+  "request": {
+    "model": "gpt-5.5",
+    "input": [{"role": "user", "content": "Find the open issue about login in GitHub and Jira."}]
+  },
+  "response": {
+    "id": "resp_drift_ns_001",
+    "object": "response",
+    "created_at": 1793000000,
+    "model": "gpt-5.5",
+    "status": "completed",
+    "parallel_tool_calls": true,
+    "tool_choice": "auto",
+    "tools": [],
+    "output": [
+      {
+        "id": "fc_gh_1",
+        "type": "function_call",
+        "call_id": "call_gh_1",
+        "name": "search",
+        "namespace": "github",
+        "arguments": "{\"query\": \"login\"}",
+        "status": "completed"
+      },
+      {
+        "id": "fc_jira_1",
+        "type": "function_call",
+        "call_id": "call_jira_1",
+        "name": "search",
+        "namespace": "jira",
+        "arguments": "{\"query\": \"login\"}",
+        "status": "completed"
+      }
+    ],
+    "usage": {
+      "input_tokens": 40,
+      "output_tokens": 24,
+      "total_tokens": 64,
+      "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+      "output_tokens_details": {"reasoning_tokens": 0}
+    }
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "kind": "openai_responses",
+  "provenance": {
+    "provider": "openai",
+    "surface": "client.responses.create",
+    "source": "hand-authored",
+    "api_reference_date": "2026-10",
+    "notes": "Custom (free-form input) tool call. Must appear in output.tool_calls with its raw input as arguments, like the chat-completions custom path."
+  },
+  "latency_ms": 990,
+  "request": {
+    "model": "gpt-5.5",
+    "input": "How many users signed up today?",
+    "tools": [{"type": "custom", "name": "run_sql", "description": "Run a read-only SQL query"}]
+  },
+  "response": {
+    "id": "resp_drift_custom_001",
+    "object": "response",
+    "created_at": 1793000000,
+    "model": "gpt-5.5",
+    "status": "completed",
+    "parallel_tool_calls": true,
+    "tool_choice": "auto",
+    "tools": [{"type": "custom", "name": "run_sql", "description": "Run a read-only SQL query"}],
+    "output": [
+      {
+        "id": "ctc_1",
+        "type": "custom_tool_call",
+        "call_id": "call_sql_1",
+        "name": "run_sql",
+        "input": "SELECT count(*) FROM users WHERE created_at::date = current_date"
+      }
+    ],
+    "usage": {
+      "input_tokens": 30,
+      "output_tokens": 20,
+      "total_tokens": 50,
+      "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+      "output_tokens_details": {"reasoning_tokens": 0}
+    }
+  }
+}

@@ -173,3 +173,21 @@ export function jsonOutputDiverges(
 ): boolean {
   return isJsonOutput(a) !== isJsonOutput(b);
 }
+
+// ---------------------------------------------------------------------------
+// Tool-call labels (OpenAI Responses `namespace`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Display label for a tool call: `namespace.name` when the provider namespaced
+ * it, so same-named tools from different namespaces don't look identical.
+ */
+export function toolCallLabel(
+  tc: { name?: unknown; namespace?: unknown } | null | undefined,
+  fallback = "call",
+): string {
+  const name = typeof tc?.name === "string" && tc.name ? tc.name : null;
+  if (!name) return fallback;
+  const ns = typeof tc?.namespace === "string" && tc.namespace ? tc.namespace : null;
+  return ns ? `${ns}.${name}` : name;
+}

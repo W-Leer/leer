@@ -294,6 +294,8 @@ class _StreamingIterator:
         # assembled-to-response-dict converter so streaming captures
         # round-trip into the matching normalizer.
         self._api_style = api_style
+        # Responses API only: the full response from the terminal event.
+        self._final_response: dict[str, Any] | None = None
 
     def __iter__(self) -> Iterator[Any]:
         return self
@@ -311,6 +313,7 @@ class _StreamingIterator:
         try:
             if self._api_style == "responses":
                 _process_openai_responses_event(self._collector, chunk)
+                self._final_response = _terminal_response(chunk) or self._final_response
             elif self._api_style == "chat_helper":
                 _process_openai_chat_stream_event(self._collector, chunk)
             else:
@@ -351,6 +354,12 @@ class _StreamingIterator:
         Responses-API calls produce a ``{"output": [...]}`` shape.
         """
         if self._api_style == "responses":
+            # The terminal event carries the same response object a
+            # non-streaming call returns, so normalizing it gives exact parity
+            # (item order, phase, namespace, new item types). Reassemble from
+            # deltas only when the stream ended without one.
+            if self._final_response is not None:
+                return self._final_response
             return _assembled_to_responses_dict(assembled, self._request_dict)
         return _assembled_to_chat_response(assembled, self._request_dict)
 
@@ -817,11 +826,26 @@ def _process_openai_responses_event(collector: StreamCollector, event: Any) -> N
         collector.mark_unknown(payload={"original_type": event_type})
 
 
+def _terminal_response(event: Any) -> dict[str, Any] | None:
+    """The full response on a terminal Responses event, when it has output."""
+    event_type = event.get("type") if isinstance(event, dict) else getattr(event, "type", None)
+    if event_type not in ("response.completed", "response.incomplete", "response.failed"):
+        return None
+    event_dict = event if isinstance(event, dict) else _to_dict(event)
+    response = event_dict.get("response")
+    if isinstance(response, dict) and isinstance(response.get("output"), list) and response["output"]:
+        return response
+    return None
+
+
 def _assembled_to_responses_dict(
     assembled: dict[str, Any],
     request_dict: dict[str, Any],
 ) -> dict[str, Any]:
     """Convert collector assembled state to a Responses-API response dict.
+
+    Fallback for streams that end without a terminal event carrying the full
+    response (see ``_terminal_response``).
 
     The shape mirrors what ``client.responses.create()`` returns for
     non-streaming calls (with ``output``, ``usage.input_tokens``, etc.) so
