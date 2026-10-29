@@ -230,6 +230,38 @@ Replaying fixture requests through the real SDK surfaced two upstream changes:
   `claude-sonnet-5-5`, and `anthropic__text` uses `stop_sequences` instead of
   `temperature`. `examples/` still use both and need the same update.
 
+### D-M6 — done
+
+Implemented as designed below; `tests/test_request_params.py` covers each
+added and left-out parameter. Golden change: the `web_search` tool in
+`anthropic__provider_run_search` now keeps `type` and `max_uses`. `examples/`
+use `claude-sonnet-5-5`, and `demo_anthropic_wrapper.py` passes
+`service_tier` instead of `temperature`. Older unit tests still use the
+retired model ID as a plain string with fake clients; harmless.
+
+### D-M6 — design
+
+`input.params` records a request parameter when it changes what the model
+sees, how it generates, which tools it may use, or which model / capacity
+serves it. Identity, billing, storage, caching hints, diagnostics and
+transport options stay out (they remain in the `llm_request` artifact).
+Nothing is removed from the existing lists.
+
+| Provider | Added | Left out |
+|---|---|---|
+| OpenAI chat | `reasoning_effort`, `verbosity`, `tool_choice`, `parallel_tool_calls`, `function_call`, `n`, `logit_bias`, `modalities`, `audio`, `prediction`, `web_search_options`, `service_tier`, `moderation` | `metadata`, `user`, `safety_identifier`, `store`, `stream_options`, `prompt_cache_*` |
+| OpenAI Responses | `tool_choice`, `parallel_tool_calls`, `max_tool_calls`, `top_logprobs`, `previous_response_id`, `conversation`, `prompt`, `include`, `background`, `service_tier`, `context_management`, `moderation` | `metadata`, `user`, `safety_identifier`, `stream_options`, `prompt_cache_*`, `access_programs` |
+| Anthropic | `tool_choice`, `service_tier`, `speed`, `container`, `context_management`, `compaction`, `thread`, `fallbacks`, `mcp_servers`, `betas` | `metadata`, `cache_control`, `diagnostics`, `inference_geo`, `fallback_credit_token`, `user_profile_id`, `workspace_id` |
+
+`previous_response_id`, `conversation` and `thread` mean `input.messages` is
+not the whole context. They are recorded as params now; a first-class
+"continues from" field may be worth a separate decision later.
+
+Also: Anthropic built-in tools (`web_search_*`, `code_execution_*`, …) keep
+their `type` and settings in `input.tools`; only custom tools are reduced to
+`name` / `description` / `input_schema`. Legacy OpenAI chat `functions` are
+still not in `input.tools` (deprecated; left as is).
+
 ### D-M4 — done
 
 - The 8 older OpenAI fixtures gained the envelope fields they lacked

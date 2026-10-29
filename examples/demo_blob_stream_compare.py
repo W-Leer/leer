@@ -151,7 +151,7 @@ class _FakeMessages:
         self._chunk_delay = chunk_delay
 
     def create(self, **kwargs: Any) -> Any:
-        model = kwargs.get("model", "claude-sonnet-4-20250514")
+        model = kwargs.get("model", "claude-sonnet-5-5")
         if kwargs.get("stream"):
             return _FakeStreamIterator(
                 chunk_count=self._chunk_count,
@@ -193,7 +193,7 @@ def _run_stream(label: str, client_obj: Any) -> int:
     """Run a streaming call, count chunks, suppress per-chunk printing."""
     wrapped = wrap_anthropic_client(client_obj)
     stream = wrapped.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-5-5",
         messages=[
             {
                 "role": "user",

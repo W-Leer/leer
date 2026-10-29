@@ -12,9 +12,9 @@
     "system": null,
     "tools": [
       {
-        "description": null,
-        "input_schema": null,
-        "name": "web_search"
+        "max_uses": 3,
+        "name": "web_search",
+        "type": "web_search_20250305"
       }
     ]
   },

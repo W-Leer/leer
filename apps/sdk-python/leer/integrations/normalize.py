@@ -447,15 +447,26 @@ def _extract_cached_tokens_anthropic(usage_raw: dict[str, Any]) -> int | None:
 # OpenAI — parameter sets
 # ---------------------------------------------------------------------------
 
+# ``input.params`` keeps request parameters that change what the model sees,
+# how it generates, which tools it may use, or which model / capacity serves
+# it. Identity, billing, storage, caching hints and transport options are left
+# out; the full request is in the ``llm_request`` artifact.
 _OPENAI_CHAT_PARAMS = frozenset({
     "temperature", "max_tokens", "max_completion_tokens", "top_p",
     "frequency_penalty", "presence_penalty", "stop", "seed",
     "response_format", "logprobs", "top_logprobs",
+    "reasoning_effort", "verbosity", "tool_choice", "parallel_tool_calls",
+    "function_call", "n", "logit_bias", "modalities", "audio", "prediction",
+    "web_search_options", "service_tier", "moderation",
 })
 
 _OPENAI_RESPONSES_PARAMS = frozenset({
     "temperature", "max_output_tokens", "top_p",
     "truncation", "text", "store", "reasoning",
+    "tool_choice", "parallel_tool_calls", "max_tool_calls", "top_logprobs",
+    # Server-held context: ``input`` alone is not everything the model saw.
+    "previous_response_id", "conversation", "prompt",
+    "include", "background", "service_tier", "context_management", "moderation",
 })
 
 
@@ -841,10 +852,24 @@ def _normalize_openai_responses(
 # Anthropic
 # ---------------------------------------------------------------------------
 
+# Same rule as the OpenAI lists. ``temperature`` / ``top_p`` / ``top_k`` /
+# ``output_format`` are gone from ``anthropic`` 2.3 but older SDKs send them.
 _ANTHROPIC_PARAMS = frozenset({
     "temperature", "max_tokens", "top_p", "top_k", "stop_sequences",
     "thinking", "output_format", "output_config",
+    "tool_choice", "service_tier", "speed", "container", "context_management",
+    "compaction", "fallbacks", "mcp_servers", "betas",
+    # Server-held context: ``messages`` alone is not everything the model saw.
+    "thread",
 })
+
+
+def _anthropic_tool(tool: dict[str, Any]) -> dict[str, Any]:
+    """Custom tools reduce to name / description / schema; built-in tools
+    (``web_search_*``, ``code_execution_*``, …) keep their type and settings."""
+    if tool.get("type") in (None, "custom"):
+        return {"name": tool.get("name"), "description": tool.get("description"), "input_schema": tool.get("input_schema")}
+    return dict(tool)
 
 
 def _is_anthropic_tool_result(block_type: Any) -> bool:
@@ -902,11 +927,7 @@ def normalize_anthropic(
     params = _extract_params(request, _ANTHROPIC_PARAMS)
 
     tools_raw = request.get("tools", [])
-    tools = [
-        {"name": t.get("name"), "description": t.get("description"), "input_schema": t.get("input_schema")}
-        for t in (tools_raw or [])
-        if isinstance(t, dict)
-    ]
+    tools = [_anthropic_tool(t) for t in (tools_raw or []) if isinstance(t, dict)]
 
     raw_blocks = response.get("content", [])
 

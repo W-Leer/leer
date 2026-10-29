@@ -9,11 +9,11 @@ Usage::
 
     # Inside a @trace, every create() call automatically produces
     # an LLM step with metadata, artifacts, and summaries.
-    result = client.messages.create(model="claude-sonnet-4-20250514", messages=[...])
+    result = client.messages.create(model="claude-sonnet-5-5", messages=[...])
 
     # Streaming is also supported transparently:
     stream = client.messages.create(
-        model="claude-sonnet-4-20250514", messages=[...], stream=True,
+        model="claude-sonnet-5-5", messages=[...], stream=True,
     )
     for event in stream:
         print(event)  # original events, unchanged

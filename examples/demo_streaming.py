@@ -153,7 +153,7 @@ class _FakeMessages:
 
     def create(self, **kwargs: Any) -> Any:
         if kwargs.get("stream"):
-            model = kwargs.get("model", "claude-sonnet-4-20250514")
+            model = kwargs.get("model", "claude-sonnet-5-5")
             return _FakeStreamIterator(
                 text_parts=TEXT_PARTS,
                 model=model,
@@ -164,7 +164,7 @@ class _FakeMessages:
         return _FakeEvent({
             "id": "msg_demo_nonstream",
             "type": "message",
-            "model": kwargs.get("model", "claude-sonnet-4-20250514"),
+            "model": kwargs.get("model", "claude-sonnet-5-5"),
             "role": "assistant",
             "content": [{"type": "text", "text": "Non-streaming fallback."}],
             "stop_reason": "end_turn",
@@ -185,7 +185,7 @@ def _run_stream(label: str, client_obj: Any) -> str:
     """Run a streaming call and print output progressively."""
     wrapped = wrap_anthropic_client(client_obj)
     stream = wrapped.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-5-5",
         messages=[
             {
                 "role": "user",

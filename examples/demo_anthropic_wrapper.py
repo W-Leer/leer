@@ -45,7 +45,7 @@ class _FakeResponse:
 
 class _FakeMessages:
     def create(self, **kwargs: Any) -> _FakeResponse:
-        model = kwargs.get("model", "claude-sonnet-4-20250514")
+        model = kwargs.get("model", "claude-sonnet-5-5")
         messages = kwargs.get("messages", [])
         user_msg = next(
             (m["content"] for m in messages if m.get("role") == "user" and isinstance(m.get("content"), str)),
@@ -92,11 +92,11 @@ def demo_success() -> dict[str, Any]:
         s.output = {"prompt": prompt}
 
     result = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-5-5",
         system="You are a concise technical writer.",
         messages=[{"role": "user", "content": prompt}],
         max_tokens=300,
-        temperature=0.3,
+        service_tier="auto",
     )
 
     response_text = result.model_dump()["content"][0]["text"]
@@ -108,7 +108,7 @@ def demo_failure() -> dict[str, Any]:
     """A failing Anthropic call — the wrapper records the error in the step."""
 
     result = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-5-5",
         messages=[{"role": "user", "content": "Please fail this request"}],
         max_tokens=100,
     )

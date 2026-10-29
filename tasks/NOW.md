@@ -20,9 +20,9 @@ Both SDKs had major releases since June. Gaps and fix order:
   (Anthropic streaming dropped server-tool blocks and merged text blocks)
 - [x] D-M4 — all drift fixtures validate against the real SDK types (enforced by a test)
 - [x] Workstream E step 2 — streaming golden suite replayed through the real SDKs
-- [ ] D-M6 — Anthropic SDK 2.3 request-param changes; decide on widening the
-  `input.params` allowlist (both providers); update `examples/` (old model ID,
-  `temperature`)
+- [x] D-M6 — wider `input.params` for both providers (context, generation,
+  tools, serving); Anthropic built-in tools keep their settings; `examples/`
+  on current model IDs
 - [ ] Workstream E step 3 — opt-in live recorder
 
 ### Recently completed
