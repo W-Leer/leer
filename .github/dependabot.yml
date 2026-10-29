@@ -5,6 +5,10 @@ updates:
     directory: /apps/web
     schedule:
       interval: weekly
+    ignore:
+      # Keep @types/node on the Node major we run (22 in CI).
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       web-minor-and-patch:
         update-types: [minor, patch]
