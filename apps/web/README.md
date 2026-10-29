@@ -1,36 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# leer-web
 
-## Getting Started
+Next.js UI for browsing Leer execution records. It reads everything from
+the Leer API and has no database of its own.
 
-First, run the development server:
+## Requirements
+
+- Node.js 20.9+
+- A running Leer API (see [`apps/api/README.md`](../api/README.md))
+
+## Run
 
 ```bash
+cd apps/web
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The API URL comes from `NEXT_PUBLIC_API_BASE_URL`, which defaults to
+`http://127.0.0.1:8000`. To point at another API, set it in `.env.local`:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```env
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+```
 
-## Learn More
+## Pages
 
-To learn more about Next.js, take a look at the following resources:
+| Route        | What it shows |
+| ------------ | ------------- |
+| `/`          | Runs list with search, status filter, and sort |
+| `/runs/[id]` | Run detail: step timeline, LLM calls (including refusals), tool calls, artifacts, recorded-stream playback |
+| `/compare`   | Two runs side by side, step by step |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The runs list currently shows only the `demo-project` project
+(hardcoded in `src/app/page.tsx`). Runs in other projects are reachable by
+URL (`/runs/<id>`), but not listed.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Layout
 
-## Deploy on Vercel
+- `src/app/`: routes
+- `src/components/`: run detail, LLM step detail, artifact and media viewers
+- `src/lib/api.ts`: API client
+- `src/lib/types.ts`: response types, mirroring the API's read schemas
+- `src/lib/*.ts`: pure helpers (formatting, latency, tool linkage,
+  provider hardening)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The UI renders the canonical LLM call shape. Provider-specific fields are
+only shown as supplemental detail.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Checks
+
+```bash
+bun test        # helper tests (src/lib/*.test.ts)
+npm run build   # production build + typecheck
+npm run lint
+```
