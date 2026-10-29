@@ -30,7 +30,8 @@ Don't ask the user to re-explain the project — read these:
 - **Architecture**: `docs/01-architecture/data-model.md`, `docs/01-architecture/ingestion-architecture.md`
 - **Scope / decisions**: `docs/02-decisions/provider-scope-and-priorities.md` + ADRs in `docs/02-decisions/`
 - **Current goal & status**: `tasks/NOW.md`
-- **Active/most-recent workstream — Provider Hardening**: spec `docs/03-specs/platform/provider-hardening.md`, plan `tasks/provider-hardening-implementation-plan.md`, QA signoff `docs/04-execution/provider-hardening-qa.md`
+- **Active workstream — provider drift follow-up**: assessment and fix order in `docs/04-execution/provider-drift-assessment-2026-10.md`. Builds on Provider Hardening (complete: spec `docs/03-specs/platform/provider-hardening.md`, QA signoff `docs/04-execution/provider-hardening-qa.md`), structured outputs (`docs/04-execution/structured-outputs-step-0-audit.md`), and the golden drift suite (`docs/04-execution/version-drift-step-0-audit.md`, `apps/sdk-python/tests/test_provider_drift.py`).
+- **SDK reality check**: Leer's SDK does not depend on `openai` / `anthropic`, and tests use fakes. When touching wrappers, confirm the real SDK surface (install the latest packages in a throwaway venv) rather than trusting the fakes.
 - **Editing provider code?** The load-bearing canonical contracts are enforced by `.cursor/rules/provider-integrations.mdc` (auto-loads for `apps/sdk-python/leer/integrations/**`).
 
 Specs live in `docs/03-specs/`, execution audits/QA in `docs/04-execution/`.

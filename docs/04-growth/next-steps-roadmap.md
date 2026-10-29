@@ -11,28 +11,37 @@ This means Leer is now a **real product prototype**.
 
 ---
 
-## ✅ Current status / candidate workstreams (provider hardening complete)
+## ✅ Current status / candidate workstreams
 
-Provider Hardening (OpenAI + Anthropic, Steps 0–4) is **complete** and assessed
-production-ready for the v1 observability scope — see
-`docs/04-execution/provider-hardening-qa.md`. Core LLM execution-record capture
-for the two primary providers is largely done.
+Provider Hardening (OpenAI + Anthropic, Steps 0–4) is **complete** — see
+`docs/04-execution/provider-hardening-qa.md`.
 
-Candidate next workstreams to take that support from "hardened" to "truly
-complete" (none started; each should begin with a Step-0 audit and document
-gaps before code, per `AGENTS.md`):
+**Current focus (Oct 2026): provider drift follow-up.** Both SDKs had major
+releases since June (`openai` 2.43 → 3.41, `anthropic` 0.111 → 2.3). The
+re-assessment in `docs/04-execution/provider-drift-assessment-2026-10.md` found
+capture gaps (unrecorded Anthropic `stream()`/`parse()`/`beta` calls, missing
+tool calls, Responses `phase` mixing) and lists the fix order. Work that list
+before starting B–D.
 
-- **A. Structured-output validation** — JSON-schema outputs, OpenAI structured
-  outputs, and Anthropic tool-use structured responses, under both streaming
-  and non-streaming. (Existing spec: `docs/03-specs/llm-instrumentation/06-structured-outputs.md`.)
+Workstreams to take support from "hardened" to "truly complete" (each starts
+with a Step-0 audit and documents gaps before code, per `AGENTS.md`):
+
+- **A. Structured-output validation** — ✅ **complete** (June 2026). `.parse()`
+  and `.stream()` capture, canonical `output.parsed` / `meta.output_is_json`,
+  UI surfacing, JSON-safe submission. See
+  `docs/04-execution/structured-outputs-step-0-audit.md`. Anthropic's newer
+  `messages.parse()` helper is tracked as D-H1 in the drift assessment.
 - **B. Multimodal inputs** — verify images, image URLs, and file attachments
-  capture correctly across both providers.
+  capture correctly across both providers. Not started.
 - **C. Multimodal outputs** — validate current/future output modalities
-  (e.g. image generation) end to end into artifacts.
+  (e.g. image generation) end to end into artifacts. Not started.
 - **D. Long-running agent workflows** — multiple tool loops, nested tool calls,
-  and large execution trees render and compare cleanly.
-- **E. Provider version-drift monitoring** — a recorded-fixture regression suite
-  that protects normalization against OpenAI/Anthropic API changes.
+  and large execution trees render and compare cleanly. Not started.
+- **E. Provider version-drift monitoring** — 🟡 **step 1 of 3 done**: golden
+  snapshot suite over 14 hand-authored fixtures
+  (`apps/sdk-python/tests/test_provider_drift.py`). Remaining: streaming
+  snapshots, and an opt-in recorder for real API payloads. See
+  `docs/04-execution/version-drift-step-0-audit.md`.
 
 Deferred provider-hardening items (documented, non-blocking) live in the QA
 report §4 and the implementation plan: Responses streaming interleave ordering,

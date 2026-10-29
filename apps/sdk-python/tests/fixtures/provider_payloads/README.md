@@ -55,14 +55,13 @@ git diff tests/fixtures/provider_payloads/golden/   # confirm every change is ex
 
 ## Refreshing against real provider payloads
 
-The committed fixtures are hand-authored for deterministic, offline CI. To
-refresh them against live API shapes (requires API keys; never run in CI), use
-the opt-in recorder:
+The committed fixtures are hand-authored for deterministic, offline CI. An
+opt-in recorder that refreshes them from the live APIs is **planned but not
+built yet** (workstream E step 3; see
+`docs/04-execution/provider-drift-assessment-2026-10.md`). It will write `raw/`
+fixtures with `provenance.source = "recorded:<model>@<date>"`; review that diff
+(especially new or renamed fields) before regenerating goldens.
 
-```bash
-OPENAI_API_KEY=... ANTHROPIC_API_KEY=... \
-  uv run python tools/record_provider_fixtures.py
-```
-
-It writes new `raw/` fixtures with `provenance.source = "recorded:<model>@<date>"`.
-Review the diff (especially any new/renamed fields) before regenerating goldens.
+Known limitation: the OpenAI fixtures omit envelope fields the normalizer
+doesn't read (`created`, `created_at`, `tools`, `tool_choice`, usage detail
+objects), so they don't validate against the real SDK types (D-M4).

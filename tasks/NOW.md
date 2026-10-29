@@ -5,12 +5,20 @@ Make Leer feel extremely strong and trustworthy as an observability product for 
 
 ## Tasks
 
-### Immediate next feature
-- [x] Provider hardening pass for OpenAI and Anthropic — **COMPLETE (Steps 0–4)**.
-  Assessed production-ready for the v1 observability scope. See QA signoff:
-  `docs/04-execution/provider-hardening-qa.md` (plan:
-  `tasks/provider-hardening-implementation-plan.md`). Candidate next
-  workstreams are in `docs/04-growth/next-steps-roadmap.md`.
+### Immediate next feature — provider drift follow-up (Oct 2026)
+Both SDKs had major releases since June. Gaps and fix order:
+`docs/04-execution/provider-drift-assessment-2026-10.md`.
+- [x] Docs refresh (roadmap, NOW, AGENTS, README links)
+- [ ] D-H1 — record Anthropic `messages.stream()`, `messages.parse()`, `beta.messages.*`
+- [ ] D-H2 / D-H3 / D-M1 — missing tool calls (`custom_tool_call`,
+  `server_tool_use`), Responses `phase` mixing, dropped `namespace`
+- [ ] D-M2 / D-M3 — label new item/block types; capture `stop_details`
+- [ ] D-M4 + workstream E — SDK-valid fixtures, streaming snapshots, live recorder
+
+### Recently completed
+- [x] Provider hardening pass (Steps 0–4) — `docs/04-execution/provider-hardening-qa.md`
+- [x] Workstream A, structured outputs — `docs/04-execution/structured-outputs-step-0-audit.md`
+- [x] Workstream E step 1, golden drift suite — `docs/04-execution/version-drift-step-0-audit.md`
 
 ### Provider hardening — done
 - [x] Validate OpenAI wrapper edge cases

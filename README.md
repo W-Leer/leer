@@ -48,7 +48,9 @@ Capture runs and steps with minimal instrumentation.
 
 ## 🎬 Demo
 
-![Demo](./assets/demo.gif)
+<!-- TODO: record assets/demo.gif -->
+
+See the quick demo below.
 
 ---
 
@@ -60,7 +62,9 @@ Watch your LLM think in real time:
 - tool calls as they are built
 - timing and latency breakdown
 
-![stream demo gif]
+<!-- TODO: record a streaming demo gif -->
+
+Try it with `examples/demo_streaming.py`.
 
 ---
 
@@ -218,7 +222,7 @@ examples/
 
 ## 🛣 Roadmap
 
-See: docs/05-roadmap/future.md
+See [`docs/04-growth/next-steps-roadmap.md`](docs/04-growth/next-steps-roadmap.md).
 
 ---
 

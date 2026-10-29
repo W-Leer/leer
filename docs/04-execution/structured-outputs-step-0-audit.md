@@ -208,6 +208,11 @@ arbitrary tool args into `output.parsed` would mislabel ordinary tool calls.
 Uniform "did this step return a structured object?" detection therefore consults
 `output.parsed` **or** `tool_calls`.
 
+> **Update (Oct 2026):** Anthropic now ships a native structured-output path,
+> `messages.parse()` with `output_format`, so forced tool use is no longer the
+> only route. Leer does not record `messages.parse()` calls yet; tracked as D-H1
+> in `docs/04-execution/provider-drift-assessment-2026-10.md`.
+
 ### UI surfacing (done)
 
 `output.parsed` / `meta.output_is_json` are now exposed additively:

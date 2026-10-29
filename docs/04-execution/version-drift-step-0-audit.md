@@ -107,3 +107,8 @@ multimodal-specific fixtures (workstream B/C), async wrappers.
 - [x] Step 1 — non-streaming golden drift suite
 - [ ] Step 2 — streaming golden suite
 - [ ] Step 3 — opt-in live recorder
+
+The October 2026 re-assessment
+(`docs/04-execution/provider-drift-assessment-2026-10.md`) found that the
+OpenAI fixtures aren't valid against the real SDK types (D-M4). Fix that before
+step 3, so recorded and hand-authored fixtures share one shape.
