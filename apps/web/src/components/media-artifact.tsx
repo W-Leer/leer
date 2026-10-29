@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { artifactContentUrl } from "@/lib/api";
 import type { StepArtifactRef } from "@/lib/types";
+import { isProviderTool, providerToolLabel } from "@/lib/provider-hardening";
 
 // ---------------------------------------------------------------------------
 // Classification helpers
@@ -263,6 +264,10 @@ export function ContentBlockRow({ block, artifacts }: ContentBlockRowProps) {
     return null;
   }
 
+  if (isProviderTool(block)) {
+    return <ProviderToolRow block={block} />;
+  }
+
   const artifactId = block.artifact_id as string | undefined;
   const matchedArtifact = artifactId
     ? artifacts.find((a) => a.id === artifactId)
@@ -297,10 +302,48 @@ export function ContentBlockRow({ block, artifacts }: ContentBlockRowProps) {
 }
 
 // ---------------------------------------------------------------------------
+// ProviderToolRow — a tool the provider ran itself (no local tool step)
+// ---------------------------------------------------------------------------
+
+function ProviderToolRow({ block }: { block: Record<string, unknown> }) {
+  const status = typeof block.status === "string" ? block.status : null;
+  const error = typeof block.error === "string" ? block.error : null;
+  const previewText = typeof block.preview_text === "string" ? block.preview_text : null;
+
+  return (
+    <div className="overflow-hidden rounded-md border border-sky-100 bg-sky-50/40 px-3 py-2 dark:border-sky-900/40 dark:bg-sky-950/20">
+      <div className="flex min-w-0 items-center gap-2 text-[11px]">
+        <span className="shrink-0 rounded bg-sky-100 px-1.5 py-px text-[9px] font-medium text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">
+          run by provider
+        </span>
+        <span className="min-w-0 truncate font-mono font-medium text-neutral-700 dark:text-neutral-300">
+          {providerToolLabel(block)}
+        </span>
+        {status && <span className="shrink-0 text-[10px] text-neutral-400">{status}</span>}
+        {error && <span className="shrink-0 text-[10px] font-medium text-rose-600">{error}</span>}
+      </div>
+      {previewText && (
+        <p className="mt-1 truncate font-mono text-[10px] text-neutral-400">{previewText}</p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // CompareMediaBadge — compact media badge for compare page
 // ---------------------------------------------------------------------------
 
 export function CompareMediaBadge({ block }: { block: Record<string, unknown> }) {
+  if (isProviderTool(block)) {
+    return (
+      <div className="flex min-w-0 items-center gap-1.5 rounded bg-neutral-50 px-2 py-1 text-[10px]">
+        <span className="shrink-0 rounded bg-sky-50 px-1 py-px text-[9px] font-medium text-sky-700">PROVIDER TOOL</span>
+        <span className="min-w-0 truncate font-mono text-neutral-600">{providerToolLabel(block)}</span>
+        {typeof block.error === "string" && <span className="shrink-0 text-rose-600">{block.error}</span>}
+      </div>
+    );
+  }
+
   const t = (block.type as string) ?? "media";
   const fname = block.filename as string | undefined;
   const mime = typeof block.mime_type === "string" ? block.mime_type : undefined;

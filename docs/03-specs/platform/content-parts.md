@@ -58,9 +58,11 @@ Leer defines the following canonical part types:
 - `file`
 - `tool_call`
 - `tool_result`
+- `provider_tool`
 
 The first six are multimodal content parts.
-The last two are included because real provider payloads often interleave tool activity with content.
+`tool_call` and `tool_result` are included because real provider payloads often interleave tool activity with content.
+`provider_tool` is a tool the provider ran itself (web search, code execution, MCP); see ADR-002.
 
 ---
 
@@ -320,6 +322,28 @@ Used when provider-native output interleaves tool calls alongside content.
 ```
 
 This part type is not a media part, but is part of the same canonical sequence model.
+
+---
+
+## ProviderToolPart
+
+A tool the provider executed (no local tool step exists). Not listed in
+`output.tool_calls`. Call and result are one part on both providers.
+
+```json
+{
+  "type": "provider_tool",
+  "id": "srvtoolu_1",
+  "name": "web_search",
+  "input": { "query": "leer execution record" },
+  "output": [ { "type": "web_search_result", "url": "https://…" } ],
+  "provider": "anthropic",
+  "provider_part_type": "server_tool_use",
+  "preview_text": "web_search: leer execution record"
+}
+```
+
+`status`, `output`, `error` and `server` are present only when known.
 
 ---
 

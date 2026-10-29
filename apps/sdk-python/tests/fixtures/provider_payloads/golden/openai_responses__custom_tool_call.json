@@ -21,6 +21,7 @@
     "latency_ms": 990,
     "output_is_json": false,
     "refusal": null,
+    "refusal_category": null,
     "request_id": "resp_drift_custom_001"
   },
   "model": "gpt-5.5",

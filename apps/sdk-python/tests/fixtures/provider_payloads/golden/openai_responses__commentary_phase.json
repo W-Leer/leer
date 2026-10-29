@@ -15,6 +15,7 @@
     "latency_ms": 1610,
     "output_is_json": true,
     "refusal": null,
+    "refusal_category": null,
     "request_id": "resp_drift_phase_001"
   },
   "model": "gpt-5.5",

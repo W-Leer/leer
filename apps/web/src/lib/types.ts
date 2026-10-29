@@ -107,6 +107,9 @@ export interface LLMShape {
     // Raw refusal string when the provider explicitly signalled a refusal
     // (Step 1 canonical field). `null`/absent means no refusal.
     refusal?: string | null;
+    // Policy category of the refusal when the provider names one (Anthropic
+    // `stop_details.category`). Absent on older records.
+    refusal_category?: string | null;
     // True when the canonical text output is a JSON object/array (Step 1
     // structured-output signal). Absent on records predating the field.
     output_is_json?: boolean;

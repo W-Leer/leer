@@ -1,0 +1,40 @@
+{
+  "kind": "anthropic",
+  "provenance": {
+    "provider": "anthropic",
+    "surface": "client.messages.create",
+    "source": "hand-authored",
+    "api_reference_date": "2026-10",
+    "notes": "Server-run web search between two text blocks. server_tool_use + web_search_tool_result must merge into one provider_tool part (no tool_calls entry); encrypted_content is dropped; text blocks stay separate."
+  },
+  "latency_ms": 2140,
+  "request": {
+    "model": "claude-sonnet-5-5",
+    "max_tokens": 512,
+    "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}],
+    "messages": [
+      {"role": "user", "content": "What is Leer?"}
+    ]
+  },
+  "response": {
+    "id": "msg_drift_search_001",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-sonnet-5-5",
+    "content": [
+      {"type": "text", "text": "Let me look that up."},
+      {"type": "server_tool_use", "id": "srvtoolu_drift_1", "name": "web_search", "input": {"query": "Leer execution record"}},
+      {
+        "type": "web_search_tool_result",
+        "tool_use_id": "srvtoolu_drift_1",
+        "content": [
+          {"type": "web_search_result", "url": "https://leer.dev", "title": "Leer", "encrypted_content": "EqgfCioIARgBIiQ3", "page_age": "2 days ago"}
+        ]
+      },
+      {"type": "text", "text": "Leer is an execution-record system for AI agents."}
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "usage": {"input_tokens": 410, "output_tokens": 60, "server_tool_use": {"web_search_requests": 1, "web_fetch_requests": 0}}
+  }
+}

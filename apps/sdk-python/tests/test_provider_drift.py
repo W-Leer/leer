@@ -122,6 +122,15 @@ def test_canonical_invariants(raw_path: Path) -> None:
     if "namespaced" in stem:
         keys = [(tc.get("namespace"), tc.get("name")) for tc in d["output"]["tool_calls"]]
         assert len(set(keys)) == len(keys), "same-named tools must stay distinguishable by namespace"
+    if "provider_run" in stem:
+        provider_tools = [b for b in d["output"]["content_blocks"] if b.get("type") == "provider_tool"]
+        assert provider_tools, "provider-run tools must be kept as provider_tool parts"
+        assert all(b.get("name") for b in provider_tools), "provider-run tools need a name"
+        linked_ids = {tc.get("id") for tc in d["output"]["tool_calls"]}
+        assert not linked_ids & {b["id"] for b in provider_tools}, "provider-run tools must stay out of tool_calls"
+        assert "encrypted_content" not in json.dumps(d["output"]), "opaque provider blobs must not be copied"
+    if "refusal_category" in stem:
+        assert d["meta"]["refusal_category"], "refusal_category scenario must populate meta.refusal_category"
 
 
 def test_harness_detects_drift() -> None:

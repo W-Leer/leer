@@ -15,6 +15,7 @@
     "latency_ms": 705,
     "output_is_json": false,
     "refusal": null,
+    "refusal_category": null,
     "request_id": "chatcmpl-drift-cached-001"
   },
   "model": "gpt-4.1-2025-04-14",

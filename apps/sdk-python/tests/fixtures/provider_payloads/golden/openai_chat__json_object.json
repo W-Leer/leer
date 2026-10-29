@@ -19,6 +19,7 @@
     "latency_ms": 910,
     "output_is_json": true,
     "refusal": null,
+    "refusal_category": null,
     "request_id": "chatcmpl-drift-json-001"
   },
   "model": "gpt-4.1-mini-2025-04-14",

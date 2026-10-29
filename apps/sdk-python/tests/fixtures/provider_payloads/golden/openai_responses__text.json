@@ -18,6 +18,7 @@
     "latency_ms": 1320,
     "output_is_json": false,
     "refusal": null,
+    "refusal_category": null,
     "request_id": "resp_drift_text_001"
   },
   "model": "gpt-4.1-2025-04-14",

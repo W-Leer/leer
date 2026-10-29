@@ -17,6 +17,7 @@
     "latency_ms": 560,
     "output_is_json": false,
     "refusal": "Model declined to respond.",
+    "refusal_category": null,
     "request_id": "msg_drift_refusal_001"
   },
   "model": "claude-sonnet-4-20250514",

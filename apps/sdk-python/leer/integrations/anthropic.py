@@ -27,6 +27,7 @@ Usage::
 
 from __future__ import annotations
 
+import copy
 import json
 import time
 import traceback
@@ -408,6 +409,8 @@ class _StreamingIterator:
             self._request_dict,
             msg_id=self._ctx.get("msg_id"),
             response_model=self._ctx.get("model"),
+            streamed_blocks=_streamed_content_blocks(self._ctx),
+            stop_details=self._ctx.get("stop_details"),
         )
 
         try:
@@ -449,7 +452,8 @@ class _StreamingIterator:
         s.metadata["stream"] = collector.stream_metadata()
 
         assembled = collector.assembled_output()
-        has_output = bool(assembled.get("text") or assembled.get("tool_calls"))
+        streamed_blocks = _streamed_content_blocks(self._ctx)
+        has_output = bool(assembled.get("text") or assembled.get("tool_calls") or streamed_blocks)
 
         if has_output:
             response_dict = _assembled_to_anthropic_response(
@@ -457,6 +461,8 @@ class _StreamingIterator:
                 self._request_dict,
                 msg_id=self._ctx.get("msg_id"),
                 response_model=self._ctx.get("model"),
+                streamed_blocks=streamed_blocks,
+                stop_details=self._ctx.get("stop_details"),
             )
             try:
                 _enrich_step(s, self._request_dict, response_dict, latency_ms, _is_dict=True)
@@ -524,6 +530,7 @@ def _process_anthropic_event(
         block = event_dict.get("content_block") or {}
         block_index = event_dict.get("index", 0)
         block_type = block.get("type")
+        ctx.setdefault("blocks", {})[block_index] = copy.deepcopy(block)
         if block_type == "tool_use":
             collector.append_tool_call_delta(
                 block_index,
@@ -539,6 +546,7 @@ def _process_anthropic_event(
         delta = event_dict.get("delta") or {}
         delta_type = delta.get("type")
         block_index = event_dict.get("index", 0)
+        _accumulate_block_delta(ctx, block_index, delta)
 
         if delta_type == "text_delta":
             text = delta.get("text", "")
@@ -562,6 +570,8 @@ def _process_anthropic_event(
         stop_reason = delta.get("stop_reason")
         if stop_reason:
             collector.set_finish_reason(stop_reason)
+        if delta.get("stop_details") is not None:
+            ctx["stop_details"] = delta["stop_details"]
         usage = event_dict.get("usage") if isinstance(event_dict.get("usage"), dict) else {}
         kwargs = {}
         if usage.get("output_tokens") is not None:
@@ -584,6 +594,47 @@ def _process_anthropic_event(
 _HELPER_EVENT_TYPES = ("text", "thinking", "signature", "input_json", "citation")
 
 
+def _accumulate_block_delta(ctx: dict[str, Any], index: int, delta: dict[str, Any]) -> None:
+    """Apply a delta to the block it belongs to, the way the SDK's
+    ``accumulate_event`` does, so the streamed message keeps every block type,
+    each text block, and the original order."""
+    block = ctx.get("blocks", {}).get(index)
+    if block is None:
+        return
+    delta_type = delta.get("type")
+    if delta_type == "text_delta":
+        block["text"] = (block.get("text") or "") + (delta.get("text") or "")
+    elif delta_type == "input_json_delta":
+        partial = ctx.setdefault("partial_json", {})
+        partial[index] = partial.get(index, "") + (delta.get("partial_json") or "")
+    elif delta_type == "thinking_delta":
+        block["thinking"] = (block.get("thinking") or "") + (delta.get("thinking") or "")
+    elif delta_type == "signature_delta":
+        block["signature"] = delta.get("signature")
+    elif delta_type == "citations_delta":
+        block.setdefault("citations", []).append(delta.get("citation"))
+
+
+def _streamed_content_blocks(ctx: dict[str, Any]) -> list[dict[str, Any]] | None:
+    """Blocks rebuilt from stream events, in index order; ``None`` when no
+    ``content_block_start`` arrived (callers fall back to the collector)."""
+    blocks = ctx.get("blocks")
+    if not blocks:
+        return None
+    partial = ctx.get("partial_json", {})
+    content: list[dict[str, Any]] = []
+    for index in sorted(blocks):
+        block = dict(blocks[index])
+        raw = partial.get(index)
+        if raw:
+            try:
+                block["input"] = json.loads(raw)
+            except (json.JSONDecodeError, ValueError):
+                block["input"] = raw
+        content.append(block)
+    return content
+
+
 # ---------------------------------------------------------------------------
 # Assembled output → Anthropic response dict
 # ---------------------------------------------------------------------------
@@ -594,6 +645,8 @@ def _assembled_to_anthropic_response(
     *,
     msg_id: str | None = None,
     response_model: str | None = None,
+    streamed_blocks: list[dict[str, Any]] | None = None,
+    stop_details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Convert collector assembled output to a dict matching the Anthropic
     messages response shape, suitable for ``normalize_anthropic``.
@@ -602,7 +655,24 @@ def _assembled_to_anthropic_response(
     in the ``message_start`` event — that wins over the request model so
     streaming behavior matches the non-streaming path, where
     ``response.model`` is authoritative.
+
+    ``streamed_blocks`` (from ``_streamed_content_blocks``) are used as the
+    content when present; the collector's text/thinking/tool_use assembly is
+    the fallback.
     """
+    response: dict[str, Any] = {
+        "id": msg_id or assembled.get("request_id") or "",
+        "model": response_model or request_dict.get("model"),
+        "content": streamed_blocks if streamed_blocks is not None else _collector_content(assembled),
+        "stop_reason": assembled.get("finish_reason"),
+        "usage": _collector_usage(assembled),
+    }
+    if stop_details is not None:
+        response["stop_details"] = stop_details
+    return response
+
+
+def _collector_content(assembled: dict[str, Any]) -> list[dict[str, Any]]:
     content: list[dict[str, Any]] = []
 
     # Thinking blocks come first to match Anthropic's non-streaming ordering
@@ -627,7 +697,10 @@ def _assembled_to_anthropic_response(
             "name": tc.get("name"),
             "input": args if args is not None else {},
         })
+    return content
 
+
+def _collector_usage(assembled: dict[str, Any]) -> dict[str, Any]:
     usage: dict[str, Any] = {}
     raw_usage = assembled.get("usage") or {}
     if raw_usage.get("prompt_tokens") is not None:
@@ -638,14 +711,7 @@ def _assembled_to_anthropic_response(
         # Round-trip into the canonical Anthropic key so the normalizer
         # (which reads ``cache_read_input_tokens``) sees the streamed value.
         usage["cache_read_input_tokens"] = raw_usage["cached_tokens"]
-
-    return {
-        "id": msg_id or assembled.get("request_id") or "",
-        "model": response_model or request_dict.get("model"),
-        "content": content,
-        "stop_reason": assembled.get("finish_reason"),
-        "usage": usage,
-    }
+    return usage
 
 
 def _safe_attach_request_artifact(s: Any, request_dict: dict[str, Any]) -> None:

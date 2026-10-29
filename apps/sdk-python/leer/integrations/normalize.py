@@ -69,6 +69,9 @@ class LLMMeta:
     # block). ``None`` means no refusal was reported. The refusal text is
     # also inlined as ``[refusal] ...`` in ``output.text`` for back-compat.
     refusal: str | None = None
+    # Policy category of a refusal when the provider names one (Anthropic
+    # ``stop_details.category``, e.g. ``"cyber"``). ``None`` otherwise.
+    refusal_category: str | None = None
     # ``True`` when the canonical text output is itself a JSON object/array
     # (i.e. ``output.parsed`` is populated). Content-derived and independent
     # of whether a schema/``response_format`` was requested — a structured
@@ -297,6 +300,75 @@ def _media_part(
     return d
 
 
+# ---------------------------------------------------------------------------
+# Provider-run tools (ADR-002)
+# ---------------------------------------------------------------------------
+
+# Opaque provider blobs (e.g. encrypted search-page content). They carry no
+# meaning outside the provider and stay in the raw response artifact.
+_OPAQUE_KEYS = frozenset({"encrypted_content", "encrypted_index"})
+
+
+def _strip_opaque(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _strip_opaque(v) for k, v in value.items() if k not in _OPAQUE_KEYS}
+    if isinstance(value, list):
+        return [_strip_opaque(v) for v in value]
+    return value
+
+
+def _provider_tool_preview(name: str | None, tool_input: Any) -> str:
+    label = name or "provider tool"
+    detail: str | None = None
+    if isinstance(tool_input, dict):
+        query = tool_input.get("query")
+        queries = tool_input.get("queries")
+        if isinstance(query, str) and query:
+            detail = query
+        elif isinstance(queries, list) and queries:
+            detail = "; ".join(str(q) for q in queries)
+    if detail is None and tool_input:
+        detail = json.dumps(tool_input, default=str, ensure_ascii=False)
+    return f"{label}: {detail}"[:200] if detail else label
+
+
+def _provider_tool_part(
+    *,
+    provider: str,
+    provider_part_type: str,
+    call_id: str | None,
+    name: str | None,
+    tool_input: Any,
+    status: str | None = None,
+    output: Any = None,
+    error: str | None = None,
+    server: str | None = None,
+) -> dict[str, Any]:
+    """One tool execution the provider ran itself. Never a ``tool_calls`` entry:
+    no local tool step will ever link to it."""
+    part: dict[str, Any] = {"type": "provider_tool", "id": call_id, "name": name, "input": tool_input}
+    if status is not None:
+        part["status"] = status
+    if output is not None:
+        part["output"] = _strip_opaque(output)
+    if error is not None:
+        part["error"] = error
+    if server is not None:
+        part["server"] = server
+    part["provider"] = provider
+    part["provider_part_type"] = provider_part_type
+    part["preview_text"] = _provider_tool_preview(name, tool_input)
+    return part
+
+
+def _error_text(error: Any) -> str | None:
+    if isinstance(error, str):
+        return error or None
+    if isinstance(error, dict):
+        return error.get("message") or error.get("error_code") or error.get("type")
+    return None
+
+
 def _summarize_content_for_user(content: Any) -> str:
     """Summarize a user message content array into a readable string with media markers."""
     if isinstance(content, str):
@@ -517,6 +589,59 @@ def _normalize_openai_chat(
 # OpenAI — responses shape
 # ---------------------------------------------------------------------------
 
+_OPENAI_PROVIDER_TOOL_ITEMS = frozenset({
+    "web_search_call", "file_search_call", "code_interpreter_call", "mcp_call",
+})
+
+# Built-in tools the caller executes and answers with a ``*_call_output`` item,
+# so they link to local tool steps like function calls do.
+_OPENAI_CALLER_TOOL_ITEMS = {
+    "computer_call": "computer",
+    "local_shell_call": "local_shell",
+    "shell_call": "shell",
+    "apply_patch_call": "apply_patch",
+}
+
+
+def _openai_provider_tool(item: dict[str, Any]) -> dict[str, Any]:
+    item_type = item["type"]
+    output: Any = None
+    error: str | None = None
+    server: str | None = None
+    if item_type == "web_search_call":
+        name, tool_input = "web_search", item.get("action") or {}
+    elif item_type == "file_search_call":
+        name, tool_input, output = "file_search", {"queries": item.get("queries")}, item.get("results")
+    elif item_type == "code_interpreter_call":
+        name, output = "code_interpreter", item.get("outputs")
+        tool_input = {"code": item.get("code"), "container_id": item.get("container_id")}
+    else:
+        name, tool_input = item.get("name"), _parse_arguments(item.get("arguments"))
+        output, error, server = item.get("output"), _error_text(item.get("error")), item.get("server_label")
+    return _provider_tool_part(
+        provider="openai",
+        provider_part_type=item_type,
+        call_id=item.get("id"),
+        name=name,
+        tool_input=tool_input,
+        status=item.get("status"),
+        output=output,
+        error=error,
+        server=server,
+    )
+
+
+def _openai_reasoning_part(item: dict[str, Any]) -> dict[str, Any]:
+    """``reasoning`` joins the thinking channel. Summaries are what OpenAI
+    shows; ``reasoning_text`` only comes from open-weight models."""
+    texts = [s["text"] for s in (item.get("summary") or []) if isinstance(s, dict) and s.get("text")]
+    if not texts:
+        texts = [c["text"] for c in (item.get("content") or []) if isinstance(c, dict) and c.get("text")]
+    if not texts:
+        return {"type": "redacted_thinking"}
+    return {"type": "thinking", "thinking": "\n\n".join(texts)}
+
+
 def _normalize_openai_responses(
     request: dict[str, Any],
     response: dict[str, Any],
@@ -632,6 +757,25 @@ def _normalize_openai_responses(
             tool_calls.append(tc)
             content_blocks.append({"type": "tool_call", **tc})
 
+        elif item_type in _OPENAI_CALLER_TOOL_ITEMS:
+            # ``computer_call`` sends one ``action`` or, batched, ``actions``.
+            args = item.get("operation") if item_type == "apply_patch_call" else item.get("action")
+            if args is None:
+                args = item.get("actions")
+            tc = {
+                "id": item.get("call_id") or item.get("id"),
+                "name": _OPENAI_CALLER_TOOL_ITEMS[item_type],
+                "arguments": args if args is not None else {},
+            }
+            tool_calls.append(tc)
+            content_blocks.append({"type": "tool_call", **tc})
+
+        elif item_type in _OPENAI_PROVIDER_TOOL_ITEMS:
+            content_blocks.append(_openai_provider_tool(item))
+
+        elif item_type == "reasoning":
+            content_blocks.append(_openai_reasoning_part(item))
+
         elif item_type == "image_generation_call":
             content_blocks.append(_media_part(
                 "image",
@@ -643,7 +787,7 @@ def _normalize_openai_responses(
                 }.items() if v is not None},
             ))
 
-        elif item_type not in (None, "message", "function_call"):
+        elif item_type is not None:
             content_blocks.append(_media_part(
                 "file",
                 provider="openai",
@@ -703,6 +847,43 @@ _ANTHROPIC_PARAMS = frozenset({
 })
 
 
+def _is_anthropic_tool_result(block_type: Any) -> bool:
+    """Result blocks of provider-run tools (``web_search_tool_result``, …).
+    Plain ``tool_result`` is the caller's answer and never appears in output."""
+    return isinstance(block_type, str) and block_type.endswith("_tool_result")
+
+
+def _attach_anthropic_tool_result(
+    block: dict[str, Any],
+    provider_tools: dict[str, dict[str, Any]],
+    content_blocks: list[dict[str, Any]],
+) -> None:
+    """Merge a result block into its ``provider_tool`` part, so Anthropic has
+    the same one-part-per-execution shape as OpenAI."""
+    tool_use_id = block.get("tool_use_id")
+    content = block.get("content")
+    error: str | None = None
+    if isinstance(content, dict) and str(content.get("type", "")).endswith("_error"):
+        error, content = _error_text(content), None
+    elif block.get("is_error"):
+        error = "tool returned an error"
+
+    part = provider_tools.get(tool_use_id) if isinstance(tool_use_id, str) else None
+    if part is None:
+        part = _provider_tool_part(
+            provider="anthropic",
+            provider_part_type=block.get("type"),
+            call_id=tool_use_id,
+            name=None,
+            tool_input={},
+        )
+        content_blocks.append(part)
+    if content is not None:
+        part["output"] = _strip_opaque(content)
+    if error is not None:
+        part["error"] = error
+
+
 def normalize_anthropic(
     request: dict[str, Any],
     response: dict[str, Any],
@@ -733,6 +914,7 @@ def normalize_anthropic(
     tool_calls: list[dict[str, Any]] = []
     content_blocks: list[dict[str, Any]] = []
     sdk_parsed: Any = None
+    provider_tools: dict[str, dict[str, Any]] = {}
 
     for block in (raw_blocks if isinstance(raw_blocks, list) else []):
         if not isinstance(block, dict):
@@ -754,6 +936,28 @@ def normalize_anthropic(
             }
             tool_calls.append(tc)
             content_blocks.append({"type": "tool_call", **tc})
+        elif block_type in ("server_tool_use", "mcp_tool_use"):
+            part = _provider_tool_part(
+                provider="anthropic",
+                provider_part_type=block_type,
+                call_id=block.get("id"),
+                name=block.get("name"),
+                tool_input=block.get("input") or {},
+                server=block.get("server_name"),
+            )
+            content_blocks.append(part)
+            if isinstance(part["id"], str):
+                provider_tools[part["id"]] = part
+        elif _is_anthropic_tool_result(block_type):
+            _attach_anthropic_tool_result(block, provider_tools, content_blocks)
+        elif block_type == "container_upload":
+            content_blocks.append(_media_part(
+                "file",
+                source=_make_source("provider_file", block.get("file_id")),
+                provider="anthropic",
+                provider_part_type="container_upload",
+                preview_text="file uploaded to code-execution container",
+            ))
         elif block_type == "thinking":
             content_blocks.append({
                 "type": "thinking",
@@ -822,8 +1026,19 @@ def normalize_anthropic(
     # inherits it via the round-tripped response dict.
     stop_reason = response.get("stop_reason")
     refusal_text: str | None = None
+    refusal_category: str | None = None
     if stop_reason == "refusal":
-        refusal_text = text or "Model declined to respond."
+        stop_details = response.get("stop_details")
+        if not isinstance(stop_details, dict):
+            stop_details = {}
+        explanation = stop_details.get("explanation")
+        category = stop_details.get("category")
+        refusal_category = category if isinstance(category, str) else None
+        refusal_text = (
+            text
+            or (explanation if isinstance(explanation, str) and explanation else None)
+            or "Model declined to respond."
+        )
         if not text:
             text = f"[refusal] {refusal_text}"
             content_blocks.append({"type": "text", "text": text})
@@ -872,6 +1087,7 @@ def normalize_anthropic(
             finish_reason=stop_reason,
             request_id=response.get("id"),
             refusal=refusal_text,
+            refusal_category=refusal_category,
             output_is_json=output_is_json,
         ),
     )

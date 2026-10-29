@@ -12,6 +12,9 @@ import {
   isJsonOutput,
   jsonOutputDiverges,
   toolCallLabel,
+  getRefusalCategory,
+  isProviderTool,
+  providerToolLabel,
 } from "./provider-hardening";
 import type { LLMShape } from "./types";
 
@@ -20,6 +23,7 @@ function makeLlm(partial: {
   content_blocks?: Record<string, unknown>[];
   cached_tokens?: number | null;
   refusal?: string | null;
+  refusal_category?: string | null;
   parsed?: unknown;
   output_is_json?: boolean;
 }): LLMShape {
@@ -44,6 +48,7 @@ function makeLlm(partial: {
       request_id: null,
       latency_ms: null,
       refusal: partial.refusal,
+      refusal_category: partial.refusal_category,
       output_is_json: partial.output_is_json,
     },
   };
@@ -284,5 +289,38 @@ describe("toolCallLabel", () => {
 
   test("ignores a non-string namespace", () => {
     expect(toolCallLabel({ name: "search", namespace: 42 })).toBe("search");
+  });
+});
+
+describe("getRefusalCategory", () => {
+  test("returns the category alongside a refusal", () => {
+    expect(getRefusalCategory(makeLlm({ refusal: "No.", refusal_category: "cyber" }))).toBe("cyber");
+  });
+
+  test("null without a refusal, on old records, or with no llm", () => {
+    expect(getRefusalCategory(makeLlm({ refusal_category: "cyber" }))).toBeNull();
+    expect(getRefusalCategory(makeLlm({ refusal: "No." }))).toBeNull();
+    expect(getRefusalCategory(null)).toBeNull();
+  });
+});
+
+describe("isProviderTool / providerToolLabel", () => {
+  const search = { type: "provider_tool", name: "web_search", provider_part_type: "web_search_call" };
+
+  test("detects provider-run tool parts only", () => {
+    expect(isProviderTool(search)).toBe(true);
+    expect(isProviderTool({ type: "tool_call", name: "x" })).toBe(false);
+    expect(isProviderTool({ type: "file" })).toBe(false);
+  });
+
+  test("labels with the MCP server when present", () => {
+    expect(providerToolLabel(search)).toBe("web_search");
+    expect(providerToolLabel({ type: "provider_tool", name: "read_wiki", server: "deepwiki" })).toBe("deepwiki.read_wiki");
+  });
+
+  test("falls back to the provider type when the name is unknown", () => {
+    expect(providerToolLabel({ type: "provider_tool", provider_part_type: "code_execution_tool_result" })).toBe(
+      "code_execution_tool_result",
+    );
   });
 });

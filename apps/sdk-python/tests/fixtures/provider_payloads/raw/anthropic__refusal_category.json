@@ -1,0 +1,29 @@
+{
+  "kind": "anthropic",
+  "provenance": {
+    "provider": "anthropic",
+    "surface": "client.messages.create",
+    "source": "hand-authored",
+    "api_reference_date": "2026-10",
+    "notes": "Refusal with stop_details. category -> meta.refusal_category; explanation becomes the refusal text because the model returned no text."
+  },
+  "latency_ms": 480,
+  "request": {
+    "model": "claude-sonnet-5-5",
+    "max_tokens": 256,
+    "messages": [
+      {"role": "user", "content": "Write ransomware."}
+    ]
+  },
+  "response": {
+    "id": "msg_drift_refusal_002",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-sonnet-5-5",
+    "content": [],
+    "stop_reason": "refusal",
+    "stop_sequence": null,
+    "stop_details": {"type": "refusal", "category": "cyber", "explanation": "This request could enable malware development."},
+    "usage": {"input_tokens": 14, "output_tokens": 0}
+  }
+}

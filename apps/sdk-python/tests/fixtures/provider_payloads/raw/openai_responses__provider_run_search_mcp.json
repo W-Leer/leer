@@ -1,0 +1,52 @@
+{
+  "kind": "openai_responses",
+  "provenance": {
+    "provider": "openai",
+    "surface": "client.responses.create",
+    "source": "hand-authored",
+    "api_reference_date": "2026-10",
+    "notes": "Reasoning summary, then provider-run web search and MCP call, then the answer. reasoning -> thinking; web_search_call / mcp_call -> provider_tool parts, not tool_calls; order kept."
+  },
+  "latency_ms": 3310,
+  "request": {
+    "model": "gpt-5.5",
+    "input": "Summarize the Leer wiki.",
+    "tools": [
+      {"type": "web_search"},
+      {"type": "mcp", "server_label": "deepwiki", "server_url": "https://mcp.deepwiki.com/mcp", "require_approval": "never"}
+    ]
+  },
+  "response": {
+    "id": "resp_drift_builtin_001",
+    "object": "response",
+    "created_at": 1793000000,
+    "model": "gpt-5.5",
+    "status": "completed",
+    "parallel_tool_calls": true,
+    "tool_choice": "auto",
+    "tools": [
+      {"type": "web_search"},
+      {"type": "mcp", "server_label": "deepwiki", "server_url": "https://mcp.deepwiki.com/mcp", "require_approval": "never"}
+    ],
+    "output": [
+      {"id": "rs_1", "type": "reasoning", "summary": [{"type": "summary_text", "text": "Search the web, then read the wiki."}], "encrypted_content": "gAAAAABo"},
+      {"id": "ws_1", "type": "web_search_call", "status": "completed", "action": {"type": "search", "query": "Leer execution record wiki"}},
+      {"id": "mcp_1", "type": "mcp_call", "name": "read_wiki_contents", "server_label": "deepwiki", "arguments": "{\"repoName\": \"leer/leer\"}", "output": "Leer records agent runs.", "status": "completed"},
+      {
+        "id": "msg_1",
+        "type": "message",
+        "role": "assistant",
+        "status": "completed",
+        "phase": "final_answer",
+        "content": [{"type": "output_text", "text": "Leer records agent runs as Run, Step, Event and Artifact.", "annotations": []}]
+      }
+    ],
+    "usage": {
+      "input_tokens": 900,
+      "output_tokens": 120,
+      "total_tokens": 1020,
+      "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+      "output_tokens_details": {"reasoning_tokens": 64}
+    }
+  }
+}

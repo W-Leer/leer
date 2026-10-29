@@ -15,6 +15,7 @@
     "latency_ms": 640,
     "output_is_json": false,
     "refusal": "I'm sorry, but I can't help with that.",
+    "refusal_category": null,
     "request_id": "chatcmpl-drift-refusal-001"
   },
   "model": "gpt-4.1-mini-2025-04-14",

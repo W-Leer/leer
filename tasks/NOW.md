@@ -15,9 +15,9 @@ Both SDKs had major releases since June. Gaps and fix order:
 - [x] D-H2 / D-H3 / D-M1 — Responses `custom_tool_call`, `phase` (commentary
   kept out of `output.text`), `namespace`; Responses streaming now matches
   non-streaming
-- [ ] D-M2 / D-M3 — label new item/block types (including provider-run tools:
-  Anthropic `server_tool_use`, OpenAI `web_search_call` / `mcp_call`); capture
-  `stop_details`
+- [x] D-M2 / D-M3 — provider-run tools as `provider_tool` parts (ADR-002),
+  OpenAI `reasoning` as thinking, `meta.refusal_category`; also fixed D-M5
+  (Anthropic streaming dropped server-tool blocks and merged text blocks)
 - [ ] D-M4 + workstream E — SDK-valid fixtures, streaming snapshots, live recorder
 
 ### Recently completed

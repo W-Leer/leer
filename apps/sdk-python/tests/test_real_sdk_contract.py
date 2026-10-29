@@ -339,6 +339,118 @@ def test_anthropic_messages_stream_matches_non_streaming_canonical_output() -> N
     assert a["meta"]["finish_reason"] == b["meta"]["finish_reason"]
 
 
+def _anthropic_events_from(message: dict[str, Any]) -> list[dict[str, Any]]:
+    """A realistic Anthropic event sequence that streams ``message``."""
+    events: list[dict[str, Any]] = [{"type": "message_start", "message": {
+        **message, "content": [], "stop_reason": None, "stop_details": None,
+        "usage": {"input_tokens": message["usage"]["input_tokens"], "output_tokens": 0},
+    }}]
+    for i, block in enumerate(message["content"]):
+        kind = block["type"]
+        if kind == "text":
+            events.append({"type": "content_block_start", "index": i, "content_block": {"type": "text", "text": ""}})
+            events.append({"type": "content_block_delta", "index": i,
+                           "delta": {"type": "text_delta", "text": block["text"]}})
+        elif kind in ("tool_use", "server_tool_use"):
+            events.append({"type": "content_block_start", "index": i, "content_block": {**block, "input": {}}})
+            events.append({"type": "content_block_delta", "index": i,
+                           "delta": {"type": "input_json_delta", "partial_json": json.dumps(block["input"])}})
+        else:
+            events.append({"type": "content_block_start", "index": i, "content_block": block})
+        events.append({"type": "content_block_stop", "index": i})
+    events += [
+        {"type": "message_delta",
+         "delta": {"stop_reason": message["stop_reason"], "stop_sequence": None,
+                   "stop_details": message.get("stop_details")},
+         "usage": {"output_tokens": message["usage"]["output_tokens"]}},
+        {"type": "message_stop"},
+    ]
+    return events
+
+
+_SERVER_TOOL_MESSAGE = {
+    "id": "msg_1", "type": "message", "role": "assistant", "model": "claude-test",
+    "content": [
+        {"type": "text", "text": "Let me search."},
+        {"type": "server_tool_use", "id": "srvtoolu_1", "name": "web_search", "input": {"query": "leer"}},
+        {"type": "web_search_tool_result", "tool_use_id": "srvtoolu_1", "content": [
+            {"type": "web_search_result", "url": "https://leer.dev", "title": "Leer",
+             "encrypted_content": "Eq…", "page_age": None}]},
+        {"type": "text", "text": "Leer records agent runs."},
+        {"type": "tool_use", "id": "toolu_1", "name": "save_note", "input": {"note": "done"}},
+    ],
+    "stop_reason": "tool_use", "stop_sequence": None,
+    "usage": {"input_tokens": 5, "output_tokens": 9},
+}
+
+_REFUSAL_MESSAGE = {
+    "id": "msg_2", "type": "message", "role": "assistant", "model": "claude-test",
+    "content": [], "stop_reason": "refusal", "stop_sequence": None,
+    "stop_details": {"type": "refusal", "category": "cyber", "explanation": "Looks like malware."},
+    "usage": {"input_tokens": 5, "output_tokens": 0},
+}
+
+
+@pytest.mark.parametrize("message", [_SERVER_TOOL_MESSAGE, _REFUSAL_MESSAGE], ids=["server_tool", "refusal"])
+@pytest.mark.parametrize("surface", ["stream_helper", "create_stream_true"])
+def test_anthropic_streaming_matches_non_streaming_block_by_block(surface: str, message: dict[str, Any]) -> None:
+    """Server-tool blocks, separate text blocks, order and stop_details survive streaming."""
+    events = _anthropic_events_from(message)
+    client = _anthropic(lambda req: _sse_response(events, named=True))
+
+    def go_stream() -> None:
+        if surface == "stream_helper":
+            with client.messages.stream(model="claude-test", max_tokens=16, messages=MESSAGES) as stream:
+                stream.get_final_message()
+        else:
+            for _ in client.messages.create(model="claude-test", max_tokens=16, messages=MESSAGES, stream=True):
+                pass
+
+    streamed = _only_llm_step(_traced(go_stream)).metadata["llm"]
+    plain = _only_llm_step(_traced(lambda: _anthropic(lambda req: _json_response(message)).messages.create(
+        model="claude-test", max_tokens=16, messages=MESSAGES,
+    ))).metadata["llm"]
+
+    assert streamed["output"] == plain["output"]
+    assert streamed["usage"] == plain["usage"]
+    assert streamed["meta"]["finish_reason"] == plain["meta"]["finish_reason"]
+    assert streamed["meta"]["refusal"] == plain["meta"]["refusal"]
+    assert streamed["meta"]["refusal_category"] == plain["meta"]["refusal_category"]
+
+
+def test_anthropic_server_tool_stream_shape() -> None:
+    client = _anthropic(lambda req: _sse_response(_anthropic_events_from(_SERVER_TOOL_MESSAGE), named=True))
+    run = _traced(lambda: client.messages.stream(
+        model="claude-test", max_tokens=16, messages=MESSAGES).__enter__().until_done())
+    out = _only_llm_step(run).metadata["llm"]["output"]
+    assert [b["type"] for b in out["content_blocks"]] == ["text", "provider_tool", "text", "tool_call"]
+    assert out["text"] == "Let me search.\n\nLeer records agent runs."
+    assert [tc["name"] for tc in out["tool_calls"]] == ["save_note"]
+
+
+_OPENAI_TOOLS_FINAL = _openai_response_obj("completed", [
+    {"id": "rs_1", "type": "reasoning", "summary": [{"type": "summary_text", "text": "Search first."}]},
+    {"id": "ws_1", "type": "web_search_call", "status": "completed",
+     "action": {"type": "search", "query": "leer"}},
+    {"id": "mcp_1", "type": "mcp_call", "name": "read_wiki", "server_label": "deepwiki",
+     "arguments": "{\"repo\": \"leer\"}", "output": "page", "status": "completed"},
+    {"id": "msg_f", "type": "message", "role": "assistant", "status": "completed",
+     "content": [{"type": "output_text", "text": "Done.", "annotations": []}]},
+], _RESP_USAGE)
+
+
+def test_openai_responses_provider_tools_stream_like_create() -> None:
+    events = _responses_events_from(_OPENAI_TOOLS_FINAL)
+    streamed = _only_llm_step(_traced(lambda: _openai(lambda req: _sse_response(events, named=True))
+                                      .responses.stream(model="gpt-test", input="hi")
+                                      .__enter__().get_final_response())).metadata["llm"]
+    plain = _only_llm_step(_traced(lambda: _openai(lambda req: _json_response(_OPENAI_TOOLS_FINAL))
+                                   .responses.create(model="gpt-test", input="hi"))).metadata["llm"]
+    assert streamed["output"] == plain["output"]
+    assert [b["type"] for b in plain["output"]["content_blocks"]] == [
+        "thinking", "provider_tool", "provider_tool", "text"]
+
+
 def test_anthropic_messages_stream_outside_trace_is_passthrough() -> None:
     client = _anthropic(lambda req: _sse_response(_anthropic_events(["Hi"]), named=True))
     manager = client.messages.stream(model="claude-test", max_tokens=16, messages=MESSAGES)

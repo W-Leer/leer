@@ -56,6 +56,13 @@ export function hasRefusal(llm: LLMShape | null | undefined): boolean {
   return getRefusal(llm) !== null;
 }
 
+/** Policy category of a refusal (Anthropic `stop_details.category`), or null. */
+export function getRefusalCategory(llm: LLMShape | null | undefined): string | null {
+  if (!hasRefusal(llm)) return null;
+  const c = llm?.meta?.refusal_category;
+  return typeof c === "string" && c.length > 0 ? c : null;
+}
+
 export interface RefusalCompareState {
   /** Refusal present on side A. */
   a: boolean;
@@ -190,4 +197,20 @@ export function toolCallLabel(
   if (!name) return fallback;
   const ns = typeof tc?.namespace === "string" && tc.namespace ? tc.namespace : null;
   return ns ? `${ns}.${name}` : name;
+}
+
+// ---------------------------------------------------------------------------
+// Provider-run tools (ADR-002: `provider_tool` content parts)
+// ---------------------------------------------------------------------------
+
+/** A tool the provider ran itself (web search, code execution, MCP). These are
+ * never in `output.tool_calls`, so tool linkage doesn't expect a local step. */
+export function isProviderTool(block: Record<string, unknown> | null | undefined): boolean {
+  return block?.type === "provider_tool";
+}
+
+/** `server.name` for MCP tools, else the tool name, else the provider type. */
+export function providerToolLabel(block: Record<string, unknown>): string {
+  const fallback = typeof block.provider_part_type === "string" ? block.provider_part_type : "provider tool";
+  return toolCallLabel({ name: block.name, namespace: block.server }, fallback);
 }

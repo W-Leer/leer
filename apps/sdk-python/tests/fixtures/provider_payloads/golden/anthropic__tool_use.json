@@ -33,6 +33,7 @@
     "latency_ms": 1240,
     "output_is_json": false,
     "refusal": null,
+    "refusal_category": null,
     "request_id": "msg_drift_tool_001"
   },
   "model": "claude-sonnet-4-20250514",

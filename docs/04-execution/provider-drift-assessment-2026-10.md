@@ -183,3 +183,40 @@ New fixtures: `openai_responses__commentary_phase`,
 They are SDK-valid; the 8 older OpenAI fixtures are still covered by D-M4. A
 real-SDK test checks `.stream()` and `create(stream=True)` against
 `create()` for the same response.
+
+### D-M2, D-M3, D-M5 — done
+
+Design: ADR-002 (`provider_tool` content part; OpenAI `reasoning` →
+thinking; caller-run OpenAI tools → tool calls).
+
+- **D-M2:** OpenAI `web_search_call`, `file_search_call`,
+  `code_interpreter_call`, `mcp_call` and Anthropic `server_tool_use` /
+  `mcp_tool_use` (plus their `*_tool_result` blocks, merged by `tool_use_id`)
+  become `provider_tool` parts, never `tool_calls`. OpenAI `reasoning` becomes
+  `thinking` / `redacted_thinking`. `computer_call`, `local_shell_call`,
+  `shell_call` and `apply_patch_call` are tool calls. Anthropic
+  `container_upload` is a `file` part with a `provider_file` source.
+  Run-detail and compare show provider tools as "run by provider".
+- **D-M3:** `meta.refusal_category` is added (all goldens gained
+  `"refusal_category": null`). The run page's refusal badge shows it.
+- **D-M5:** fixed as described below; real-SDK tests check streamed and
+  non-streamed Anthropic records are equal for server tools and refusals.
+- Still falling back to `file`: OpenAI `mcp_list_tools`,
+  `mcp_approval_request`, `compaction`, `tool_search_call`, `*_call_output`
+  items. Rare in output; revisit if they show up.
+- New fixtures: `anthropic__provider_run_search`,
+  `anthropic__refusal_category`, `openai_responses__provider_run_search_mcp`
+  (SDK-valid, current model IDs).
+
+**D-M5 (new, High), found while scoping D-M2:** Anthropic streaming rebuilds
+the message from only thinking, joined text, and `tool_use`. Streamed
+`server_tool_use` and result blocks are dropped, separate text blocks are
+glued together without a separator, text/tool order is lost, and
+`stop_details` is missing. Fix: rebuild each content block by its stream
+index the way the SDK does, falling back to the old reassembly only if no
+block events arrived.
+
+**D-M3 design:** add `meta.refusal_category` (additive, provider-agnostic;
+`None` for OpenAI, which has no categories). Anthropic
+`stop_details.explanation` becomes the refusal text when the model returned
+no text.
