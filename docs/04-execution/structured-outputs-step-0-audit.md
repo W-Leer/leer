@@ -210,8 +210,8 @@ Uniform "did this step return a structured object?" detection therefore consults
 
 > **Update (Oct 2026):** Anthropic now ships a native structured-output path,
 > `messages.parse()` with `output_format`, so forced tool use is no longer the
-> only route. Leer does not record `messages.parse()` calls yet; tracked as D-H1
-> in `docs/04-execution/provider-drift-assessment-2026-10.md`.
+> only route. Since D-H1 (`docs/04-execution/provider-drift-assessment-2026-10.md`),
+> `messages.parse()` is recorded and its decoded object lands in `output.parsed`.
 
 ### UI surfacing (done)
 

@@ -17,6 +17,12 @@ Usage::
     )
     for event in stream:
         print(event)  # original events, unchanged
+
+    # So are the SDK helpers, on both ``client.messages`` and
+    # ``client.beta.messages``:
+    with client.messages.stream(model=..., messages=[...]) as stream:
+        message = stream.get_final_message()
+    parsed = client.messages.parse(model=..., messages=[...], output_format=MyModel)
 """
 
 from __future__ import annotations
@@ -41,9 +47,10 @@ from leer.step import _duration_ms, _emit_step_event, step as leer_step
 def wrap_anthropic_client(client: Any) -> Any:
     """Wrap an Anthropic client for automatic LLM instrumentation.
 
-    Returns a proxy that transparently intercepts ``messages.create()``
-    when inside an active trace. All other attributes and methods are
-    forwarded to the original client unchanged.
+    Returns a proxy that transparently intercepts ``messages.create()``,
+    ``messages.parse()`` and ``messages.stream()`` (and the same methods on
+    ``beta.messages``) when inside an active trace. All other attributes and
+    methods are forwarded to the original client unchanged.
 
     The original provider return value is always preserved — including stream
     iterators when ``stream=True``.
@@ -52,20 +59,37 @@ def wrap_anthropic_client(client: Any) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# Proxy classes — delegate everything except messages.create()
+# Proxy classes — delegate everything except the model-calling methods
 # ---------------------------------------------------------------------------
 
 class _WrappedAnthropic:
     def __init__(self, client: Any) -> None:
         self._client = client
         self.messages = _WrappedMessages(client.messages)
+        if hasattr(client, "beta") and hasattr(client.beta, "messages"):
+            self.beta = _WrappedBeta(client.beta)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._client, name)
 
 
+class _WrappedBeta:
+    """Proxy for ``client.beta`` that instruments ``beta.messages``."""
+
+    def __init__(self, beta: Any) -> None:
+        self._beta = beta
+        self.messages = _WrappedMessages(beta.messages)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._beta, name)
+
+
 class _WrappedMessages:
-    """Proxy for ``client.messages`` that intercepts ``create()``."""
+    """Proxy for ``client.messages`` / ``client.beta.messages``.
+
+    Intercepts ``create()``, ``parse()`` and ``stream()``; everything else
+    (``count_tokens``, ``batches``, ``tool_runner``, ...) is forwarded as-is.
+    """
 
     def __init__(self, messages: Any) -> None:
         self._messages = messages
@@ -73,6 +97,12 @@ class _WrappedMessages:
     def create(self, **kwargs: Any) -> Any:
         """Intercept messages.create(); Anthropic SDK uses keyword-only args."""
         return _instrumented_create(self._messages.create, kwargs)
+
+    def parse(self, **kwargs: Any) -> Any:
+        return _instrumented_create(self._messages.parse, kwargs)
+
+    def stream(self, **kwargs: Any) -> Any:
+        return _instrumented_stream(self._messages.stream, kwargs)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._messages, name)
@@ -202,6 +232,104 @@ def _instrumented_streaming_create(
 
 
 # ---------------------------------------------------------------------------
+# Streaming context-manager helper (messages.stream())
+# ---------------------------------------------------------------------------
+
+class _WrappedStreamManager:
+    """Instruments ``messages.stream()``.
+
+    The manager issues the request on ``__enter__``. We create the step there,
+    feed events through the same ``StreamCollector`` assembly as
+    ``create(stream=True)``, and finalize when the stream ends or on
+    ``__exit__``.
+    """
+
+    def __init__(self, manager: Any, request_dict: dict[str, Any]) -> None:
+        self._manager = manager
+        self._request_dict = request_dict
+        self._iterator: _StreamingIterator | None = None
+
+    def __enter__(self) -> Any:
+        run = get_current_run()
+        if run is None:
+            return self._manager.__enter__()
+
+        parent = current_step()
+        s = TraceStep(
+            name=str(self._request_dict.get("model") or "anthropic"),
+            step_type="llm",
+            sequence_index=len(run.steps),
+            parent_step_id=parent.id if parent else None,
+            status="running",
+            started_at=_now(),
+        )
+        run.steps.append(s)
+        push_step(s)
+        _emit_step_event("step.created", s.id)
+        _emit_step_event("step.started", s.id)
+
+        t0 = time.perf_counter()
+        try:
+            raw_stream = self._manager.__enter__()
+        except Exception:
+            latency_ms = int((time.perf_counter() - t0) * 1000)
+            collector = StreamCollector(provider="anthropic", model=self._request_dict.get("model"))
+            collector.mark_failed()
+            s.status = "failed"
+            s.ended_at = _now()
+            s.duration_ms = _duration_ms(s)
+            s.error_summary = {"traceback": traceback.format_exc()}
+            s.metadata.update({
+                "provider": "anthropic",
+                "model": self._request_dict.get("model"),
+                "latency_ms": latency_ms,
+            })
+            s.metadata["stream"] = collector.stream_metadata()
+            _safe_attach_request_artifact(s, self._request_dict)
+            _emit_step_event("step.failed", s.id)
+            pop_step()
+            raise
+
+        collector = StreamCollector(provider="anthropic", model=self._request_dict.get("model"))
+        ctx: dict[str, Any] = {}
+
+        # ``MessageStream`` reads every event through a private ``_iterator``,
+        # including for ``text_stream``, ``until_done()`` and
+        # ``get_final_message()``. Routing it through the collector is the only
+        # way to see those paths, and lets us hand back the genuine SDK stream.
+        # Fall back to proxying if it's missing.
+        inner = getattr(raw_stream, "_iterator", None)
+        if inner is not None and hasattr(inner, "__next__"):
+            self._iterator = _StreamingIterator(inner, collector, s, self._request_dict, t0, ctx)
+            raw_stream._iterator = self._iterator
+            return raw_stream
+
+        self._iterator = _StreamingIterator(raw_stream, collector, s, self._request_dict, t0, ctx)
+        return self._iterator
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> Any:
+        if self._iterator is not None and not self._iterator._finalized:
+            if exc_type is not None:
+                self._iterator._finalize_failure()
+            else:
+                self._iterator._finalize_success()
+        return self._manager.__exit__(exc_type, exc_val, exc_tb)
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return getattr(self._manager, name)
+
+
+def _instrumented_stream(stream_fn: Any, kwargs: dict[str, Any]) -> Any:
+    """Wrap a ``messages.stream()`` call. Outside a trace, returns the raw manager."""
+    manager = stream_fn(**kwargs)
+    if get_current_run() is None:
+        return manager
+    return _WrappedStreamManager(manager, dict(kwargs))
+
+
+# ---------------------------------------------------------------------------
 # Streaming iterator wrapper
 # ---------------------------------------------------------------------------
 
@@ -244,6 +372,11 @@ class _StreamingIterator:
             pass
 
         return event
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return getattr(self._raw_stream, name)
 
     def __enter__(self) -> _StreamingIterator:
         if hasattr(self._raw_stream, "__enter__"):
@@ -441,8 +574,14 @@ def _process_anthropic_event(
     elif event_type == "message_stop":
         collector.mark_message_stop(request_id=ctx.get("msg_id"))
 
-    elif event_type not in ("content_block_stop", "ping"):
+    elif event_type not in ("content_block_stop", "ping", *_HELPER_EVENT_TYPES):
         collector.mark_unknown(payload={"original_type": event_type})
+
+
+# Convenience events ``MessageStream`` synthesizes alongside the raw events it
+# was built from (e.g. ``text`` next to each ``text_delta``). The raw events
+# already carry the data, so these are skipped rather than logged as unknown.
+_HELPER_EVENT_TYPES = ("text", "thinking", "signature", "input_json", "citation")
 
 
 # ---------------------------------------------------------------------------
@@ -760,9 +899,18 @@ def _to_dict(obj: Any) -> dict[str, Any]:
         fn = getattr(obj, method, None)
         if callable(fn):
             try:
-                result = fn()
+                result = _call_dump(fn) if method == "model_dump" else fn()
                 if isinstance(result, dict):
                     return result
             except Exception:
                 continue
     return {}
+
+
+def _call_dump(model_dump: Any) -> Any:
+    # SDK generic models (e.g. ``ParsedMessage``) emit Pydantic serializer
+    # warnings when dumped, which would surface in the caller's logs.
+    try:
+        return model_dump(warnings=False)
+    except TypeError:
+        return model_dump()

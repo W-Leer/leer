@@ -502,10 +502,24 @@ class _WrappedStreamManager:
             raise
 
         collector = StreamCollector(provider="openai", model=self._request_dict.get("model"))
+        self._entered = raw_stream
+
+        # The SDK stream helpers read every event through a private
+        # ``_iterator``, including when the caller uses ``until_done()`` or
+        # ``get_final_*()`` instead of iterating. Routing that iterator through
+        # the collector is the only way to see those paths, and lets us hand
+        # back the genuine SDK stream. Fall back to proxying if it's missing.
+        inner = getattr(raw_stream, "_iterator", None)
+        if inner is not None and hasattr(inner, "__next__"):
+            self._iterator = _StreamingIterator(
+                inner, collector, s, self._request_dict, t0, self._api_style,
+            )
+            raw_stream._iterator = self._iterator
+            return raw_stream
+
         self._iterator = _StreamingIterator(
             raw_stream, collector, s, self._request_dict, t0, self._api_style,
         )
-        self._entered = raw_stream
         return self._iterator
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> Any:
@@ -1142,9 +1156,18 @@ def _to_dict(obj: Any) -> dict[str, Any]:
         fn = getattr(obj, method, None)
         if callable(fn):
             try:
-                result = fn()
+                result = _call_dump(fn) if method == "model_dump" else fn()
                 if isinstance(result, dict):
                     return result
             except Exception:
                 continue
     return {}
+
+
+def _call_dump(model_dump: Any) -> Any:
+    # SDK generic models (e.g. ``ParsedResponse``) emit Pydantic serializer
+    # warnings when dumped, which would surface in the caller's logs.
+    try:
+        return model_dump(warnings=False)
+    except TypeError:
+        return model_dump()

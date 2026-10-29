@@ -11,6 +11,10 @@ dependencies = [
 [dependency-groups]
 dev = [
   "pytest>=8.3.2",
+  # Real provider SDKs for contract tests (tests/test_real_sdk_contract.py).
+  # Test-only: the wrappers duck-type clients and Leer never imports these at runtime.
+  "openai>=3.41.0",
+  "anthropic>=2.3.0",
 ]
 
 [tool.hatch.build.targets.wheel]

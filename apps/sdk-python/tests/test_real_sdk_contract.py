@@ -1,0 +1,359 @@
+"""Contract tests against the real OpenAI / Anthropic SDKs.
+
+The wrappers duck-type provider clients and the rest of the suite uses fakes.
+These tests drive the *real* SDK objects (dev dependencies) over an in-memory
+HTTP transport, so they catch what fakes can't: helper methods that consume a
+stream internally (``get_final_*``, ``until_done``, ``text_stream``), SDK
+surfaces the wrappers don't intercept, and renamed internals. No network, no
+API keys.
+
+See ``docs/04-execution/provider-drift-assessment-2026-10.md`` (D-H1).
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any, Callable
+
+import pytest
+
+openai = pytest.importorskip("openai")
+anthropic = pytest.importorskip("anthropic")
+httpx2 = pytest.importorskip("httpx2")
+pydantic = pytest.importorskip("pydantic")
+
+from anthropic.lib.streaming import MessageStream, MessageStreamManager  # noqa: E402
+from openai.lib.streaming.chat import ChatCompletionStream  # noqa: E402
+
+from leer.context import reset_context, set_current_run  # noqa: E402
+from leer.integrations.anthropic import wrap_anthropic_client  # noqa: E402
+from leer.integrations.openai import wrap_openai_client  # noqa: E402
+from leer.models import TraceRun  # noqa: E402
+
+MESSAGES = [{"role": "user", "content": "hi"}]
+
+
+# ---------------------------------------------------------------------------
+# Harness
+# ---------------------------------------------------------------------------
+
+def _traced(fn: Callable[[], Any]) -> TraceRun:
+    run = TraceRun(workflow_name="real-sdk-contract")
+    run.status = "running"
+    set_current_run(run)
+    reset_context()
+    try:
+        fn()
+    finally:
+        set_current_run(None)
+    return run
+
+
+def _llm_steps(run: TraceRun) -> list[Any]:
+    return [s for s in run.steps if s.step_type == "llm"]
+
+
+def _only_llm_step(run: TraceRun) -> Any:
+    steps = _llm_steps(run)
+    assert len(steps) == 1, f"expected exactly one LLM step, got {len(steps)}"
+    return steps[0]
+
+
+def _artifact_types(run: TraceRun, step: Any) -> set[str]:
+    return {a.artifact_type for a in run.artifacts if a.step_id == step.id}
+
+
+def _sse_response(events: list[dict[str, Any]], *, named: bool) -> Any:
+    chunks = []
+    for e in events:
+        prefix = f"event: {e['type']}\n" if named else ""
+        chunks.append(f"{prefix}data: {json.dumps(e)}\n\n")
+    if not named:
+        chunks.append("data: [DONE]\n\n")
+    return httpx2.Response(
+        200, headers={"content-type": "text/event-stream"}, content="".join(chunks).encode()
+    )
+
+
+def _json_response(body: dict[str, Any]) -> Any:
+    return httpx2.Response(200, json=body)
+
+
+def _openai(handler: Callable[[Any], Any]) -> Any:
+    return wrap_openai_client(openai.OpenAI(
+        api_key="sk-test", http_client=httpx2.Client(transport=httpx2.MockTransport(handler)),
+    ))
+
+
+def _anthropic(handler: Callable[[Any], Any]) -> Any:
+    return wrap_anthropic_client(anthropic.Anthropic(
+        api_key="sk-test", http_client=httpx2.Client(transport=httpx2.MockTransport(handler)),
+    ))
+
+
+# ---------------------------------------------------------------------------
+# Provider payloads
+# ---------------------------------------------------------------------------
+
+OPENAI_CHAT_CHUNKS = [
+    {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1, "model": "gpt-test",
+     "choices": [{"index": 0, "delta": {"role": "assistant", "content": "Hel"}, "finish_reason": None}]},
+    {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1, "model": "gpt-test",
+     "choices": [{"index": 0, "delta": {"content": "lo"}, "finish_reason": "stop"}]},
+]
+
+
+def _openai_response_obj(status: str, output: list[dict[str, Any]], usage: dict[str, Any] | None) -> dict[str, Any]:
+    return {
+        "id": "resp_1", "object": "response", "created_at": 1, "model": "gpt-test",
+        "status": status, "output": output, "parallel_tool_calls": True,
+        "tool_choice": "auto", "tools": [], "usage": usage,
+    }
+
+
+_RESP_MSG_DONE = {
+    "id": "msg_1", "type": "message", "role": "assistant", "status": "completed",
+    "content": [{"type": "output_text", "text": "Hello", "annotations": []}],
+}
+_RESP_USAGE = {
+    "input_tokens": 5, "output_tokens": 2, "total_tokens": 7,
+    "input_tokens_details": {"cached_tokens": 0}, "output_tokens_details": {"reasoning_tokens": 0},
+}
+OPENAI_RESPONSES_EVENTS = [
+    {"type": "response.created", "sequence_number": 0,
+     "response": _openai_response_obj("in_progress", [], None)},
+    {"type": "response.output_item.added", "sequence_number": 1, "output_index": 0,
+     "item": {"id": "msg_1", "type": "message", "role": "assistant", "status": "in_progress", "content": []}},
+    {"type": "response.content_part.added", "sequence_number": 2, "item_id": "msg_1",
+     "output_index": 0, "content_index": 0, "part": {"type": "output_text", "text": "", "annotations": []}},
+    {"type": "response.output_text.delta", "sequence_number": 3, "item_id": "msg_1",
+     "output_index": 0, "content_index": 0, "delta": "Hel", "logprobs": []},
+    {"type": "response.output_text.delta", "sequence_number": 4, "item_id": "msg_1",
+     "output_index": 0, "content_index": 0, "delta": "lo", "logprobs": []},
+    {"type": "response.output_text.done", "sequence_number": 5, "item_id": "msg_1",
+     "output_index": 0, "content_index": 0, "text": "Hello", "logprobs": []},
+    {"type": "response.output_item.done", "sequence_number": 6, "output_index": 0, "item": _RESP_MSG_DONE},
+    {"type": "response.completed", "sequence_number": 7,
+     "response": _openai_response_obj("completed", [_RESP_MSG_DONE], _RESP_USAGE)},
+]
+
+
+def _anthropic_events(text_parts: list[str]) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = [
+        {"type": "message_start", "message": {
+            "id": "msg_1", "type": "message", "role": "assistant", "model": "claude-test",
+            "content": [], "stop_reason": None, "stop_sequence": None,
+            "usage": {"input_tokens": 5, "output_tokens": 0}}},
+        {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
+    ]
+    for part in text_parts:
+        events.append({"type": "content_block_delta", "index": 0,
+                       "delta": {"type": "text_delta", "text": part}})
+    events += [
+        {"type": "content_block_stop", "index": 0},
+        {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+         "usage": {"output_tokens": 2}},
+        {"type": "message_stop"},
+    ]
+    return events
+
+
+def _anthropic_message(text: str) -> dict[str, Any]:
+    return {
+        "id": "msg_1", "type": "message", "role": "assistant", "model": "claude-test",
+        "content": [{"type": "text", "text": text}],
+        "stop_reason": "end_turn", "stop_sequence": None,
+        "usage": {"input_tokens": 5, "output_tokens": 2},
+    }
+
+
+# ---------------------------------------------------------------------------
+# OpenAI .stream() helpers — every consumption style must be captured
+# ---------------------------------------------------------------------------
+
+_CHAT_CONSUMERS: dict[str, Callable[[Any], Any]] = {
+    "iterate": lambda s: [e for e in s],
+    "get_final_completion": lambda s: s.get_final_completion(),
+    "until_done": lambda s: s.until_done(),
+}
+
+
+@pytest.mark.parametrize("consume", list(_CHAT_CONSUMERS), ids=list(_CHAT_CONSUMERS))
+def test_openai_chat_stream_captures_every_consumption_style(consume: str) -> None:
+    client = _openai(lambda req: _sse_response(OPENAI_CHAT_CHUNKS, named=False))
+    seen: dict[str, Any] = {}
+
+    def go() -> None:
+        with client.chat.completions.stream(model="gpt-test", messages=MESSAGES) as stream:
+            seen["stream"] = stream
+            _CHAT_CONSUMERS[consume](stream)
+
+    run = _traced(go)
+    s = _only_llm_step(run)
+    assert s.status == "completed"
+    assert s.metadata["llm"]["output"]["text"] == "Hello"
+    assert s.metadata["llm"]["meta"]["finish_reason"] == "stop"
+    assert "llm_stream" in _artifact_types(run, s)
+    # The caller keeps the genuine SDK stream object (full API, isinstance works).
+    assert isinstance(seen["stream"], ChatCompletionStream)
+
+
+_RESPONSES_CONSUMERS: dict[str, Callable[[Any], Any]] = {
+    "iterate": lambda s: [e for e in s],
+    "get_final_response": lambda s: s.get_final_response(),
+}
+
+
+@pytest.mark.parametrize("consume", list(_RESPONSES_CONSUMERS), ids=list(_RESPONSES_CONSUMERS))
+def test_openai_responses_stream_captures_every_consumption_style(consume: str) -> None:
+    client = _openai(lambda req: _sse_response(OPENAI_RESPONSES_EVENTS, named=True))
+
+    def go() -> None:
+        with client.responses.stream(model="gpt-test", input="hi") as stream:
+            _RESPONSES_CONSUMERS[consume](stream)
+
+    run = _traced(go)
+    s = _only_llm_step(run)
+    assert s.status == "completed"
+    assert s.metadata["llm"]["output"]["text"] == "Hello"
+
+
+# ---------------------------------------------------------------------------
+# Anthropic messages.stream()
+# ---------------------------------------------------------------------------
+
+_ANTHROPIC_CONSUMERS: dict[str, Callable[[Any], Any]] = {
+    "iterate": lambda s: [e for e in s],
+    "text_stream": lambda s: [t for t in s.text_stream],
+    "until_done": lambda s: s.until_done(),
+    "get_final_message": lambda s: s.get_final_message(),
+    "get_final_text": lambda s: s.get_final_text(),
+}
+
+
+@pytest.mark.parametrize("consume", list(_ANTHROPIC_CONSUMERS), ids=list(_ANTHROPIC_CONSUMERS))
+def test_anthropic_messages_stream_captures_every_consumption_style(consume: str) -> None:
+    client = _anthropic(lambda req: _sse_response(_anthropic_events(["Hel", "lo"]), named=True))
+    seen: dict[str, Any] = {}
+
+    def go() -> None:
+        with client.messages.stream(model="claude-test", max_tokens=16, messages=MESSAGES) as stream:
+            seen["stream"] = stream
+            _ANTHROPIC_CONSUMERS[consume](stream)
+
+    run = _traced(go)
+    s = _only_llm_step(run)
+    assert s.status == "completed"
+    llm = s.metadata["llm"]
+    assert llm["output"]["text"] == "Hello"
+    assert llm["meta"]["finish_reason"] == "end_turn"
+    assert llm["usage"]["prompt_tokens"] == 5
+    assert llm["usage"]["completion_tokens"] == 2
+    assert "llm_stream" in _artifact_types(run, s)
+    assert isinstance(seen["stream"], MessageStream)
+
+
+def test_anthropic_messages_stream_matches_non_streaming_canonical_output() -> None:
+    """Streaming <-> non-streaming parity for the stream() helper."""
+    streamed = _traced(lambda: _anthropic(
+        lambda req: _sse_response(_anthropic_events(["Hel", "lo"]), named=True)
+    ).messages.stream(model="claude-test", max_tokens=16, messages=MESSAGES).__enter__().until_done())
+    plain = _traced(lambda: _anthropic(
+        lambda req: _json_response(_anthropic_message("Hello"))
+    ).messages.create(model="claude-test", max_tokens=16, messages=MESSAGES))
+
+    a = _only_llm_step(streamed).metadata["llm"]
+    b = _only_llm_step(plain).metadata["llm"]
+    for key in ("output", "usage"):
+        assert a[key] == b[key], key
+    assert a["meta"]["finish_reason"] == b["meta"]["finish_reason"]
+
+
+def test_anthropic_messages_stream_outside_trace_is_passthrough() -> None:
+    client = _anthropic(lambda req: _sse_response(_anthropic_events(["Hi"]), named=True))
+    manager = client.messages.stream(model="claude-test", max_tokens=16, messages=MESSAGES)
+    assert isinstance(manager, MessageStreamManager)
+    with manager as stream:
+        assert stream.get_final_text() == "Hi"
+
+
+def test_anthropic_messages_stream_error_event_marks_step_failed() -> None:
+    events = _anthropic_events(["Hel"])[:3] + [
+        {"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}},
+    ]
+    client = _anthropic(lambda req: _sse_response(events, named=True))
+
+    def go() -> None:
+        with pytest.raises(anthropic.APIStatusError):
+            with client.messages.stream(model="claude-test", max_tokens=16, messages=MESSAGES) as stream:
+                stream.until_done()
+
+    run = _traced(go)
+    s = _only_llm_step(run)
+    assert s.status == "failed"
+
+
+def test_anthropic_create_stream_true_still_captured() -> None:
+    client = _anthropic(lambda req: _sse_response(_anthropic_events(["Hel", "lo"]), named=True))
+    run = _traced(lambda: list(client.messages.create(
+        model="claude-test", max_tokens=16, messages=MESSAGES, stream=True,
+    )))
+    assert _only_llm_step(run).metadata["llm"]["output"]["text"] == "Hello"
+
+
+# ---------------------------------------------------------------------------
+# Anthropic messages.parse() — native structured outputs
+# ---------------------------------------------------------------------------
+
+class _Sentiment(pydantic.BaseModel):
+    sentiment: str
+    score: float
+
+
+def test_anthropic_messages_parse_captures_parsed_output() -> None:
+    body = _anthropic_message(json.dumps({"sentiment": "positive", "score": 0.9}))
+    client = _anthropic(lambda req: _json_response(body))
+    seen: dict[str, Any] = {}
+
+    def go() -> None:
+        seen["result"] = client.messages.parse(
+            model="claude-test", max_tokens=64, messages=MESSAGES, output_format=_Sentiment,
+        )
+
+    run = _traced(go)
+    s = _only_llm_step(run)
+    llm = s.metadata["llm"]
+    assert llm["output"]["parsed"] == {"sentiment": "positive", "score": 0.9}
+    assert llm["meta"]["output_is_json"] is True
+    assert "output_format" in llm["input"]["params"], "requested schema must be recorded"
+    # The caller still gets the SDK's typed result.
+    assert seen["result"].parsed_output == _Sentiment(sentiment="positive", score=0.9)
+
+
+# ---------------------------------------------------------------------------
+# Anthropic client.beta.messages.*
+# ---------------------------------------------------------------------------
+
+def test_anthropic_beta_messages_create_is_captured() -> None:
+    client = _anthropic(lambda req: _json_response(_anthropic_message("Hello")))
+    run = _traced(lambda: client.beta.messages.create(
+        model="claude-test", max_tokens=16, messages=MESSAGES,
+    ))
+    assert _only_llm_step(run).metadata["llm"]["output"]["text"] == "Hello"
+
+
+def test_anthropic_beta_messages_stream_is_captured() -> None:
+    client = _anthropic(lambda req: _sse_response(_anthropic_events(["Hel", "lo"]), named=True))
+
+    def go() -> None:
+        with client.beta.messages.stream(model="claude-test", max_tokens=16, messages=MESSAGES) as stream:
+            stream.get_final_message()
+
+    run = _traced(go)
+    assert _only_llm_step(run).metadata["llm"]["output"]["text"] == "Hello"
+
+
+def test_anthropic_other_beta_surfaces_still_reachable() -> None:
+    client = _anthropic(lambda req: _json_response({}))
+    assert hasattr(client.beta, "files")
+    assert hasattr(client.beta.messages, "count_tokens")

@@ -9,7 +9,9 @@ Make Leer feel extremely strong and trustworthy as an observability product for 
 Both SDKs had major releases since June. Gaps and fix order:
 `docs/04-execution/provider-drift-assessment-2026-10.md`.
 - [x] Docs refresh (roadmap, NOW, AGENTS, README links)
-- [ ] D-H1 — record Anthropic `messages.stream()`, `messages.parse()`, `beta.messages.*`
+- [x] D-H1 — record Anthropic `messages.stream()`, `messages.parse()`, `beta.messages.*`
+  (also fixed D-H4: OpenAI `.stream()` + `get_final_*()` recorded empty output)
+- [ ] Anthropic `beta.messages.tool_runner` — model calls bypass the wrapper
 - [ ] D-H2 / D-H3 / D-M1 — missing tool calls (`custom_tool_call`,
   `server_tool_use`), Responses `phase` mixing, dropped `namespace`
 - [ ] D-M2 / D-M3 — label new item/block types; capture `stop_details`

@@ -680,7 +680,7 @@ def _normalize_openai_responses(
 
 _ANTHROPIC_PARAMS = frozenset({
     "temperature", "max_tokens", "top_p", "top_k", "stop_sequences",
-    "thinking",
+    "thinking", "output_format", "output_config",
 })
 
 
@@ -713,6 +713,7 @@ def normalize_anthropic(
     text_parts: list[str] = []
     tool_calls: list[dict[str, Any]] = []
     content_blocks: list[dict[str, Any]] = []
+    sdk_parsed: Any = None
 
     for block in (raw_blocks if isinstance(raw_blocks, list) else []):
         if not isinstance(block, dict):
@@ -723,6 +724,9 @@ def normalize_anthropic(
             t = block.get("text", "")
             text_parts.append(t)
             content_blocks.append({"type": "text", "text": t})
+            # ``messages.parse()`` attaches the decoded object to the text block.
+            if sdk_parsed is None and block.get("parsed_output") is not None:
+                sdk_parsed = block["parsed_output"]
         elif block_type == "tool_use":
             tc = {
                 "id": block.get("id"),
@@ -818,10 +822,10 @@ def normalize_anthropic(
     else:
         total = (prompt_tokens or 0) + (completion_tokens or 0)
 
-    # Anthropic has no parsed-object helper; structured-via-forced-tool keeps
-    # its object in ``tool_calls[].arguments``. Only flag when the model
-    # returned JSON as its text output (so detection stays provider-agnostic).
-    parsed, output_is_json = _detect_structured_output(text)
+    # Structured output arrives either via ``messages.parse()`` (decoded object
+    # on the text block) or as JSON text. Structured-via-forced-tool keeps its
+    # object in ``tool_calls[].arguments`` and is deliberately not flagged.
+    parsed, output_is_json = _detect_structured_output(text, sdk_parsed)
 
     return NormalizedLLMCall(
         provider="anthropic",

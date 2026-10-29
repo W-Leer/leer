@@ -110,3 +110,43 @@ incomplete.
    validation test, then the live recorder using current model IDs.
 
 D-L1 to D-L3 are deferred unless they come up while doing the above.
+
+## 5. Progress
+
+### D-H1 — done (plus D-H4, found while fixing it)
+
+Reproduced against the real SDKs (installed in a throwaway venv, driven over an
+in-memory HTTP transport) before fixing:
+
+| Call | Before |
+|---|---|
+| OpenAI `.stream()`, iterating events | correct |
+| OpenAI `.stream()` + `get_final_completion()` / `until_done()` | step "completed" with **empty output** |
+| Anthropic `messages.stream()` (any consumption) | no step |
+| Anthropic `messages.parse()` | no step |
+| Anthropic `beta.messages.*` | no step |
+
+**D-H4 (new, High):** the OpenAI `.stream()` wrapper from June only observed
+events the caller iterated through our proxy. The SDK's `until_done()` /
+`get_final_*()` read the stream internally, so the step finished with an empty
+record. This was worse than a missing step because it looked successful.
+
+Fix:
+- Both stream-helper wrappers now route the SDK stream's internal `_iterator`
+  through the existing `StreamCollector`, so every consumption style is
+  observed, and return the genuine SDK stream object. If `_iterator` is ever
+  missing they fall back to the previous proxy.
+- Anthropic `_WrappedMessages` now intercepts `create`, `parse` and `stream`,
+  for both `client.messages` and `client.beta.messages`.
+- `normalize_anthropic` reads `parsed_output` from `parse()` text blocks into
+  `output.parsed`, and records `output_format` / `output_config` in
+  `input.params`.
+- `MessageStream`'s synthesized convenience events (`text`, `thinking`, …) are
+  skipped instead of being logged as unknown.
+- `_to_dict` dumps SDK models with `warnings=False`; `ParsedResponse` otherwise
+  printed Pydantic serializer warnings into the caller's logs.
+- `openai` and `anthropic` are now dev dependencies, and
+  `tests/test_real_sdk_contract.py` (18 tests) drives the real SDKs offline.
+
+Still not recorded: Anthropic `beta.messages.tool_runner`. It calls the raw
+client internally, so its model calls bypass the wrapper. Track separately.
