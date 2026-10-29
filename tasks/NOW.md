@@ -18,7 +18,8 @@ Both SDKs had major releases since June. Gaps and fix order:
 - [x] D-M2 / D-M3 — provider-run tools as `provider_tool` parts (ADR-002),
   OpenAI `reasoning` as thinking, `meta.refusal_category`; also fixed D-M5
   (Anthropic streaming dropped server-tool blocks and merged text blocks)
-- [ ] D-M4 + workstream E — SDK-valid fixtures, streaming snapshots, live recorder
+- [x] D-M4 — all drift fixtures validate against the real SDK types (enforced by a test)
+- [ ] Workstream E steps 2–3 — streaming snapshots, opt-in live recorder
 
 ### Recently completed
 - [x] Provider hardening pass (Steps 0–4) — `docs/04-execution/provider-hardening-qa.md`

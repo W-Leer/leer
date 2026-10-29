@@ -62,6 +62,7 @@ built yet** (workstream E step 3; see
 fixtures with `provenance.source = "recorded:<model>@<date>"`; review that diff
 (especially new or renamed fields) before regenerating goldens.
 
-Known limitation: the OpenAI fixtures omit envelope fields the normalizer
-doesn't read (`created`, `created_at`, `tools`, `tool_choice`, usage detail
-objects), so they don't validate against the real SDK types (D-M4).
+Every `response` must validate against the real SDK type (`ChatCompletion`,
+`Response`, or Anthropic `Message`); `test_fixture_is_valid_for_the_current_sdk`
+enforces it. When an SDK upgrade makes a field required, add it to the
+fixture first, then regenerate goldens and review the diff.

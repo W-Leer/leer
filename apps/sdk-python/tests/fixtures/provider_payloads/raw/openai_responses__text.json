@@ -18,18 +18,25 @@
   "response": {
     "id": "resp_drift_text_001",
     "object": "response",
+    "created_at": 1749000000,
     "model": "gpt-4.1-2025-04-14",
     "status": "completed",
+    "parallel_tool_calls": true,
+    "tool_choice": "auto",
+    "tools": [],
     "output": [
       {
         "id": "msg_001",
         "type": "message",
+        "status": "completed",
         "role": "assistant",
         "content": [
-          {"type": "output_text", "text": "Leer captures provider-agnostic execution records of AI runs."}
+          {"type": "output_text", "text": "Leer captures provider-agnostic execution records of AI runs.", "annotations": []}
         ]
       }
     ],
-    "usage": {"input_tokens": 31, "output_tokens": 14, "total_tokens": 45}
+    "usage": {"input_tokens": 31, "output_tokens": 14, "total_tokens": 45,
+      "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+      "output_tokens_details": {"reasoning_tokens": 0}}
   }
 }

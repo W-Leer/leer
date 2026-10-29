@@ -29,8 +29,20 @@
   "response": {
     "id": "resp_drift_tool_001",
     "object": "response",
+    "created_at": 1749000000,
     "model": "gpt-4.1-2025-04-14",
     "status": "completed",
+    "parallel_tool_calls": true,
+    "tool_choice": "auto",
+    "tools": [
+      {
+        "type": "function",
+        "name": "get_weather",
+        "description": "Look up current weather",
+        "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]},
+        "strict": false
+      }
+    ],
     "output": [
       {
         "id": "fc_001",
@@ -40,6 +52,8 @@
         "arguments": "{\"city\": \"Berlin\"}"
       }
     ],
-    "usage": {"input_tokens": 38, "output_tokens": 12, "total_tokens": 50}
+    "usage": {"input_tokens": 38, "output_tokens": 12, "total_tokens": 50,
+      "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+      "output_tokens_details": {"reasoning_tokens": 0}}
   }
 }

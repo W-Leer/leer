@@ -208,6 +208,20 @@ thinking; caller-run OpenAI tools → tool calls).
   `anthropic__refusal_category`, `openai_responses__provider_run_search_mcp`
   (SDK-valid, current model IDs).
 
+### D-M4 — done
+
+- The 8 older OpenAI fixtures gained the envelope fields they lacked
+  (`created`; `created_at`, `parallel_tool_calls`, `tool_choice`, `tools`,
+  usage detail objects; message `status`; `output_text.annotations`).
+- `test_fixture_is_valid_for_the_current_sdk` validates every fixture's
+  response against `ChatCompletion`, `Response` or Anthropic `Message`, so an
+  SDK upgrade that adds a required field fails loudly.
+- One golden change per Responses fixture: `usage.cached_tokens` went from
+  `null` to `0`. The real API always sends `input_tokens_details`, and `0`
+  means "reported, no cache hit". The `null` ("not reported") case is still
+  covered by the chat fixtures without `prompt_tokens_details` and by unit
+  tests.
+
 **D-M5 (new, High), found while scoping D-M2:** Anthropic streaming rebuilds
 the message from only thinking, joined text, and `tool_use`. Streamed
 `server_tool_use` and result blocks are dropped, separate text blocks are

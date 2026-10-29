@@ -18,6 +18,7 @@
   "response": {
     "id": "chatcmpl-drift-cached-001",
     "object": "chat.completion",
+    "created": 1749000000,
     "model": "gpt-4.1-2025-04-14",
     "choices": [
       {

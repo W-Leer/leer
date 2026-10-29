@@ -61,7 +61,7 @@
   },
   "provider": "openai",
   "usage": {
-    "cached_tokens": null,
+    "cached_tokens": 0,
     "completion_tokens": 12,
     "prompt_tokens": 38,
     "total_tokens": 50

@@ -110,5 +110,5 @@ multimodal-specific fixtures (workstream B/C), async wrappers.
 
 The October 2026 re-assessment
 (`docs/04-execution/provider-drift-assessment-2026-10.md`) found that the
-OpenAI fixtures aren't valid against the real SDK types (D-M4). Fix that before
-step 3, so recorded and hand-authored fixtures share one shape.
+OpenAI fixtures aren't valid against the real SDK types (D-M4). Fixed in
+October 2026: every fixture now validates, and a test enforces it.

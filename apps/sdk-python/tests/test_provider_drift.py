@@ -133,6 +133,23 @@ def test_canonical_invariants(raw_path: Path) -> None:
         assert d["meta"]["refusal_category"], "refusal_category scenario must populate meta.refusal_category"
 
 
+def _sdk_response_type(kind: str) -> Any:
+    if kind == "openai_chat":
+        return pytest.importorskip("openai.types.chat").ChatCompletion
+    if kind == "openai_responses":
+        return pytest.importorskip("openai.types.responses").Response
+    return pytest.importorskip("anthropic.types").Message
+
+
+@pytest.mark.parametrize("raw_path", _RAW_FIXTURES, ids=_IDS)
+def test_fixture_is_valid_for_the_current_sdk(raw_path: Path) -> None:
+    """Hand-authored payloads must be ones the real SDK would accept, so the
+    corpus can't drift into shapes the provider never sends. Fails when an SDK
+    upgrade adds a required field — update the fixture, then the golden."""
+    fixture = _load(raw_path)
+    _sdk_response_type(fixture["kind"]).model_validate(fixture["response"])
+
+
 def test_harness_detects_drift() -> None:
     """Prove the snapshot comparison actually catches a changed field."""
     fixture = _load(RAW_DIR / "openai_chat__text.json")
