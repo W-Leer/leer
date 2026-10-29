@@ -1,0 +1,104 @@
+{
+  "kind": "openai_chat",
+  "provenance": {
+    "provider": "openai",
+    "surface": "client.chat.completions.create",
+    "source": "derived:raw/openai_chat__text.json",
+    "api_reference_date": "2026-06",
+    "notes": "Streamed twin of the raw fixture with the same name (see tools/derive_stream_fixture.py)."
+  },
+  "events": [
+    {
+      "id": "chatcmpl-drift-text-001",
+      "created": 1749000000,
+      "model": "gpt-4.1-mini-2025-04-14",
+      "object": "chat.completion.chunk",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "role": "assistant",
+            "content": "",
+            "refusal": null
+          },
+          "finish_reason": null,
+          "logprobs": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-drift-text-001",
+      "created": 1749000000,
+      "model": "gpt-4.1-mini-2025-04-14",
+      "object": "chat.completion.chunk",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "content": "Hello ther"
+          },
+          "finish_reason": null,
+          "logprobs": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-drift-text-001",
+      "created": 1749000000,
+      "model": "gpt-4.1-mini-2025-04-14",
+      "object": "chat.completion.chunk",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "content": "e — happy "
+          },
+          "finish_reason": null,
+          "logprobs": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-drift-text-001",
+      "created": 1749000000,
+      "model": "gpt-4.1-mini-2025-04-14",
+      "object": "chat.completion.chunk",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "content": "to help!"
+          },
+          "finish_reason": null,
+          "logprobs": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-drift-text-001",
+      "created": 1749000000,
+      "model": "gpt-4.1-mini-2025-04-14",
+      "object": "chat.completion.chunk",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {},
+          "finish_reason": "stop",
+          "logprobs": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-drift-text-001",
+      "created": 1749000000,
+      "model": "gpt-4.1-mini-2025-04-14",
+      "object": "chat.completion.chunk",
+      "choices": [],
+      "usage": {
+        "prompt_tokens": 18,
+        "completion_tokens": 8,
+        "total_tokens": 26
+      }
+    }
+  ]
+}

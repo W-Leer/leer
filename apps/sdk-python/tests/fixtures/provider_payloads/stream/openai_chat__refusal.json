@@ -1,0 +1,104 @@
+{
+  "kind": "openai_chat",
+  "provenance": {
+    "provider": "openai",
+    "surface": "client.chat.completions.create",
+    "source": "derived:raw/openai_chat__refusal.json",
+    "api_reference_date": "2026-06",
+    "notes": "Streamed twin of the raw fixture with the same name (see tools/derive_stream_fixture.py)."
+  },
+  "events": [
+    {
+      "id": "chatcmpl-drift-refusal-001",
+      "created": 1749000000,
+      "model": "gpt-4.1-mini-2025-04-14",
+      "object": "chat.completion.chunk",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "role": "assistant",
+            "content": "",
+            "refusal": null
+          },
+          "finish_reason": null,
+          "logprobs": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-drift-refusal-001",
+      "created": 1749000000,
+      "model": "gpt-4.1-mini-2025-04-14",
+      "object": "chat.completion.chunk",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "refusal": "I'm sorry, bu"
+          },
+          "finish_reason": null,
+          "logprobs": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-drift-refusal-001",
+      "created": 1749000000,
+      "model": "gpt-4.1-mini-2025-04-14",
+      "object": "chat.completion.chunk",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "refusal": "t I can't hel"
+          },
+          "finish_reason": null,
+          "logprobs": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-drift-refusal-001",
+      "created": 1749000000,
+      "model": "gpt-4.1-mini-2025-04-14",
+      "object": "chat.completion.chunk",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "refusal": "p with that."
+          },
+          "finish_reason": null,
+          "logprobs": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-drift-refusal-001",
+      "created": 1749000000,
+      "model": "gpt-4.1-mini-2025-04-14",
+      "object": "chat.completion.chunk",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {},
+          "finish_reason": "stop",
+          "logprobs": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-drift-refusal-001",
+      "created": 1749000000,
+      "model": "gpt-4.1-mini-2025-04-14",
+      "object": "chat.completion.chunk",
+      "choices": [],
+      "usage": {
+        "prompt_tokens": 21,
+        "completion_tokens": 12,
+        "total_tokens": 33
+      }
+    }
+  ]
+}

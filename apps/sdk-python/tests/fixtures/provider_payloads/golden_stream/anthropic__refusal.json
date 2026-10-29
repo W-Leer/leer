@@ -1,0 +1,52 @@
+{
+  "llm": {
+    "input": {
+      "messages": [
+        {
+          "content": "Provide disallowed content.",
+          "role": "user"
+        }
+      ],
+      "params": {
+        "max_tokens": 256
+      },
+      "system": null,
+      "tools": []
+    },
+    "meta": {
+      "finish_reason": "refusal",
+      "output_is_json": false,
+      "refusal": "Model declined to respond.",
+      "refusal_category": null,
+      "request_id": "msg_drift_refusal_001"
+    },
+    "model": "claude-sonnet-5-5",
+    "output": {
+      "content_blocks": [
+        {
+          "text": "[refusal] Model declined to respond.",
+          "type": "text"
+        }
+      ],
+      "parsed": null,
+      "text": "[refusal] Model declined to respond.",
+      "tool_calls": []
+    },
+    "provider": "anthropic",
+    "usage": {
+      "cached_tokens": null,
+      "completion_tokens": 1,
+      "prompt_tokens": 15,
+      "total_tokens": 16
+    }
+  },
+  "stream": {
+    "assembled_text_chars": 0,
+    "assembled_tool_calls": 0,
+    "chunk_count": 4,
+    "is_stream": true,
+    "provider": "anthropic",
+    "termination": "completed",
+    "truncated_chunks": false
+  }
+}

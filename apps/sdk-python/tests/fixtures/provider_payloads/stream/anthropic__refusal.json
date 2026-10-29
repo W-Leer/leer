@@ -1,0 +1,43 @@
+{
+  "kind": "anthropic",
+  "provenance": {
+    "provider": "anthropic",
+    "surface": "client.messages.create",
+    "source": "derived:raw/anthropic__refusal.json",
+    "api_reference_date": "2026-10",
+    "notes": "Streamed twin of the raw fixture with the same name (see tools/derive_stream_fixture.py)."
+  },
+  "events": [
+    {
+      "type": "message_start",
+      "message": {
+        "id": "msg_drift_refusal_001",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-5-5",
+        "stop_reason": null,
+        "content": [],
+        "usage": {
+          "input_tokens": 15,
+          "output_tokens": 0
+        },
+        "stop_sequence": null,
+        "stop_details": null
+      }
+    },
+    {
+      "type": "message_delta",
+      "delta": {
+        "stop_reason": "refusal",
+        "stop_sequence": null
+      },
+      "usage": {
+        "input_tokens": 15,
+        "output_tokens": 1
+      }
+    },
+    {
+      "type": "message_stop"
+    }
+  ]
+}

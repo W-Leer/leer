@@ -1,0 +1,94 @@
+{
+  "llm": {
+    "input": {
+      "messages": [
+        {
+          "content": "Summarize the Leer wiki.",
+          "role": "user"
+        }
+      ],
+      "params": {},
+      "system": null,
+      "tools": [
+        {
+          "type": "web_search"
+        },
+        {
+          "require_approval": "never",
+          "server_label": "deepwiki",
+          "server_url": "https://mcp.deepwiki.com/mcp",
+          "type": "mcp"
+        }
+      ]
+    },
+    "meta": {
+      "finish_reason": "completed",
+      "output_is_json": false,
+      "refusal": null,
+      "refusal_category": null,
+      "request_id": "resp_drift_builtin_001"
+    },
+    "model": "gpt-5.5",
+    "output": {
+      "content_blocks": [
+        {
+          "thinking": "Search the web, then read the wiki.",
+          "type": "thinking"
+        },
+        {
+          "id": "ws_1",
+          "input": {
+            "queries": null,
+            "query": "Leer execution record wiki",
+            "sources": null,
+            "type": "search"
+          },
+          "name": "web_search",
+          "preview_text": "web_search: Leer execution record wiki",
+          "provider": "openai",
+          "provider_part_type": "web_search_call",
+          "status": "completed",
+          "type": "provider_tool"
+        },
+        {
+          "id": "mcp_1",
+          "input": {
+            "repoName": "leer/leer"
+          },
+          "name": "read_wiki_contents",
+          "output": "Leer records agent runs.",
+          "preview_text": "read_wiki_contents: {\"repoName\": \"leer/leer\"}",
+          "provider": "openai",
+          "provider_part_type": "mcp_call",
+          "server": "deepwiki",
+          "status": "completed",
+          "type": "provider_tool"
+        },
+        {
+          "phase": "final_answer",
+          "text": "Leer records agent runs as Run, Step, Event and Artifact.",
+          "type": "text"
+        }
+      ],
+      "parsed": null,
+      "text": "Leer records agent runs as Run, Step, Event and Artifact.",
+      "tool_calls": []
+    },
+    "provider": "openai",
+    "usage": {
+      "cached_tokens": 0,
+      "completion_tokens": 120,
+      "prompt_tokens": 900,
+      "total_tokens": 1020
+    }
+  },
+  "stream": {
+    "assembled_text_chars": 57,
+    "assembled_tool_calls": 0,
+    "chunk_count": 6,
+    "is_stream": true,
+    "provider": "openai",
+    "termination": "completed",
+    "truncated_chunks": false
+  }
+}

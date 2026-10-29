@@ -19,7 +19,11 @@ Both SDKs had major releases since June. Gaps and fix order:
   OpenAI `reasoning` as thinking, `meta.refusal_category`; also fixed D-M5
   (Anthropic streaming dropped server-tool blocks and merged text blocks)
 - [x] D-M4 — all drift fixtures validate against the real SDK types (enforced by a test)
-- [ ] Workstream E steps 2–3 — streaming snapshots, opt-in live recorder
+- [x] Workstream E step 2 — streaming golden suite replayed through the real SDKs
+- [ ] D-M6 — Anthropic SDK 2.3 request-param changes; decide on widening the
+  `input.params` allowlist (both providers); update `examples/` (old model ID,
+  `temperature`)
+- [ ] Workstream E step 3 — opt-in live recorder
 
 ### Recently completed
 - [x] Provider hardening pass (Steps 0–4) — `docs/04-execution/provider-hardening-qa.md`

@@ -1,0 +1,151 @@
+{
+  "kind": "openai_chat",
+  "provenance": {
+    "provider": "openai",
+    "surface": "client.chat.completions.create",
+    "source": "derived:raw/openai_chat__tool_call.json",
+    "api_reference_date": "2026-06",
+    "notes": "Streamed twin of the raw fixture with the same name (see tools/derive_stream_fixture.py)."
+  },
+  "events": [
+    {
+      "id": "chatcmpl-drift-tool-001",
+      "created": 1749000000,
+      "model": "gpt-4.1-2025-04-14",
+      "object": "chat.completion.chunk",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "role": "assistant",
+            "content": "",
+            "refusal": null
+          },
+          "finish_reason": null,
+          "logprobs": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-drift-tool-001",
+      "created": 1749000000,
+      "model": "gpt-4.1-2025-04-14",
+      "object": "chat.completion.chunk",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "tool_calls": [
+              {
+                "index": 0,
+                "id": "call_w1",
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "arguments": ""
+                }
+              }
+            ]
+          },
+          "finish_reason": null,
+          "logprobs": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-drift-tool-001",
+      "created": 1749000000,
+      "model": "gpt-4.1-2025-04-14",
+      "object": "chat.completion.chunk",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "tool_calls": [
+              {
+                "index": 0,
+                "function": {
+                  "arguments": "{\"city"
+                }
+              }
+            ]
+          },
+          "finish_reason": null,
+          "logprobs": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-drift-tool-001",
+      "created": 1749000000,
+      "model": "gpt-4.1-2025-04-14",
+      "object": "chat.completion.chunk",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "tool_calls": [
+              {
+                "index": 0,
+                "function": {
+                  "arguments": "\": \"Pa"
+                }
+              }
+            ]
+          },
+          "finish_reason": null,
+          "logprobs": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-drift-tool-001",
+      "created": 1749000000,
+      "model": "gpt-4.1-2025-04-14",
+      "object": "chat.completion.chunk",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {
+            "tool_calls": [
+              {
+                "index": 0,
+                "function": {
+                  "arguments": "ris\"}"
+                }
+              }
+            ]
+          },
+          "finish_reason": null,
+          "logprobs": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-drift-tool-001",
+      "created": 1749000000,
+      "model": "gpt-4.1-2025-04-14",
+      "object": "chat.completion.chunk",
+      "choices": [
+        {
+          "index": 0,
+          "delta": {},
+          "finish_reason": "tool_calls",
+          "logprobs": null
+        }
+      ]
+    },
+    {
+      "id": "chatcmpl-drift-tool-001",
+      "created": 1749000000,
+      "model": "gpt-4.1-2025-04-14",
+      "object": "chat.completion.chunk",
+      "choices": [],
+      "usage": {
+        "prompt_tokens": 42,
+        "completion_tokens": 14,
+        "total_tokens": 56
+      }
+    }
+  ]
+}

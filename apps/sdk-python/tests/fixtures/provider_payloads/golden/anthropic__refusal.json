@@ -20,7 +20,7 @@
     "refusal_category": null,
     "request_id": "msg_drift_refusal_001"
   },
-  "model": "claude-sonnet-4-20250514",
+  "model": "claude-sonnet-5-5",
   "output": {
     "content_blocks": [
       {

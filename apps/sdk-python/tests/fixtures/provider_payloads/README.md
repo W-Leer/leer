@@ -6,6 +6,10 @@ changes. Driven by `tests/test_provider_drift.py`.
 - `raw/` — representative provider request + response payloads (hand-authored).
 - `golden/` — the canonical `NormalizedLLMCall.to_dict()` each raw payload
   normalizes to. **Committed.** A change here means normalization drifted.
+- `stream/` — the SSE event list for the raw fixture with the same name,
+  replayed through the real SDK by `tests/test_provider_drift_streaming.py`.
+- `golden_stream/` — the streamed `llm` record and `stream` metadata, minus
+  wall-clock fields. The streamed record must also equal the non-streamed one.
 
 ## Raw fixture format
 
@@ -50,8 +54,13 @@ git diff tests/fixtures/provider_payloads/golden/   # confirm every change is ex
 ## Adding a scenario
 
 1. Drop a new `raw/<provider>__<scenario>.json` (follow an existing one).
-2. Regenerate goldens with the command above.
-3. Review the new golden for correctness; commit raw + golden together.
+   Stem names trigger invariants: `tool`, `refusal`, `provider_run`, … (see
+   `test_canonical_invariants`).
+2. Derive its streamed twin:
+   `uv run python tools/derive_stream_fixture.py tests/fixtures/provider_payloads/raw/<stem>.json`
+3. Regenerate goldens for both suites:
+   `LEER_UPDATE_GOLDEN=1 uv run python -m pytest tests/test_provider_drift.py tests/test_provider_drift_streaming.py`
+4. Review the new goldens for correctness; commit raw, stream and goldens together.
 
 ## Refreshing against real provider payloads
 
@@ -64,5 +73,7 @@ fixtures with `provenance.source = "recorded:<model>@<date>"`; review that diff
 
 Every `response` must validate against the real SDK type (`ChatCompletion`,
 `Response`, or Anthropic `Message`); `test_fixture_is_valid_for_the_current_sdk`
-enforces it. When an SDK upgrade makes a field required, add it to the
+enforces it. Every stream event must validate against the SDK's event type
+(`test_stream_events_are_valid_for_the_current_sdk`), and every `request` must
+be accepted by the SDK's `create()` (the replay calls it). When an SDK upgrade makes a field required, add it to the
 fixture first, then regenerate goldens and review the diff.

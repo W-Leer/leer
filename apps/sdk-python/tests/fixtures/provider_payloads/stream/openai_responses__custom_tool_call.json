@@ -1,0 +1,127 @@
+{
+  "kind": "openai_responses",
+  "provenance": {
+    "provider": "openai",
+    "surface": "client.responses.create",
+    "source": "derived:raw/openai_responses__custom_tool_call.json",
+    "api_reference_date": "2026-10",
+    "notes": "Streamed twin of the raw fixture with the same name (see tools/derive_stream_fixture.py)."
+  },
+  "events": [
+    {
+      "type": "response.created",
+      "sequence_number": 0,
+      "response": {
+        "id": "resp_drift_custom_001",
+        "object": "response",
+        "created_at": 1793000000,
+        "model": "gpt-5.5",
+        "status": "in_progress",
+        "parallel_tool_calls": true,
+        "tool_choice": "auto",
+        "tools": [
+          {
+            "type": "custom",
+            "name": "run_sql",
+            "description": "Run a read-only SQL query"
+          }
+        ],
+        "output": [],
+        "usage": null
+      }
+    },
+    {
+      "type": "response.output_item.added",
+      "sequence_number": 1,
+      "output_index": 0,
+      "item": {
+        "id": "ctc_1",
+        "type": "custom_tool_call",
+        "call_id": "call_sql_1",
+        "name": "run_sql",
+        "input": ""
+      }
+    },
+    {
+      "type": "response.custom_tool_call_input.delta",
+      "sequence_number": 2,
+      "output_index": 0,
+      "item_id": "ctc_1",
+      "delta": "SELECT count(*) FROM u"
+    },
+    {
+      "type": "response.custom_tool_call_input.delta",
+      "sequence_number": 3,
+      "output_index": 0,
+      "item_id": "ctc_1",
+      "delta": "sers WHERE created_at:"
+    },
+    {
+      "type": "response.custom_tool_call_input.delta",
+      "sequence_number": 4,
+      "output_index": 0,
+      "item_id": "ctc_1",
+      "delta": ":date = current_date"
+    },
+    {
+      "type": "response.custom_tool_call_input.done",
+      "sequence_number": 5,
+      "output_index": 0,
+      "item_id": "ctc_1",
+      "input": "SELECT count(*) FROM users WHERE created_at::date = current_date"
+    },
+    {
+      "type": "response.output_item.done",
+      "sequence_number": 6,
+      "output_index": 0,
+      "item": {
+        "id": "ctc_1",
+        "type": "custom_tool_call",
+        "call_id": "call_sql_1",
+        "name": "run_sql",
+        "input": "SELECT count(*) FROM users WHERE created_at::date = current_date"
+      }
+    },
+    {
+      "type": "response.completed",
+      "sequence_number": 7,
+      "response": {
+        "id": "resp_drift_custom_001",
+        "object": "response",
+        "created_at": 1793000000,
+        "model": "gpt-5.5",
+        "status": "completed",
+        "parallel_tool_calls": true,
+        "tool_choice": "auto",
+        "tools": [
+          {
+            "type": "custom",
+            "name": "run_sql",
+            "description": "Run a read-only SQL query"
+          }
+        ],
+        "output": [
+          {
+            "id": "ctc_1",
+            "type": "custom_tool_call",
+            "call_id": "call_sql_1",
+            "name": "run_sql",
+            "input": "SELECT count(*) FROM users WHERE created_at::date = current_date"
+          }
+        ],
+        "usage": {
+          "input_tokens": 30,
+          "output_tokens": 20,
+          "total_tokens": 50,
+          "input_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0
+          },
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        }
+      }
+    }
+  ]
+}

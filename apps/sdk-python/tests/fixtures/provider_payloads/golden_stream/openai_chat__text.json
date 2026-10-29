@@ -1,0 +1,53 @@
+{
+  "llm": {
+    "input": {
+      "messages": [
+        {
+          "content": "Say hello in one short sentence.",
+          "role": "user"
+        }
+      ],
+      "params": {
+        "max_tokens": 256,
+        "temperature": 0.2
+      },
+      "system": "You are a concise assistant.",
+      "tools": []
+    },
+    "meta": {
+      "finish_reason": "stop",
+      "output_is_json": false,
+      "refusal": null,
+      "refusal_category": null,
+      "request_id": "chatcmpl-drift-text-001"
+    },
+    "model": "gpt-4.1-mini-2025-04-14",
+    "output": {
+      "content_blocks": [
+        {
+          "text": "Hello there — happy to help!",
+          "type": "text"
+        }
+      ],
+      "parsed": null,
+      "text": "Hello there — happy to help!",
+      "tool_calls": []
+    },
+    "provider": "openai",
+    "usage": {
+      "cached_tokens": null,
+      "completion_tokens": 8,
+      "prompt_tokens": 18,
+      "total_tokens": 26
+    }
+  },
+  "stream": {
+    "assembled_text_chars": 28,
+    "assembled_tool_calls": 0,
+    "chunk_count": 5,
+    "is_stream": true,
+    "provider": "openai",
+    "termination": "completed",
+    "truncated_chunks": false
+  }
+}

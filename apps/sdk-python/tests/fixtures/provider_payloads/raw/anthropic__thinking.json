@@ -4,12 +4,12 @@
     "provider": "anthropic",
     "surface": "client.messages.create",
     "source": "hand-authored",
-    "api_reference_date": "2026-06",
+    "api_reference_date": "2026-10",
     "notes": "Extended thinking block (with signature) followed by text. Canonical content_blocks keep only {type, thinking}."
   },
   "latency_ms": 2100,
   "request": {
-    "model": "claude-sonnet-4-20250514",
+    "model": "claude-sonnet-5-5",
     "max_tokens": 1024,
     "thinking": {"type": "enabled", "budget_tokens": 512},
     "messages": [
@@ -20,7 +20,7 @@
     "id": "msg_drift_think_001",
     "type": "message",
     "role": "assistant",
-    "model": "claude-sonnet-4-20250514",
+    "model": "claude-sonnet-5-5",
     "stop_reason": "end_turn",
     "content": [
       {"type": "thinking", "thinking": "17 * 23 = 17 * 20 + 17 * 3 = 340 + 51 = 391.", "signature": "sig_abc123"},

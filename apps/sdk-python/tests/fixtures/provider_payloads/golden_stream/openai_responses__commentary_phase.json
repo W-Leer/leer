@@ -1,0 +1,58 @@
+{
+  "llm": {
+    "input": {
+      "messages": [
+        {
+          "content": "Return the answer as JSON.",
+          "role": "user"
+        }
+      ],
+      "params": {},
+      "system": null,
+      "tools": []
+    },
+    "meta": {
+      "finish_reason": "completed",
+      "output_is_json": true,
+      "refusal": null,
+      "refusal_category": null,
+      "request_id": "resp_drift_phase_001"
+    },
+    "model": "gpt-5.5",
+    "output": {
+      "content_blocks": [
+        {
+          "phase": "commentary",
+          "text": "Let me work that out first.",
+          "type": "text"
+        },
+        {
+          "phase": "final_answer",
+          "text": "{\"answer\": 42}",
+          "type": "text"
+        }
+      ],
+      "parsed": {
+        "answer": 42
+      },
+      "text": "{\"answer\": 42}",
+      "tool_calls": []
+    },
+    "provider": "openai",
+    "usage": {
+      "cached_tokens": 0,
+      "completion_tokens": 18,
+      "prompt_tokens": 12,
+      "total_tokens": 30
+    }
+  },
+  "stream": {
+    "assembled_text_chars": 41,
+    "assembled_tool_calls": 0,
+    "chunk_count": 9,
+    "is_stream": true,
+    "provider": "openai",
+    "termination": "completed",
+    "truncated_chunks": false
+  }
+}

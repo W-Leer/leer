@@ -208,6 +208,28 @@ thinking; caller-run OpenAI tools → tool calls).
   `anthropic__refusal_category`, `openai_responses__provider_run_search_mcp`
   (SDK-valid, current model IDs).
 
+### Found while building the streaming suite (workstream E step 2)
+
+Replaying fixture requests through the real SDK surfaced two upstream changes:
+
+- **D-M6 — Anthropic request parameters changed.** `anthropic` 2.3
+  `messages.create()` no longer accepts `temperature`, `top_p`, `top_k` or
+  `output_format` (it raises `TypeError`); `output_format` moved into
+  `output_config`. New parameters are not in `input.params`:
+  `service_tier`, `speed`, `inference_geo`, `cache_control`, `container`,
+  and on beta `context_management`, `compaction`, `fallbacks`,
+  `mcp_servers`. The full request is still saved in the `llm_request`
+  artifact, so nothing is lost; the canonical summary is incomplete. The same
+  check shows long-standing omissions on OpenAI too (`reasoning_effort`,
+  `tool_choice`, `parallel_tool_calls`, `previous_response_id`,
+  `conversation`, `service_tier`, …). Widening the `input.params` allowlist
+  is a design decision for both providers, deferred to its own item. Leer
+  keeps recording `temperature` / `top_p` / `top_k` for older SDKs.
+- **D-L3 (now confirmed):** `claude-sonnet-4-20250514` reached end-of-life on
+  2026-06-15; the SDK warns on every call. The Anthropic fixtures now use
+  `claude-sonnet-5-5`, and `anthropic__text` uses `stop_sequences` instead of
+  `temperature`. `examples/` still use both and need the same update.
+
 ### D-M4 — done
 
 - The 8 older OpenAI fixtures gained the envelope fields they lacked

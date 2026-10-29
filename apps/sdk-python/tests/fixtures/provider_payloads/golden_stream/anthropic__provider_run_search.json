@@ -1,0 +1,81 @@
+{
+  "llm": {
+    "input": {
+      "messages": [
+        {
+          "content": "What is Leer?",
+          "role": "user"
+        }
+      ],
+      "params": {
+        "max_tokens": 512
+      },
+      "system": null,
+      "tools": [
+        {
+          "description": null,
+          "input_schema": null,
+          "name": "web_search"
+        }
+      ]
+    },
+    "meta": {
+      "finish_reason": "end_turn",
+      "output_is_json": false,
+      "refusal": null,
+      "refusal_category": null,
+      "request_id": "msg_drift_search_001"
+    },
+    "model": "claude-sonnet-5-5",
+    "output": {
+      "content_blocks": [
+        {
+          "text": "Let me look that up.",
+          "type": "text"
+        },
+        {
+          "id": "srvtoolu_drift_1",
+          "input": {
+            "query": "Leer execution record"
+          },
+          "name": "web_search",
+          "output": [
+            {
+              "page_age": "2 days ago",
+              "title": "Leer",
+              "type": "web_search_result",
+              "url": "https://leer.dev"
+            }
+          ],
+          "preview_text": "web_search: Leer execution record",
+          "provider": "anthropic",
+          "provider_part_type": "server_tool_use",
+          "type": "provider_tool"
+        },
+        {
+          "text": "Leer is an execution-record system for AI agents.",
+          "type": "text"
+        }
+      ],
+      "parsed": null,
+      "text": "Let me look that up.\n\nLeer is an execution-record system for AI agents.",
+      "tool_calls": []
+    },
+    "provider": "anthropic",
+    "usage": {
+      "cached_tokens": null,
+      "completion_tokens": 60,
+      "prompt_tokens": 410,
+      "total_tokens": 470
+    }
+  },
+  "stream": {
+    "assembled_text_chars": 69,
+    "assembled_tool_calls": 1,
+    "chunk_count": 13,
+    "is_stream": true,
+    "provider": "anthropic",
+    "termination": "completed",
+    "truncated_chunks": false
+  }
+}

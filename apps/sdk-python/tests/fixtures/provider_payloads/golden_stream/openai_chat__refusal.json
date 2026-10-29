@@ -1,0 +1,50 @@
+{
+  "llm": {
+    "input": {
+      "messages": [
+        {
+          "content": "Give me instructions to do something harmful.",
+          "role": "user"
+        }
+      ],
+      "params": {},
+      "system": null,
+      "tools": []
+    },
+    "meta": {
+      "finish_reason": "stop",
+      "output_is_json": false,
+      "refusal": "I'm sorry, but I can't help with that.",
+      "refusal_category": null,
+      "request_id": "chatcmpl-drift-refusal-001"
+    },
+    "model": "gpt-4.1-mini-2025-04-14",
+    "output": {
+      "content_blocks": [
+        {
+          "text": "[refusal] I'm sorry, but I can't help with that.",
+          "type": "text"
+        }
+      ],
+      "parsed": null,
+      "text": "[refusal] I'm sorry, but I can't help with that.",
+      "tool_calls": []
+    },
+    "provider": "openai",
+    "usage": {
+      "cached_tokens": null,
+      "completion_tokens": 12,
+      "prompt_tokens": 21,
+      "total_tokens": 33
+    }
+  },
+  "stream": {
+    "assembled_text_chars": 0,
+    "assembled_tool_calls": 0,
+    "chunk_count": 5,
+    "is_stream": true,
+    "provider": "openai",
+    "termination": "completed",
+    "truncated_chunks": false
+  }
+}

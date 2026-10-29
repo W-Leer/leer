@@ -1,0 +1,79 @@
+{
+  "llm": {
+    "input": {
+      "messages": [
+        {
+          "content": "Look up the weather in Berlin.",
+          "role": "user"
+        }
+      ],
+      "params": {},
+      "system": null,
+      "tools": [
+        {
+          "description": "Look up current weather",
+          "name": "get_weather",
+          "parameters": {
+            "properties": {
+              "city": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "type": "object"
+          },
+          "type": "function"
+        }
+      ]
+    },
+    "meta": {
+      "finish_reason": "completed",
+      "output_is_json": false,
+      "refusal": null,
+      "refusal_category": null,
+      "request_id": "resp_drift_tool_001"
+    },
+    "model": "gpt-4.1-2025-04-14",
+    "output": {
+      "content_blocks": [
+        {
+          "arguments": {
+            "city": "Berlin"
+          },
+          "id": "call_b1",
+          "name": "get_weather",
+          "type": "tool_call"
+        }
+      ],
+      "parsed": null,
+      "text": null,
+      "tool_calls": [
+        {
+          "arguments": {
+            "city": "Berlin"
+          },
+          "id": "call_b1",
+          "name": "get_weather"
+        }
+      ]
+    },
+    "provider": "openai",
+    "usage": {
+      "cached_tokens": 0,
+      "completion_tokens": 12,
+      "prompt_tokens": 38,
+      "total_tokens": 50
+    }
+  },
+  "stream": {
+    "assembled_text_chars": 0,
+    "assembled_tool_calls": 1,
+    "chunk_count": 7,
+    "is_stream": true,
+    "provider": "openai",
+    "termination": "completed",
+    "truncated_chunks": false
+  }
+}

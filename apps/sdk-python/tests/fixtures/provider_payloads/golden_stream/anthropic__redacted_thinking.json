@@ -1,0 +1,59 @@
+{
+  "llm": {
+    "input": {
+      "messages": [
+        {
+          "content": "Reason about this internally.",
+          "role": "user"
+        }
+      ],
+      "params": {
+        "max_tokens": 1024,
+        "thinking": {
+          "budget_tokens": 512,
+          "type": "enabled"
+        }
+      },
+      "system": null,
+      "tools": []
+    },
+    "meta": {
+      "finish_reason": "end_turn",
+      "output_is_json": false,
+      "refusal": null,
+      "refusal_category": null,
+      "request_id": "msg_drift_redact_001"
+    },
+    "model": "claude-sonnet-5-5",
+    "output": {
+      "content_blocks": [
+        {
+          "type": "redacted_thinking"
+        },
+        {
+          "text": "Here is the answer.",
+          "type": "text"
+        }
+      ],
+      "parsed": null,
+      "text": "Here is the answer.",
+      "tool_calls": []
+    },
+    "provider": "anthropic",
+    "usage": {
+      "cached_tokens": null,
+      "completion_tokens": 9,
+      "prompt_tokens": 22,
+      "total_tokens": 31
+    }
+  },
+  "stream": {
+    "assembled_text_chars": 19,
+    "assembled_tool_calls": 0,
+    "chunk_count": 8,
+    "is_stream": true,
+    "provider": "anthropic",
+    "termination": "completed",
+    "truncated_chunks": false
+  }
+}

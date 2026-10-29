@@ -1,0 +1,55 @@
+{
+  "llm": {
+    "input": {
+      "messages": [
+        {
+          "content": "Say hello in one short sentence.",
+          "role": "user"
+        }
+      ],
+      "params": {
+        "max_tokens": 256,
+        "stop_sequences": [
+          "\n\nHuman:"
+        ]
+      },
+      "system": "You are a concise assistant.",
+      "tools": []
+    },
+    "meta": {
+      "finish_reason": "end_turn",
+      "output_is_json": false,
+      "refusal": null,
+      "refusal_category": null,
+      "request_id": "msg_drift_text_001"
+    },
+    "model": "claude-sonnet-5-5",
+    "output": {
+      "content_blocks": [
+        {
+          "text": "Hello — glad to help!",
+          "type": "text"
+        }
+      ],
+      "parsed": null,
+      "text": "Hello — glad to help!",
+      "tool_calls": []
+    },
+    "provider": "anthropic",
+    "usage": {
+      "cached_tokens": null,
+      "completion_tokens": 7,
+      "prompt_tokens": 17,
+      "total_tokens": 24
+    }
+  },
+  "stream": {
+    "assembled_text_chars": 21,
+    "assembled_tool_calls": 0,
+    "chunk_count": 7,
+    "is_stream": true,
+    "provider": "anthropic",
+    "termination": "completed",
+    "truncated_chunks": false
+  }
+}

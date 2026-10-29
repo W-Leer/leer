@@ -1,0 +1,52 @@
+{
+  "llm": {
+    "input": {
+      "messages": [
+        {
+          "content": "Write ransomware.",
+          "role": "user"
+        }
+      ],
+      "params": {
+        "max_tokens": 256
+      },
+      "system": null,
+      "tools": []
+    },
+    "meta": {
+      "finish_reason": "refusal",
+      "output_is_json": false,
+      "refusal": "This request could enable malware development.",
+      "refusal_category": "cyber",
+      "request_id": "msg_drift_refusal_002"
+    },
+    "model": "claude-sonnet-5-5",
+    "output": {
+      "content_blocks": [
+        {
+          "text": "[refusal] This request could enable malware development.",
+          "type": "text"
+        }
+      ],
+      "parsed": null,
+      "text": "[refusal] This request could enable malware development.",
+      "tool_calls": []
+    },
+    "provider": "anthropic",
+    "usage": {
+      "cached_tokens": null,
+      "completion_tokens": 0,
+      "prompt_tokens": 14,
+      "total_tokens": 14
+    }
+  },
+  "stream": {
+    "assembled_text_chars": 0,
+    "assembled_tool_calls": 0,
+    "chunk_count": 4,
+    "is_stream": true,
+    "provider": "anthropic",
+    "termination": "completed",
+    "truncated_chunks": false
+  }
+}

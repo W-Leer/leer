@@ -1,0 +1,50 @@
+{
+  "llm": {
+    "input": {
+      "messages": [
+        {
+          "content": "Provide disallowed content.",
+          "role": "user"
+        }
+      ],
+      "params": {},
+      "system": null,
+      "tools": []
+    },
+    "meta": {
+      "finish_reason": "completed",
+      "output_is_json": false,
+      "refusal": "I can't assist with that request.",
+      "refusal_category": null,
+      "request_id": "resp_drift_refusal_001"
+    },
+    "model": "gpt-4.1-2025-04-14",
+    "output": {
+      "content_blocks": [
+        {
+          "text": "[refusal] I can't assist with that request.",
+          "type": "text"
+        }
+      ],
+      "parsed": null,
+      "text": "[refusal] I can't assist with that request.",
+      "tool_calls": []
+    },
+    "provider": "openai",
+    "usage": {
+      "cached_tokens": 0,
+      "completion_tokens": 10,
+      "prompt_tokens": 19,
+      "total_tokens": 29
+    }
+  },
+  "stream": {
+    "assembled_text_chars": 0,
+    "assembled_tool_calls": 0,
+    "chunk_count": 6,
+    "is_stream": true,
+    "provider": "openai",
+    "termination": "completed",
+    "truncated_chunks": false
+  }
+}

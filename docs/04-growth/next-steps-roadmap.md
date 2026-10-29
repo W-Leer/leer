@@ -37,10 +37,11 @@ with a Step-0 audit and documents gaps before code, per `AGENTS.md`):
   (e.g. image generation) end to end into artifacts. Not started.
 - **D. Long-running agent workflows** — multiple tool loops, nested tool calls,
   and large execution trees render and compare cleanly. Not started.
-- **E. Provider version-drift monitoring** — 🟡 **step 1 of 3 done**: golden
-  snapshot suite over 14 hand-authored fixtures
-  (`apps/sdk-python/tests/test_provider_drift.py`). Remaining: streaming
-  snapshots, and an opt-in recorder for real API payloads. See
+- **E. Provider version-drift monitoring** — 🟡 **steps 1–2 of 3 done**:
+  golden snapshots over 20 SDK-valid fixtures
+  (`apps/sdk-python/tests/test_provider_drift.py`) and their streamed twins
+  replayed through the real SDKs (`test_provider_drift_streaming.py`).
+  Remaining: an opt-in recorder for real API payloads. See
   `docs/04-execution/version-drift-step-0-audit.md`.
 
 Deferred provider-hardening items (documented, non-blocking) live in the QA

@@ -102,10 +102,35 @@ multimodal-specific fixtures (workstream B/C), async wrappers.
 
 ---
 
+## 4a. Step 2 design (October 2026)
+
+The June plan was to drive `StreamCollector` directly. Since then
+`tests/test_real_sdk_contract.py` showed that the SDK layer matters (D-H4 and
+D-M5 were both invisible to collector-level tests), so step 2 replays events
+through the real SDK and the wrapper instead:
+
+- `fixtures/provider_payloads/stream/<stem>.json` holds the SSE event list
+  for the non-streaming fixture `raw/<stem>.json` (same request, same final
+  response). Same file format the step 3 recorder will write.
+- Each stream fixture is replayed with `create(stream=True)` through the real
+  SDK over an in-memory transport. Checks:
+  1. **Golden:** the streamed `llm` record and `stream` metadata, minus
+     wall-clock fields (`latency_ms`, `first_chunk_at`, `last_chunk_at`,
+     `time_to_first_chunk_ms`, `stream_duration_ms`, and
+     `captured_chunk_bytes`, which counts per-event timestamp digits), match
+     `golden_stream/<stem>.json`.
+  2. **Parity:** the streamed record equals the non-streamed record of the
+     twin fixture (also through the real SDK), apart from latency.
+- `tools/derive_stream_fixture.py` writes a stream fixture from a raw one,
+  following each provider's documented event protocol (text split across
+  several deltas). Derived events are a stand-in until the recorder captures
+  real ones; the SDK parsing them is the realism check.
+
 ## 5. Status
 
 - [x] Step 1 — non-streaming golden drift suite
-- [ ] Step 2 — streaming golden suite
+- [x] Step 2 — streaming golden suite (October 2026; all 20 raw fixtures
+  have a streamed twin, 61 tests)
 - [ ] Step 3 — opt-in live recorder
 
 The October 2026 re-assessment

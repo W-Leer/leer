@@ -4,12 +4,12 @@
     "provider": "anthropic",
     "surface": "client.messages.create",
     "source": "hand-authored",
-    "api_reference_date": "2026-06",
+    "api_reference_date": "2026-10",
     "notes": "Leading text block followed by a tool_use block; stop_reason tool_use."
   },
   "latency_ms": 1240,
   "request": {
-    "model": "claude-sonnet-4-20250514",
+    "model": "claude-sonnet-5-5",
     "max_tokens": 512,
     "messages": [
       {"role": "user", "content": "What is the weather in Madrid?"}
@@ -30,7 +30,7 @@
     "id": "msg_drift_tool_001",
     "type": "message",
     "role": "assistant",
-    "model": "claude-sonnet-4-20250514",
+    "model": "claude-sonnet-5-5",
     "stop_reason": "tool_use",
     "content": [
       {"type": "text", "text": "Let me check that for you."},

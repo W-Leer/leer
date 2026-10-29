@@ -1,0 +1,151 @@
+{
+  "kind": "openai_responses",
+  "provenance": {
+    "provider": "openai",
+    "surface": "client.responses.create",
+    "source": "derived:raw/openai_responses__refusal.json",
+    "api_reference_date": "2026-06",
+    "notes": "Streamed twin of the raw fixture with the same name (see tools/derive_stream_fixture.py)."
+  },
+  "events": [
+    {
+      "type": "response.created",
+      "sequence_number": 0,
+      "response": {
+        "id": "resp_drift_refusal_001",
+        "object": "response",
+        "created_at": 1749000000,
+        "model": "gpt-4.1-2025-04-14",
+        "status": "in_progress",
+        "parallel_tool_calls": true,
+        "tool_choice": "auto",
+        "tools": [],
+        "output": [],
+        "usage": null
+      }
+    },
+    {
+      "type": "response.output_item.added",
+      "sequence_number": 1,
+      "output_index": 0,
+      "item": {
+        "id": "msg_ref_001",
+        "type": "message",
+        "status": "in_progress",
+        "role": "assistant",
+        "content": []
+      }
+    },
+    {
+      "type": "response.content_part.added",
+      "sequence_number": 2,
+      "output_index": 0,
+      "item_id": "msg_ref_001",
+      "content_index": 0,
+      "part": {
+        "type": "refusal",
+        "refusal": ""
+      }
+    },
+    {
+      "type": "response.refusal.delta",
+      "sequence_number": 3,
+      "output_index": 0,
+      "item_id": "msg_ref_001",
+      "content_index": 0,
+      "delta": "I can't ass"
+    },
+    {
+      "type": "response.refusal.delta",
+      "sequence_number": 4,
+      "output_index": 0,
+      "item_id": "msg_ref_001",
+      "content_index": 0,
+      "delta": "ist with th"
+    },
+    {
+      "type": "response.refusal.delta",
+      "sequence_number": 5,
+      "output_index": 0,
+      "item_id": "msg_ref_001",
+      "content_index": 0,
+      "delta": "at request."
+    },
+    {
+      "type": "response.refusal.done",
+      "sequence_number": 6,
+      "output_index": 0,
+      "item_id": "msg_ref_001",
+      "content_index": 0,
+      "refusal": "I can't assist with that request."
+    },
+    {
+      "type": "response.content_part.done",
+      "sequence_number": 7,
+      "output_index": 0,
+      "item_id": "msg_ref_001",
+      "content_index": 0,
+      "part": {
+        "type": "refusal",
+        "refusal": "I can't assist with that request."
+      }
+    },
+    {
+      "type": "response.output_item.done",
+      "sequence_number": 8,
+      "output_index": 0,
+      "item": {
+        "id": "msg_ref_001",
+        "type": "message",
+        "status": "completed",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "refusal",
+            "refusal": "I can't assist with that request."
+          }
+        ]
+      }
+    },
+    {
+      "type": "response.completed",
+      "sequence_number": 9,
+      "response": {
+        "id": "resp_drift_refusal_001",
+        "object": "response",
+        "created_at": 1749000000,
+        "model": "gpt-4.1-2025-04-14",
+        "status": "completed",
+        "parallel_tool_calls": true,
+        "tool_choice": "auto",
+        "tools": [],
+        "output": [
+          {
+            "id": "msg_ref_001",
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "refusal",
+                "refusal": "I can't assist with that request."
+              }
+            ]
+          }
+        ],
+        "usage": {
+          "input_tokens": 19,
+          "output_tokens": 10,
+          "total_tokens": 29,
+          "input_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0
+          },
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        }
+      }
+    }
+  ]
+}

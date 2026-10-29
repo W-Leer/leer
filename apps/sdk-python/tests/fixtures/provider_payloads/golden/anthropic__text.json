@@ -8,7 +8,9 @@
     ],
     "params": {
       "max_tokens": 256,
-      "temperature": 0.4
+      "stop_sequences": [
+        "\n\nHuman:"
+      ]
     },
     "system": "You are a concise assistant.",
     "tools": []
@@ -21,7 +23,7 @@
     "refusal_category": null,
     "request_id": "msg_drift_text_001"
   },
-  "model": "claude-sonnet-4-20250514",
+  "model": "claude-sonnet-5-5",
   "output": {
     "content_blocks": [
       {

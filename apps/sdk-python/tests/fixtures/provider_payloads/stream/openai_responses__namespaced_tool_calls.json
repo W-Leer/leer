@@ -1,0 +1,188 @@
+{
+  "kind": "openai_responses",
+  "provenance": {
+    "provider": "openai",
+    "surface": "client.responses.create",
+    "source": "derived:raw/openai_responses__namespaced_tool_calls.json",
+    "api_reference_date": "2026-10",
+    "notes": "Streamed twin of the raw fixture with the same name (see tools/derive_stream_fixture.py)."
+  },
+  "events": [
+    {
+      "type": "response.created",
+      "sequence_number": 0,
+      "response": {
+        "id": "resp_drift_ns_001",
+        "object": "response",
+        "created_at": 1793000000,
+        "model": "gpt-5.5",
+        "status": "in_progress",
+        "parallel_tool_calls": true,
+        "tool_choice": "auto",
+        "tools": [],
+        "output": [],
+        "usage": null
+      }
+    },
+    {
+      "type": "response.output_item.added",
+      "sequence_number": 1,
+      "output_index": 0,
+      "item": {
+        "id": "fc_gh_1",
+        "type": "function_call",
+        "call_id": "call_gh_1",
+        "name": "search",
+        "namespace": "github",
+        "arguments": "",
+        "status": "in_progress"
+      }
+    },
+    {
+      "type": "response.function_call_arguments.delta",
+      "sequence_number": 2,
+      "output_index": 0,
+      "item_id": "fc_gh_1",
+      "delta": "{\"quer"
+    },
+    {
+      "type": "response.function_call_arguments.delta",
+      "sequence_number": 3,
+      "output_index": 0,
+      "item_id": "fc_gh_1",
+      "delta": "y\": \"l"
+    },
+    {
+      "type": "response.function_call_arguments.delta",
+      "sequence_number": 4,
+      "output_index": 0,
+      "item_id": "fc_gh_1",
+      "delta": "ogin\"}"
+    },
+    {
+      "type": "response.function_call_arguments.done",
+      "sequence_number": 5,
+      "output_index": 0,
+      "item_id": "fc_gh_1",
+      "name": "search",
+      "arguments": "{\"query\": \"login\"}"
+    },
+    {
+      "type": "response.output_item.done",
+      "sequence_number": 6,
+      "output_index": 0,
+      "item": {
+        "id": "fc_gh_1",
+        "type": "function_call",
+        "call_id": "call_gh_1",
+        "name": "search",
+        "namespace": "github",
+        "arguments": "{\"query\": \"login\"}",
+        "status": "completed"
+      }
+    },
+    {
+      "type": "response.output_item.added",
+      "sequence_number": 7,
+      "output_index": 1,
+      "item": {
+        "id": "fc_jira_1",
+        "type": "function_call",
+        "call_id": "call_jira_1",
+        "name": "search",
+        "namespace": "jira",
+        "arguments": "",
+        "status": "in_progress"
+      }
+    },
+    {
+      "type": "response.function_call_arguments.delta",
+      "sequence_number": 8,
+      "output_index": 1,
+      "item_id": "fc_jira_1",
+      "delta": "{\"quer"
+    },
+    {
+      "type": "response.function_call_arguments.delta",
+      "sequence_number": 9,
+      "output_index": 1,
+      "item_id": "fc_jira_1",
+      "delta": "y\": \"l"
+    },
+    {
+      "type": "response.function_call_arguments.delta",
+      "sequence_number": 10,
+      "output_index": 1,
+      "item_id": "fc_jira_1",
+      "delta": "ogin\"}"
+    },
+    {
+      "type": "response.function_call_arguments.done",
+      "sequence_number": 11,
+      "output_index": 1,
+      "item_id": "fc_jira_1",
+      "name": "search",
+      "arguments": "{\"query\": \"login\"}"
+    },
+    {
+      "type": "response.output_item.done",
+      "sequence_number": 12,
+      "output_index": 1,
+      "item": {
+        "id": "fc_jira_1",
+        "type": "function_call",
+        "call_id": "call_jira_1",
+        "name": "search",
+        "namespace": "jira",
+        "arguments": "{\"query\": \"login\"}",
+        "status": "completed"
+      }
+    },
+    {
+      "type": "response.completed",
+      "sequence_number": 13,
+      "response": {
+        "id": "resp_drift_ns_001",
+        "object": "response",
+        "created_at": 1793000000,
+        "model": "gpt-5.5",
+        "status": "completed",
+        "parallel_tool_calls": true,
+        "tool_choice": "auto",
+        "tools": [],
+        "output": [
+          {
+            "id": "fc_gh_1",
+            "type": "function_call",
+            "call_id": "call_gh_1",
+            "name": "search",
+            "namespace": "github",
+            "arguments": "{\"query\": \"login\"}",
+            "status": "completed"
+          },
+          {
+            "id": "fc_jira_1",
+            "type": "function_call",
+            "call_id": "call_jira_1",
+            "name": "search",
+            "namespace": "jira",
+            "arguments": "{\"query\": \"login\"}",
+            "status": "completed"
+          }
+        ],
+        "usage": {
+          "input_tokens": 40,
+          "output_tokens": 24,
+          "total_tokens": 64,
+          "input_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0
+          },
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        }
+      }
+    }
+  ]
+}

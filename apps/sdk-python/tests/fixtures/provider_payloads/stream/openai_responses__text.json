@@ -1,0 +1,159 @@
+{
+  "kind": "openai_responses",
+  "provenance": {
+    "provider": "openai",
+    "surface": "client.responses.create",
+    "source": "derived:raw/openai_responses__text.json",
+    "api_reference_date": "2026-06",
+    "notes": "Streamed twin of the raw fixture with the same name (see tools/derive_stream_fixture.py)."
+  },
+  "events": [
+    {
+      "type": "response.created",
+      "sequence_number": 0,
+      "response": {
+        "id": "resp_drift_text_001",
+        "object": "response",
+        "created_at": 1749000000,
+        "model": "gpt-4.1-2025-04-14",
+        "status": "in_progress",
+        "parallel_tool_calls": true,
+        "tool_choice": "auto",
+        "tools": [],
+        "output": [],
+        "usage": null
+      }
+    },
+    {
+      "type": "response.output_item.added",
+      "sequence_number": 1,
+      "output_index": 0,
+      "item": {
+        "id": "msg_001",
+        "type": "message",
+        "status": "in_progress",
+        "role": "assistant",
+        "content": []
+      }
+    },
+    {
+      "type": "response.content_part.added",
+      "sequence_number": 2,
+      "output_index": 0,
+      "item_id": "msg_001",
+      "content_index": 0,
+      "part": {
+        "type": "output_text",
+        "text": "",
+        "annotations": []
+      }
+    },
+    {
+      "type": "response.output_text.delta",
+      "sequence_number": 3,
+      "output_index": 0,
+      "item_id": "msg_001",
+      "content_index": 0,
+      "delta": "Leer captures provide",
+      "logprobs": []
+    },
+    {
+      "type": "response.output_text.delta",
+      "sequence_number": 4,
+      "output_index": 0,
+      "item_id": "msg_001",
+      "content_index": 0,
+      "delta": "r-agnostic execution ",
+      "logprobs": []
+    },
+    {
+      "type": "response.output_text.delta",
+      "sequence_number": 5,
+      "output_index": 0,
+      "item_id": "msg_001",
+      "content_index": 0,
+      "delta": "records of AI runs.",
+      "logprobs": []
+    },
+    {
+      "type": "response.output_text.done",
+      "sequence_number": 6,
+      "output_index": 0,
+      "item_id": "msg_001",
+      "content_index": 0,
+      "text": "Leer captures provider-agnostic execution records of AI runs.",
+      "logprobs": []
+    },
+    {
+      "type": "response.content_part.done",
+      "sequence_number": 7,
+      "output_index": 0,
+      "item_id": "msg_001",
+      "content_index": 0,
+      "part": {
+        "type": "output_text",
+        "text": "Leer captures provider-agnostic execution records of AI runs.",
+        "annotations": []
+      }
+    },
+    {
+      "type": "response.output_item.done",
+      "sequence_number": 8,
+      "output_index": 0,
+      "item": {
+        "id": "msg_001",
+        "type": "message",
+        "status": "completed",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "Leer captures provider-agnostic execution records of AI runs.",
+            "annotations": []
+          }
+        ]
+      }
+    },
+    {
+      "type": "response.completed",
+      "sequence_number": 9,
+      "response": {
+        "id": "resp_drift_text_001",
+        "object": "response",
+        "created_at": 1749000000,
+        "model": "gpt-4.1-2025-04-14",
+        "status": "completed",
+        "parallel_tool_calls": true,
+        "tool_choice": "auto",
+        "tools": [],
+        "output": [
+          {
+            "id": "msg_001",
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Leer captures provider-agnostic execution records of AI runs.",
+                "annotations": []
+              }
+            ]
+          }
+        ],
+        "usage": {
+          "input_tokens": 31,
+          "output_tokens": 14,
+          "total_tokens": 45,
+          "input_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0
+          },
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,268 @@
+{
+  "kind": "openai_responses",
+  "provenance": {
+    "provider": "openai",
+    "surface": "client.responses.create",
+    "source": "derived:raw/openai_responses__commentary_phase.json",
+    "api_reference_date": "2026-10",
+    "notes": "Streamed twin of the raw fixture with the same name (see tools/derive_stream_fixture.py)."
+  },
+  "events": [
+    {
+      "type": "response.created",
+      "sequence_number": 0,
+      "response": {
+        "id": "resp_drift_phase_001",
+        "object": "response",
+        "created_at": 1793000000,
+        "model": "gpt-5.5",
+        "status": "in_progress",
+        "parallel_tool_calls": true,
+        "tool_choice": "auto",
+        "tools": [],
+        "output": [],
+        "usage": null
+      }
+    },
+    {
+      "type": "response.output_item.added",
+      "sequence_number": 1,
+      "output_index": 0,
+      "item": {
+        "id": "msg_commentary_1",
+        "type": "message",
+        "role": "assistant",
+        "status": "in_progress",
+        "phase": "commentary",
+        "content": []
+      }
+    },
+    {
+      "type": "response.content_part.added",
+      "sequence_number": 2,
+      "output_index": 0,
+      "item_id": "msg_commentary_1",
+      "content_index": 0,
+      "part": {
+        "type": "output_text",
+        "text": "",
+        "annotations": []
+      }
+    },
+    {
+      "type": "response.output_text.delta",
+      "sequence_number": 3,
+      "output_index": 0,
+      "item_id": "msg_commentary_1",
+      "content_index": 0,
+      "delta": "Let me wo",
+      "logprobs": []
+    },
+    {
+      "type": "response.output_text.delta",
+      "sequence_number": 4,
+      "output_index": 0,
+      "item_id": "msg_commentary_1",
+      "content_index": 0,
+      "delta": "rk that o",
+      "logprobs": []
+    },
+    {
+      "type": "response.output_text.delta",
+      "sequence_number": 5,
+      "output_index": 0,
+      "item_id": "msg_commentary_1",
+      "content_index": 0,
+      "delta": "ut first.",
+      "logprobs": []
+    },
+    {
+      "type": "response.output_text.done",
+      "sequence_number": 6,
+      "output_index": 0,
+      "item_id": "msg_commentary_1",
+      "content_index": 0,
+      "text": "Let me work that out first.",
+      "logprobs": []
+    },
+    {
+      "type": "response.content_part.done",
+      "sequence_number": 7,
+      "output_index": 0,
+      "item_id": "msg_commentary_1",
+      "content_index": 0,
+      "part": {
+        "type": "output_text",
+        "text": "Let me work that out first.",
+        "annotations": []
+      }
+    },
+    {
+      "type": "response.output_item.done",
+      "sequence_number": 8,
+      "output_index": 0,
+      "item": {
+        "id": "msg_commentary_1",
+        "type": "message",
+        "role": "assistant",
+        "status": "completed",
+        "phase": "commentary",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "Let me work that out first.",
+            "annotations": []
+          }
+        ]
+      }
+    },
+    {
+      "type": "response.output_item.added",
+      "sequence_number": 9,
+      "output_index": 1,
+      "item": {
+        "id": "msg_final_1",
+        "type": "message",
+        "role": "assistant",
+        "status": "in_progress",
+        "phase": "final_answer",
+        "content": []
+      }
+    },
+    {
+      "type": "response.content_part.added",
+      "sequence_number": 10,
+      "output_index": 1,
+      "item_id": "msg_final_1",
+      "content_index": 0,
+      "part": {
+        "type": "output_text",
+        "text": "",
+        "annotations": []
+      }
+    },
+    {
+      "type": "response.output_text.delta",
+      "sequence_number": 11,
+      "output_index": 1,
+      "item_id": "msg_final_1",
+      "content_index": 0,
+      "delta": "{\"ans",
+      "logprobs": []
+    },
+    {
+      "type": "response.output_text.delta",
+      "sequence_number": 12,
+      "output_index": 1,
+      "item_id": "msg_final_1",
+      "content_index": 0,
+      "delta": "wer\":",
+      "logprobs": []
+    },
+    {
+      "type": "response.output_text.delta",
+      "sequence_number": 13,
+      "output_index": 1,
+      "item_id": "msg_final_1",
+      "content_index": 0,
+      "delta": " 42}",
+      "logprobs": []
+    },
+    {
+      "type": "response.output_text.done",
+      "sequence_number": 14,
+      "output_index": 1,
+      "item_id": "msg_final_1",
+      "content_index": 0,
+      "text": "{\"answer\": 42}",
+      "logprobs": []
+    },
+    {
+      "type": "response.content_part.done",
+      "sequence_number": 15,
+      "output_index": 1,
+      "item_id": "msg_final_1",
+      "content_index": 0,
+      "part": {
+        "type": "output_text",
+        "text": "{\"answer\": 42}",
+        "annotations": []
+      }
+    },
+    {
+      "type": "response.output_item.done",
+      "sequence_number": 16,
+      "output_index": 1,
+      "item": {
+        "id": "msg_final_1",
+        "type": "message",
+        "role": "assistant",
+        "status": "completed",
+        "phase": "final_answer",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "{\"answer\": 42}",
+            "annotations": []
+          }
+        ]
+      }
+    },
+    {
+      "type": "response.completed",
+      "sequence_number": 17,
+      "response": {
+        "id": "resp_drift_phase_001",
+        "object": "response",
+        "created_at": 1793000000,
+        "model": "gpt-5.5",
+        "status": "completed",
+        "parallel_tool_calls": true,
+        "tool_choice": "auto",
+        "tools": [],
+        "output": [
+          {
+            "id": "msg_commentary_1",
+            "type": "message",
+            "role": "assistant",
+            "status": "completed",
+            "phase": "commentary",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Let me work that out first.",
+                "annotations": []
+              }
+            ]
+          },
+          {
+            "id": "msg_final_1",
+            "type": "message",
+            "role": "assistant",
+            "status": "completed",
+            "phase": "final_answer",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "{\"answer\": 42}",
+                "annotations": []
+              }
+            ]
+          }
+        ],
+        "usage": {
+          "input_tokens": 12,
+          "output_tokens": 18,
+          "total_tokens": 30,
+          "input_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0
+          },
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        }
+      }
+    }
+  ]
+}

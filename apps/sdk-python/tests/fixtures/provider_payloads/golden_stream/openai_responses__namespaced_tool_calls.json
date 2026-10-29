@@ -1,0 +1,81 @@
+{
+  "llm": {
+    "input": {
+      "messages": [
+        {
+          "content": "Find the open issue about login in GitHub and Jira.",
+          "role": "user"
+        }
+      ],
+      "params": {},
+      "system": null,
+      "tools": []
+    },
+    "meta": {
+      "finish_reason": "completed",
+      "output_is_json": false,
+      "refusal": null,
+      "refusal_category": null,
+      "request_id": "resp_drift_ns_001"
+    },
+    "model": "gpt-5.5",
+    "output": {
+      "content_blocks": [
+        {
+          "arguments": {
+            "query": "login"
+          },
+          "id": "call_gh_1",
+          "name": "search",
+          "namespace": "github",
+          "type": "tool_call"
+        },
+        {
+          "arguments": {
+            "query": "login"
+          },
+          "id": "call_jira_1",
+          "name": "search",
+          "namespace": "jira",
+          "type": "tool_call"
+        }
+      ],
+      "parsed": null,
+      "text": null,
+      "tool_calls": [
+        {
+          "arguments": {
+            "query": "login"
+          },
+          "id": "call_gh_1",
+          "name": "search",
+          "namespace": "github"
+        },
+        {
+          "arguments": {
+            "query": "login"
+          },
+          "id": "call_jira_1",
+          "name": "search",
+          "namespace": "jira"
+        }
+      ]
+    },
+    "provider": "openai",
+    "usage": {
+      "cached_tokens": 0,
+      "completion_tokens": 24,
+      "prompt_tokens": 40,
+      "total_tokens": 64
+    }
+  },
+  "stream": {
+    "assembled_text_chars": 0,
+    "assembled_tool_calls": 2,
+    "chunk_count": 11,
+    "is_stream": true,
+    "provider": "openai",
+    "termination": "completed",
+    "truncated_chunks": false
+  }
+}

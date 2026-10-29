@@ -1,0 +1,84 @@
+{
+  "llm": {
+    "input": {
+      "messages": [
+        {
+          "content": "What is the weather in Madrid?",
+          "role": "user"
+        }
+      ],
+      "params": {
+        "max_tokens": 512
+      },
+      "system": null,
+      "tools": [
+        {
+          "description": "Look up current weather",
+          "input_schema": {
+            "properties": {
+              "city": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "type": "object"
+          },
+          "name": "get_weather"
+        }
+      ]
+    },
+    "meta": {
+      "finish_reason": "tool_use",
+      "output_is_json": false,
+      "refusal": null,
+      "refusal_category": null,
+      "request_id": "msg_drift_tool_001"
+    },
+    "model": "claude-sonnet-5-5",
+    "output": {
+      "content_blocks": [
+        {
+          "text": "Let me check that for you.",
+          "type": "text"
+        },
+        {
+          "arguments": {
+            "city": "Madrid"
+          },
+          "id": "toolu_1",
+          "name": "get_weather",
+          "type": "tool_call"
+        }
+      ],
+      "parsed": null,
+      "text": "Let me check that for you.",
+      "tool_calls": [
+        {
+          "arguments": {
+            "city": "Madrid"
+          },
+          "id": "toolu_1",
+          "name": "get_weather"
+        }
+      ]
+    },
+    "provider": "anthropic",
+    "usage": {
+      "cached_tokens": null,
+      "completion_tokens": 22,
+      "prompt_tokens": 49,
+      "total_tokens": 71
+    }
+  },
+  "stream": {
+    "assembled_text_chars": 26,
+    "assembled_tool_calls": 1,
+    "chunk_count": 11,
+    "is_stream": true,
+    "provider": "anthropic",
+    "termination": "completed",
+    "truncated_chunks": false
+  }
+}
