@@ -1,7 +1,7 @@
 # NOW
 
 ## Current Goal
-Make Leer feel extremely strong and trustworthy as an observability product for OpenAI and Anthropic before expanding into replay or execution.
+Make Leer's execution records extremely strong and trustworthy for OpenAI and Anthropic before expanding into replay or execution.
 
 ## Tasks
 
@@ -55,8 +55,10 @@ Both SDKs had major releases since June. Gaps and fix order:
 - [ ] Validate mixed runs combining tools, multimodal, MCP, and retrieval
 
 ### Docs
+- [x] Open-source prep: MIT license, CONTRIBUTING, SECURITY, CI, README rewrite,
+  positioning aligned with AGENTS.md
 - [ ] Remove outdated roadmap references
-- [ ] Refresh top-level project status docs
+- [x] Refresh top-level project status docs
 - [ ] Add a provider-support status matrix
 - [ ] Add a real-world instrumentation cookbook
 

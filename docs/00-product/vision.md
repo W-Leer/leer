@@ -1,6 +1,7 @@
 # Vision
 
-Leer is the debugging and reliability layer for AI agents.
+Leer is the execution record for AI agents: the source of truth for what
+an agent did, used to debug it and make it reliable.
 
 ## Problem
 
@@ -19,10 +20,12 @@ Developers cannot answer:
 ## Solution
 
 Leer provides:
-- execution traces
+- execution records of every run
 - step-by-step inspection
-- replay from any point
 - run comparison
+
+Later, built on the same records:
+- replay from any point
 
 ## Long-term
 

@@ -4,6 +4,8 @@
 
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![Next.js](https://img.shields.io/badge/frontend-next.js-black)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![CI](https://github.com/W-Leer/leer/actions/workflows/ci.yml/badge.svg)](https://github.com/W-Leer/leer/actions/workflows/ci.yml)
 
 Leer records what an AI agent actually did, as a durable, provider-agnostic
 record you can inspect and compare. Each run answers:
@@ -123,6 +125,9 @@ npm run dev
 Open http://localhost:3000. Runs appear under `demo-project`. Pick two
 runs to compare them.
 
+The API has no authentication yet, so run it locally or on a trusted
+network only. See [`SECURITY.md`](SECURITY.md).
+
 ---
 
 ## Using the SDK
@@ -213,6 +218,7 @@ tasks/NOW.md    current goal and status
 
 ```bash
 cd apps/sdk-python && uv run pytest -q    # SDK tests, incl. golden provider drift suites
+cd apps/api && uv run pytest -q           # API tests (needs a migrated Postgres)
 cd apps/web && bun test                   # web helper tests
 cd apps/web && npm run build              # web build + typecheck
 ```
@@ -231,6 +237,13 @@ status is in [`tasks/NOW.md`](tasks/NOW.md), and the roadmap is in
 
 ## Contributing
 
-Contributions are welcome. Read [`AGENTS.md`](AGENTS.md) first. It covers
-the canonical model and the hard constraints: additive changes only,
-streaming parity, and OpenAI and Anthropic first.
+Issues and pull requests are welcome. See
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for the project rules and how to run
+the tests. Report vulnerabilities privately, as described in
+[`SECURITY.md`](SECURITY.md).
+
+---
+
+## License
+
+[MIT](LICENSE)

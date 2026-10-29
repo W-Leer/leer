@@ -85,5 +85,6 @@ supplemental and live in artifacts/metadata.
 ### Commands
 
 - SDK tests: `cd apps/sdk-python && uv run pytest -q`
+- API tests: `cd apps/api && uv run pytest -q` (needs a migrated Postgres; see `apps/api/README.md`)
 - Web helper tests: `cd apps/web && bun test`
 - Web build/typecheck: `cd apps/web && npm run build`
