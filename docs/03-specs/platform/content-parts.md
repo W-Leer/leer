@@ -59,10 +59,12 @@ Leer defines the following canonical part types:
 - `tool_call`
 - `tool_result`
 - `provider_tool`
+- `compaction`
 
 The first six are multimodal content parts.
 `tool_call` and `tool_result` are included because real provider payloads often interleave tool activity with content.
 `provider_tool` is a tool the provider ran itself (web search, code execution, MCP); see ADR-002.
+`compaction` is a provider compaction of the conversation context; see ADR-003.
 
 ---
 
@@ -344,6 +346,27 @@ A tool the provider executed (no local tool step exists). Not listed in
 ```
 
 `status`, `output`, `error` and `server` are present only when known.
+
+---
+
+## CompactionPart
+
+The provider compacted the conversation context (ADR-003). Never part of
+`output.text`.
+
+```json
+{
+  "type": "compaction",
+  "summary": "User asked about …",
+  "provider": "anthropic",
+  "provider_part_type": "compaction",
+  "preview_text": "User asked about …"
+}
+```
+
+`summary` is `null` when the provider encrypts the result (OpenAI) or
+compaction failed. `id` is present when the provider sends one;
+`retained_messages` only on OpenAI `responses.compact()`.
 
 ---
 

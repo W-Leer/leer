@@ -131,6 +131,13 @@ def test_canonical_invariants(raw_path: Path) -> None:
         assert "encrypted_content" not in json.dumps(d["output"]), "opaque provider blobs must not be copied"
     if "refusal_category" in stem:
         assert d["meta"]["refusal_category"], "refusal_category scenario must populate meta.refusal_category"
+    if "compaction" in stem:
+        compactions = [b for b in d["output"]["content_blocks"] if b.get("type") == "compaction"]
+        assert compactions, "compaction must be kept as a compaction part"
+        assert "encrypted_content" not in json.dumps(d["output"]), "opaque provider blobs must not be copied"
+        assert all(not b["summary"] or b["summary"] not in (d["output"]["text"] or "") for b in compactions), (
+            "a compaction summary must not leak into output.text"
+        )
 
 
 def _sdk_response_type(kind: str) -> Any:

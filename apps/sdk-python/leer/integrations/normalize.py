@@ -361,6 +361,26 @@ def _provider_tool_part(
     return part
 
 
+def _compaction_part(
+    *,
+    provider: str,
+    summary: Any,
+    no_summary_preview: str,
+    part_id: str | None = None,
+) -> dict[str, Any]:
+    """The provider compacted the conversation context (ADR-003). Opaque
+    fields stay in the raw response artifact."""
+    text = summary if isinstance(summary, str) and summary else None
+    part: dict[str, Any] = {"type": "compaction"}
+    if part_id is not None:
+        part["id"] = part_id
+    part["summary"] = text
+    part["provider"] = provider
+    part["provider_part_type"] = "compaction"
+    part["preview_text"] = text[:200] if text else no_summary_preview
+    return part
+
+
 def _error_text(error: Any) -> str | None:
     if isinstance(error, str):
         return error or None
@@ -700,13 +720,30 @@ def _normalize_openai_responses(
     tool_calls: list[dict[str, Any]] = []
     content_blocks: list[dict[str, Any]] = []
     refusal_text: str | None = None
+    # ``responses.compact()`` echoes the conversation's user messages before
+    # the compaction item. They are carried-over input, not model output.
+    retained_messages = 0
+    compaction_parts: list[dict[str, Any]] = []
 
     for item in (output_items if isinstance(output_items, list) else []):
         if not isinstance(item, dict):
             continue
         item_type = item.get("type")
 
-        if item_type == "message":
+        if item_type == "message" and item.get("role", "assistant") != "assistant":
+            retained_messages += 1
+
+        elif item_type == "compaction":
+            part = _compaction_part(
+                provider="openai",
+                summary=None,
+                no_summary_preview="context compacted (encrypted)",
+                part_id=item.get("id"),
+            )
+            compaction_parts.append(part)
+            content_blocks.append(part)
+
+        elif item_type == "message":
             phase = item.get("phase")
             for block in (item.get("content") or []):
                 if not isinstance(block, dict):
@@ -806,6 +843,9 @@ def _normalize_openai_responses(
                 preview_text=f"unknown output item: {item_type}",
                 metadata={"raw_type": item_type},
             ))
+
+    if retained_messages and compaction_parts:
+        compaction_parts[-1]["retained_messages"] = retained_messages
 
     if not text_parts:
         text_parts = commentary_parts
@@ -986,6 +1026,13 @@ def normalize_anthropic(
             })
         elif block_type == "redacted_thinking":
             content_blocks.append({"type": "redacted_thinking"})
+        elif block_type == "compaction":
+            # ``content`` is ``None`` when compaction failed.
+            content_blocks.append(_compaction_part(
+                provider="anthropic",
+                summary=block.get("content"),
+                no_summary_preview="compaction produced no summary",
+            ))
         elif block_type == "image":
             raw_source = block.get("source")
             source_block = raw_source if isinstance(raw_source, dict) else {}

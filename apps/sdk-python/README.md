@@ -76,18 +76,19 @@ wrapped client behaves exactly like the original.
 
 | Provider  | Recorded surfaces |
 | --------- | ----------------- |
-| OpenAI    | `chat.completions.create` / `.stream` / `.parse` (also under `beta.chat`), `responses.create` / `.stream` / `.parse` |
+| OpenAI    | `chat.completions.create` / `.stream` / `.parse` (also under `beta.chat`), `responses.create` / `.stream` / `.parse` / `.compact` |
 | Anthropic | `messages.create` / `.stream` / `.parse`, the same under `beta.messages`, and every turn of `beta.messages.tool_runner` / `beta.messages.thread` |
 
 Both providers normalize into one canonical shape (`NormalizedLLMCall` in
 `leer/integrations/normalize.py`). That shape carries text, tool calls,
 structured output (`output.parsed`), refusals, reasoning and thinking,
-provider-run tools, and usage, including cached tokens. Streamed calls
+provider-run tools, context compaction, and usage, including cached tokens. Streamed calls
 produce the same canonical output as non-streamed calls, plus the
 captured chunks and their timing.
 
 Not recorded yet:
 - async clients (`AsyncOpenAI`, `AsyncAnthropic`);
+- OpenAI's Responses WebSocket mode (`responses.connect()`);
 - the tool functions that `tool_runner` runs itself. Each model turn is an
   LLM step, and the tool requests and results appear in those turns, but
   there are no separate `tool` steps.

@@ -15,8 +15,10 @@ Both SDKs had major releases since June. Gaps and fix order:
   now an LLM step (model calls used to bypass the wrapper)
 - [ ] Record tools that `tool_runner` executes itself as `tool` steps (needs a
   design; see D-H5 in the assessment)
-- [ ] OpenAI `responses.compact()` and `responses.connect()` (WebSocket) are not
-  recorded (needs a design; see the assessment)
+- [x] OpenAI `responses.compact()` recorded; canonical `compaction` part for
+  both providers (ADR-003)
+- [ ] OpenAI `responses.connect()` (WebSocket) — design written, four decisions
+  open (`docs/03-specs/platform/compaction-and-responses-websocket.md`)
 - [x] D-H2 / D-H3 / D-M1 — Responses `custom_tool_call`, `phase` (commentary
   kept out of `output.text`), `namespace`; Responses streaming now matches
   non-streaming

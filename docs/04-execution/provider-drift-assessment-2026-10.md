@@ -203,8 +203,9 @@ thinking; caller-run OpenAI tools → tool calls).
 - **D-M5:** fixed as described below; real-SDK tests check streamed and
   non-streamed Anthropic records are equal for server tools and refusals.
 - Still falling back to `file`: OpenAI `mcp_list_tools`,
-  `mcp_approval_request`, `compaction`, `tool_search_call`, `*_call_output`
-  items. Rare in output; revisit if they show up.
+  `mcp_approval_request`, `tool_search_call`, `*_call_output`
+  items. Rare in output; revisit if they show up. (`compaction` got its own
+  part later; ADR-003.)
 - New fixtures: `anthropic__provider_run_search`,
   `anthropic__refusal_category`, `openai_responses__provider_run_search_mcp`
   (SDK-valid, current model IDs).
@@ -340,3 +341,18 @@ But `client.responses` has two methods the wrapper forwards unrecorded:
   capture path, like a stream with no HTTP response.
 
 Both need a design decision before code.
+
+**Status.** Design: `docs/03-specs/platform/compaction-and-responses-websocket.md`.
+
+- **`compact()` — done.** Recorded as an `llm` step like `create()`.
+  Compaction now has a canonical `compaction` content part on both providers
+  (ADR-003): OpenAI `compaction` items (from `compact()` and from automatic
+  compaction in `create()`), and Anthropic beta `compaction` blocks with their
+  readable summary. The user messages `compact()` echoes count as
+  `retained_messages`, not output. Also fixed: Anthropic streaming ignored
+  `compaction_delta`, so a streamed compaction block lost its summary. Covered
+  by real-SDK contract tests and the `openai_responses__auto_compaction`
+  golden fixture.
+- **`connect()` — design only.** Four open decisions are listed in the spec
+  (automatic successor responses, steering, unfinished responses on close,
+  priority).

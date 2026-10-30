@@ -122,6 +122,10 @@ class _WrappedResponses:
         # Responses streaming helper; events match responses.create(stream=True).
         return _instrumented_stream(self._responses.stream, args, kwargs, api_style="responses")
 
+    def compact(self, *args: Any, **kwargs: Any) -> Any:
+        # A model call that returns the compacted context (ADR-003).
+        return _instrumented_create(self._responses.compact, args, kwargs)
+
     def __getattr__(self, name: str) -> Any:
         return getattr(self._responses, name)
 
@@ -1127,6 +1131,9 @@ def _output_summary(n: NormalizedLLMCall) -> dict[str, Any]:
             f"[{b['type']}" + (f": {b['filename']}" if b.get("filename") else "") + "]"
             for b in media_parts
         ]
+    compaction = _first_compaction(n)
+    if compaction is not None:
+        summary["compaction"] = compaction.get("preview_text")
     if n.usage.total_tokens is not None:
         summary["tokens"] = n.usage.total_tokens
     return summary
@@ -1165,7 +1172,14 @@ def _response_preview(n: NormalizedLLMCall) -> str:
     if media:
         labels = [b.get("preview_text") or b.get("type", "media") for b in media]
         return ", ".join(labels)
+    compaction = _first_compaction(n)
+    if compaction is not None and compaction.get("preview_text"):
+        return str(compaction["preview_text"])
     return "OpenAI response"
+
+
+def _first_compaction(n: NormalizedLLMCall) -> dict[str, Any] | None:
+    return next((b for b in n.output.content_blocks if b.get("type") == "compaction"), None)
 
 
 # ---------------------------------------------------------------------------

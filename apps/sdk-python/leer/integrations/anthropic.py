@@ -641,6 +641,10 @@ def _accumulate_block_delta(ctx: dict[str, Any], index: int, delta: dict[str, An
         block["signature"] = delta.get("signature")
     elif delta_type == "citations_delta":
         block.setdefault("citations", []).append(delta.get("citation"))
+    elif delta_type == "compaction_delta":
+        # The SDK replaces rather than appends: one delta carries the whole block.
+        block["content"] = delta.get("content")
+        block["encrypted_content"] = delta.get("encrypted_content")
 
 
 def _streamed_content_blocks(ctx: dict[str, Any]) -> list[dict[str, Any]] | None:
@@ -940,6 +944,9 @@ def _output_summary(n: NormalizedLLMCall) -> dict[str, Any]:
             f"[{b['type']}" + (f": {b['filename']}" if b.get("filename") else "") + "]"
             for b in media_parts
         ]
+    compaction = _first_compaction(n)
+    if compaction is not None:
+        summary["compaction"] = compaction.get("preview_text")
     if n.usage.total_tokens is not None:
         summary["tokens"] = n.usage.total_tokens
     return summary
@@ -978,7 +985,14 @@ def _response_preview(n: NormalizedLLMCall) -> str:
     if media:
         labels = [b.get("preview_text") or b.get("type", "media") for b in media]
         return ", ".join(labels)
+    compaction = _first_compaction(n)
+    if compaction is not None and compaction.get("preview_text"):
+        return str(compaction["preview_text"])
     return "Anthropic response"
+
+
+def _first_compaction(n: NormalizedLLMCall) -> dict[str, Any] | None:
+    return next((b for b in n.output.content_blocks if b.get("type") == "compaction"), None)
 
 
 # ---------------------------------------------------------------------------

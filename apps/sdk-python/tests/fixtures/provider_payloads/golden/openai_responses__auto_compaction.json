@@ -1,0 +1,63 @@
+{
+  "input": {
+    "messages": [
+      {
+        "content": "Plan a three-day trip to Lisbon.",
+        "role": "user"
+      },
+      {
+        "content": "Day 1: Alfama and the castle. Day 2: Belem. Day 3: Sintra.",
+        "role": "assistant"
+      },
+      {
+        "content": "Make it cheaper.",
+        "role": "user"
+      }
+    ],
+    "params": {
+      "context_management": [
+        {
+          "compact_threshold": 2000,
+          "type": "compaction"
+        }
+      ]
+    },
+    "system": null,
+    "tools": []
+  },
+  "meta": {
+    "finish_reason": "completed",
+    "latency_ms": 2140,
+    "output_is_json": false,
+    "refusal": null,
+    "refusal_category": null,
+    "request_id": "resp_drift_compaction_001"
+  },
+  "model": "gpt-5.5",
+  "output": {
+    "content_blocks": [
+      {
+        "id": "cmp_1",
+        "preview_text": "context compacted (encrypted)",
+        "provider": "openai",
+        "provider_part_type": "compaction",
+        "summary": null,
+        "type": "compaction"
+      },
+      {
+        "text": "Use the metro day pass and skip the Sintra tour bus.",
+        "type": "text"
+      }
+    ],
+    "parsed": null,
+    "text": "Use the metro day pass and skip the Sintra tour bus.",
+    "tool_calls": []
+  },
+  "provider": "openai",
+  "usage": {
+    "cached_tokens": 0,
+    "completion_tokens": 18,
+    "prompt_tokens": 2410,
+    "total_tokens": 2428
+  }
+}

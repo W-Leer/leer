@@ -301,6 +301,13 @@ def _anthropic_events_from(message: dict[str, Any]) -> list[dict[str, Any]]:
             events.append({"type": "content_block_start", "index": i, "content_block": {**block, "input": {}}})
             events.append({"type": "content_block_delta", "index": i,
                            "delta": {"type": "input_json_delta", "partial_json": json.dumps(block["input"])}})
+        elif kind == "compaction":
+            events.append({"type": "content_block_start", "index": i,
+                           "content_block": {"type": "compaction", "content": None, "encrypted_content": None}})
+            events.append({"type": "content_block_delta", "index": i, "delta": {
+                "type": "compaction_delta", "content": block["content"],
+                "encrypted_content": block.get("encrypted_content"),
+            }})
         else:
             events.append({"type": "content_block_start", "index": i, "content_block": block})
         events.append({"type": "content_block_stop", "index": i})
@@ -619,3 +626,128 @@ def test_anthropic_tool_runner_outside_trace_is_passthrough() -> None:
     assert isinstance(runner, BetaToolRunner)
     assert [m.stop_reason for m in runner] == ["tool_use", "end_turn"]
     assert len(bodies) == 2
+
+
+# ---------------------------------------------------------------------------
+# Compaction (ADR-003): OpenAI responses.compact() and compaction parts
+# ---------------------------------------------------------------------------
+
+from openai.types.responses import CompactedResponse  # noqa: E402
+
+_COMPACTED = {
+    "id": "cmp_resp_1", "object": "response.compaction", "created_at": 1,
+    "output": [
+        {"id": "msg_u1", "type": "message", "role": "user", "status": "completed",
+         "content": [{"type": "input_text", "text": "Plan my trip"}]},
+        {"id": "msg_u2", "type": "message", "role": "user", "status": "completed",
+         "content": [{"type": "input_text", "text": "Make it cheaper"}]},
+        {"id": "cmp_1", "type": "compaction", "encrypted_content": "gAAA…", "created_by": "user"},
+    ],
+    "usage": _RESP_USAGE,
+}
+
+_OPENAI_COMPACTION_PART = {
+    "type": "compaction", "id": "cmp_1", "summary": None, "retained_messages": 2,
+    "provider": "openai", "provider_part_type": "compaction",
+    "preview_text": "context compacted (encrypted)",
+}
+
+
+def test_openai_responses_compact_is_recorded() -> None:
+    paths: list[str] = []
+
+    def handler(req: Any) -> Any:
+        paths.append(req.url.path)
+        return _json_response(_COMPACTED)
+
+    client = _openai(handler)
+    run = _traced(lambda: client.responses.compact(model="gpt-test", previous_response_id="resp_9"))
+
+    step = _only_llm_step(run)
+    llm = step.metadata["llm"]
+    assert paths == ["/v1/responses/compact"]
+    assert step.name == "gpt-test"
+    assert llm["model"] == "gpt-test"
+    assert llm["output"]["content_blocks"] == [_OPENAI_COMPACTION_PART]
+    assert llm["output"]["text"] is None
+    assert llm["usage"]["total_tokens"] == 7
+    assert llm["meta"]["request_id"] == "cmp_resp_1"
+    assert llm["input"]["params"]["previous_response_id"] == "resp_9"
+    assert step.output_summary["compaction"] == "context compacted (encrypted)"
+    assert {"llm_request", "llm_response"} <= _artifact_types(run, step)
+
+
+def test_openai_responses_compact_outside_trace_is_passthrough() -> None:
+    client = _openai(lambda req: _json_response(_COMPACTED))
+    assert isinstance(client.responses.compact(model="gpt-test", input="hi"), CompactedResponse)
+
+
+_AUTO_COMPACTED_FINAL = _openai_response_obj("completed", [
+    {"id": "cmp_2", "type": "compaction", "encrypted_content": "gAAA…"},
+    _RESP_MSG_DONE,
+], _RESP_USAGE)
+
+
+def test_openai_compaction_item_in_create_matches_stream() -> None:
+    plain = _only_llm_step(_traced(lambda: _openai(lambda req: _json_response(_AUTO_COMPACTED_FINAL))
+                                   .responses.create(model="gpt-test", input="hi"))).metadata["llm"]
+    events = _responses_events_from(_AUTO_COMPACTED_FINAL)
+    streamed = _only_llm_step(_traced(lambda: _openai(lambda req: _sse_response(events, named=True))
+                                      .responses.stream(model="gpt-test", input="hi")
+                                      .__enter__().get_final_response())).metadata["llm"]
+    assert plain["output"]["content_blocks"] == [
+        {"type": "compaction", "id": "cmp_2", "summary": None, "provider": "openai",
+         "provider_part_type": "compaction", "preview_text": "context compacted (encrypted)"},
+        {"type": "text", "text": "Hello"},
+    ]
+    assert plain["output"]["text"] == "Hello"
+    assert streamed["output"] == plain["output"]
+
+
+_COMPACTION_MESSAGE = {
+    "id": "msg_c", "type": "message", "role": "assistant", "model": "claude-test",
+    "content": [
+        {"type": "compaction", "content": "User is planning a cheap trip.", "encrypted_content": "Eq…"},
+        {"type": "text", "text": "Here is a cheaper plan."},
+    ],
+    "stop_reason": "end_turn", "stop_sequence": None,
+    "usage": {"input_tokens": 5, "output_tokens": 9},
+}
+
+
+@pytest.mark.parametrize("surface", ["stream_helper", "create_stream_true"])
+def test_anthropic_compaction_block_streams_like_create(surface: str) -> None:
+    def go_stream() -> None:
+        client = _anthropic(lambda req: _sse_response(_anthropic_events_from(_COMPACTION_MESSAGE), named=True))
+        if surface == "stream_helper":
+            with client.beta.messages.stream(model="claude-test", max_tokens=16, messages=MESSAGES) as stream:
+                stream.get_final_message()
+        else:
+            for _ in client.beta.messages.create(model="claude-test", max_tokens=16, messages=MESSAGES, stream=True):
+                pass
+
+    streamed = _only_llm_step(_traced(go_stream)).metadata["llm"]
+    plain = _only_llm_step(_traced(lambda: _anthropic(lambda req: _json_response(_COMPACTION_MESSAGE))
+                                   .beta.messages.create(model="claude-test", max_tokens=16, messages=MESSAGES)
+                                   )).metadata["llm"]
+
+    assert plain["output"]["content_blocks"] == [
+        {"type": "compaction", "summary": "User is planning a cheap trip.", "provider": "anthropic",
+         "provider_part_type": "compaction", "preview_text": "User is planning a cheap trip."},
+        {"type": "text", "text": "Here is a cheaper plan."},
+    ]
+    assert plain["output"]["text"] == "Here is a cheaper plan."
+    assert streamed["output"] == plain["output"]
+
+
+def test_anthropic_failed_compaction_has_no_summary() -> None:
+    message = {**_COMPACTION_MESSAGE, "content": [{"type": "compaction", "content": None}]}
+    run = _traced(lambda: _anthropic(lambda req: _json_response(message)).beta.messages.create(
+        model="claude-test", max_tokens=16, messages=MESSAGES,
+    ))
+    step = _only_llm_step(run)
+    assert step.metadata["llm"]["output"]["content_blocks"] == [
+        {"type": "compaction", "summary": None, "provider": "anthropic",
+         "provider_part_type": "compaction", "preview_text": "compaction produced no summary"},
+    ]
+    assert step.output_summary["compaction"] == "compaction produced no summary"
