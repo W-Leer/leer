@@ -1,7 +1,7 @@
 # Compaction and the Responses WebSocket
 
-Status: compaction implemented (Part 1). WebSocket capture is a design with
-open decisions (Part 2), not built.
+Status: compaction implemented (Part 1). WebSocket capture is designed and
+decided (Part 2), not built; scheduled after the live recorder.
 
 Source finding: "Found while checking D-H5 against `openai` 3.41.0" in
 `docs/04-execution/provider-drift-assessment-2026-10.md`.
@@ -100,7 +100,7 @@ Source finding: "Found while checking D-H5 against `openai` 3.41.0" in
   client `response.create`) that inherits the previous settings.
 - Reconnects are automatic and can replay queued sends.
 
-### Proposed capture (pending decisions)
+### Capture design
 
 - **One `llm` step per server response**, opened at `response.created`,
   closed at its terminal event and normalized from the terminal `response`
@@ -114,14 +114,14 @@ Source finding: "Found while checking D-H5 against `openai` 3.41.0" in
 - Steps belong to the run that was active when `connect()` was called, since
   `dispatch_events()` handlers may run on another thread.
 
-### Decisions needed before building
+### Decisions (2026-10-29)
 
-1. **Automatic successors.** Record them as `llm` steps with no client request
-   (request = `previous_response_id` + accepted steering input), or fold them
-   into the parent step?
-2. **Steering.** Record `response.steer` as an event on the active step, or
-   only via the successor's input?
-3. **Unfinished responses at close/disconnect.** Mark their steps `failed`
-   (like an aborted stream), or `incomplete`?
-4. **Priority.** WebSocket mode is newer and less used than HTTP; build now, or
-   after the live recorder (E step 3)?
+1. **Automatic successors are their own `llm` steps.** Their request is the
+   `previous_response_id` plus the accepted steering input; there is no client
+   `response.create` to pair them with.
+2. **Steering is recorded twice:** as an event on the step being steered, and
+   as input on the successor response.
+3. **Unfinished responses at close or disconnect are `failed`**, like an
+   aborted HTTP stream.
+4. **Built after the live recorder (E step 3).** WebSocket mode is newer and
+   less used than HTTP.

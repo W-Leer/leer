@@ -17,8 +17,8 @@ Both SDKs had major releases since June. Gaps and fix order:
   design; see D-H5 in the assessment)
 - [x] OpenAI `responses.compact()` recorded; canonical `compaction` part for
   both providers (ADR-003)
-- [ ] OpenAI `responses.connect()` (WebSocket) — design written, four decisions
-  open (`docs/03-specs/platform/compaction-and-responses-websocket.md`)
+- [ ] OpenAI `responses.connect()` (WebSocket) — designed and decided, build
+  after E step 3 (`docs/03-specs/platform/compaction-and-responses-websocket.md`)
 - [x] D-H2 / D-H3 / D-M1 — Responses `custom_tool_call`, `phase` (commentary
   kept out of `output.text`), `namespace`; Responses streaming now matches
   non-streaming

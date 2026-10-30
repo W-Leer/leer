@@ -353,6 +353,6 @@ Both need a design decision before code.
   `compaction_delta`, so a streamed compaction block lost its summary. Covered
   by real-SDK contract tests and the `openai_responses__auto_compaction`
   golden fixture.
-- **`connect()` — design only.** Four open decisions are listed in the spec
-  (automatic successor responses, steering, unfinished responses on close,
-  priority).
+- **`connect()` — designed, not built.** Decisions are in the spec: automatic
+  successor responses are their own steps, steering is an event plus successor
+  input, unfinished responses are `failed`; built after the live recorder.
